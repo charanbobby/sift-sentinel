@@ -21,36 +21,33 @@ Every claim in that paragraph is a slice deliverable with an artifact behind it.
 ## What we're building (architecture at a glance)
 
 ```
-                 ┌──────────────┐
-  E01 image ───▶│   EXTRACT    │  cheap LLM — enumerate candidate artifact paths
-                 └──────┬───────┘
-                        ▼
-                 ┌──────────────┐
-                 │    PLAN      │  quality LLM — produce tool-call sequence
-                 └──────┬───────┘
-                        ▼
-                  [HUMAN GATE]    ← L1 today; shifts to conditional under L2/L3
-                        ▼
-                 ┌──────────────┐
-                 │   EXECUTE    │  MCP server runs each tool under a
-                 └──────┬───────┘  CAPABILITY TOKEN scoped to this plan
-                        │              ↑ NEW (Slice 5)
-                        │          Tool output passes through
-                        │          INJECTION SCANNER before reaching LLM
-                        │              ↑ NEW (Slice 5)
-                        ▼
-                 ┌──────────────┐
-                 │  INTERPRET   │  quality LLM — synthesize Findings,
-                 └──────┬───────┘  classify every finding against DFIR taxonomy
-                        ▼                  ↑ Step 0 (Slice 3 Phase A — shipped)
-                 ┌──────────────┐
-                 │   CRITIC     │  11 deterministic rules, self-correction
-                 └──────┬───────┘  instruction per rule, audit log
-                        │              ↑ Slice 3 Phase B
-                        ▼
-                 findings.json + plan_digest + sha256 chain of custody
-                                               ↑ Slice 6
+  E01 ─▶ EXTRACT ─▶ PLAN ─▶ [plan_approve] ─▶ EXECUTE ─▶ DUAL-CHANNEL ─▶ INTERPRET ─▶ CRITIC
+           (Gemini)  (Sonnet)   L1 gate          │           HANDLER         (Sonnet)    (13 rules)
+                                                 ▼              │                           │
+                                             5 MCP tools        ├─ raw bytes ─▶ ledger      │
+                                             capability         ├─ structured ─▶ agent      │
+                                             token check        └─ injection  ─▶ quarantine │
+                                                                                            │
+                                                                  ┌─────────────────────────┤
+                                                                  ▼                         │
+                                                            all rules pass         any rule fails
+                                                                  │                         │
+                                                                  ▼                         ▼
+                                                        findings.json + plan_digest   plan-hash dedup
+                                                        + linear-hash-chained ledger        │
+                                                                                    ┌───────┴───────┐
+                                                                                    ▼               ▼
+                                                                                seen before      novel
+                                                                                    │               │
+                                                                                    ▼               ▼
+                                                                              human_review      debounce
+                                                                                                    │
+                                                                                              ┌─────┴─────┐
+                                                                                              ▼           ▼
+                                                                                          re_plan    re_interpret
 ```
+
+**For the full diagram** (Mermaid, all components, trust boundaries, `PipelineState` schema, MCP tool surface, Critic rule catalog, autonomy-climb mapping), see [`architecture.md`](architecture.md). This file (`vision.md`) is the philosophy; `architecture.md` is the engineering reference.
 
 **Investigation question (committed):** *"Given a Windows disk image suspected of compromise, what persistence mechanisms did the attacker install?"*
 
@@ -157,8 +154,10 @@ Reversal paths are pre-decided so scope creep has a stop condition:
 
 ## Where to go from here
 
-- `PLAN.md` → the slice table + current status.
-- `docs/runbooks/slice-3-runbook.md` → Slice 3 build spec with R_01–R_11, Step 4a correction templates.
+- [`architecture.md`](architecture.md) → detailed architecture: Mermaid + ASCII diagrams, trust boundaries, PipelineState schema, MCP tool surface, full Critic rule catalog, autonomy-climb mapping.
+- [`PLAN.md`](PLAN.md) → slice table + current status.
+- `docs/runbooks/slice-3-runbook.md` → Slice 3 build spec with R_01–R_13, correction templates.
+- `docs/runbooks/slice-5-runbook.md` → Slice 5 build spec (dual-channel + capability tokens + 5th MCP tool).
 - `docs/runbooks/slice-2-runbook.md` → Slice 2 pipeline (end-to-end green).
 - `docs/learning/dfir-investigation-scope.md` → full DFIR map.
 - `docs/learning/hackathon-winning-strategy.md` → full positioning analysis with tripwires.
