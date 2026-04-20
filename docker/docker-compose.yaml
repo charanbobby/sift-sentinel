@@ -1,0 +1,66 @@
+# SIFT DFIR container for Protocol SIFT + Claude Code
+# Runs on Docker Desktop (WSL2 backend) — uses Hyper-V natively for speed.
+# See docs/runbooks/slice-1-docker-runbook.md for full usage.
+
+services:
+  sift:
+    build: ./sift                              # extends digitalsleuth/sift-docker:jammy, adds uv + mcp + pydantic (see sift/Dockerfile)
+    image: find-evil/sift:slice2               # local image tag so `docker compose build sift` is cached/reusable
+    container_name: sift
+    hostname: sift
+    privileged: true                            # needed for FUSE-based image mounting
+    cap_add:
+      - SYS_ADMIN
+      - MKNOD
+    devices:
+      - /dev/fuse:/dev/fuse                     # lets Sleuth Kit / ewfmount attach E01s
+    volumes:
+      # Persist the sansforensics home — ~/.claude/, ~/cases/, shell history all survive restarts
+      - sift-home:/home/sansforensics
+      # Evidence read-only — forensic integrity, and keeps 14 GB on D: (no VM disk bloat)
+      - "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026:/mnt/hackathon:ro"
+      # Derived artifacts (preprocessed raw partitions, exported hives etc) — writable,
+      # bind-mounted to the host so we don't bloat the sift-home volume. Kept OUTSIDE
+      # the :ro evidence mount so the agent / MCP can't accidentally write through to
+      # raw evidence. First use: DFIR Madness DESKTOP.ntfs.dd extracted via dd from the
+      # ewfmount'd multi-segment E01.
+      - "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/derived:/mnt/derived:rw"
+      # Our MCP server — bind-mounted read-only so edits on the host take effect on the next spawn.
+      - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook/mcp_server:/opt/mcp:ro"
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+  notebook:
+    build: ./notebook
+    container_name: find-evil-notebook
+    depends_on: [sift]
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      # Force Python (and thus Jupyter Server) into UTF-8 mode regardless of
+      # the container's locale. Prevents round-trip CP1252 corruption of em-dashes /
+      # arrows / ellipses in slice2.ipynb on save. Discovered 2026-04-19 after 183
+      # chars of mojibake accumulated in the notebook over prior saves.
+      - PYTHONUTF8=1
+    volumes:
+      # Notebook workspace (pyproject, pipeline/, mcp_server/, slice2.ipynb, out/)
+      - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook:/workspace"
+      # Docker CLI talks to the host daemon → `docker exec -i sift ...` bridges MCP stdio
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Read-only view of sift's case directory so C8's resolver can open stdout_path
+      # files (bodyfile output from fls -m) that the MCP server wrote inside sift.
+      # Mounted at the same path sift sees so `open(raw_result.stdout_path)` just works.
+      - "sift-home:/home/sansforensics:ro"
+    working_dir: /workspace
+    ports:
+      - "8888:8888"
+    # Single line avoids YAML folded-block quirks. `--allow-root` is required
+    # because the notebook container runs as root (it's a dev container).
+    command: ["bash", "-c", "uv sync && uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
+    restart: unless-stopped
+
+volumes:
+  sift-home:
