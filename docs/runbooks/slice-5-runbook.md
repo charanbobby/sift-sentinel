@@ -15,7 +15,7 @@
 - Dual-channel design supersedes the earlier "scan stdout, redact + flag" shape (carried item 7). Dual-channel preserves evidentiary integrity and keeps injection text out of the LLM context without mutating evidence.
 - Capability tokens reframed as application-layer least-privilege routing, not a cryptographic boundary against adversarial-prompt-injection bypass (round-3 reframe; Key Decisions row landed in PLAN.md). Avoid conflating the two in the runbook or the submission narrative.
 - Per-tool structured outputs must surface `expected_paths_covered` (for R_06 Negative-Result-Metadata) and `tool_execution_status` (for R_12 Evidence-of-Absence). See Architecture table.
-- Integrity-ledger stub (Step 5b) now points at the **linear hash-chain** ledger shape committed in carried item 9, not the plain append-only shape that item 8 originally described.
+- Integrity-ledger stub (Step 6b) now points at the **linear hash-chain** ledger shape committed in carried item 9, not the plain append-only shape that item 8 originally described.
 
 **Canonical record:** tick boxes as you go. Update [PLAN.md](../planning/PLAN.md) Slice 5 status on completion. Don't back-fill the runbook from code — draft each step, fail-fast probe it against the live container, then implement.
 
@@ -131,20 +131,91 @@ Before writing any code, enumerate what the capability-token + dual-channel syst
 | T7 | Token leaks from a log and is replayed on a different case | `case_id` mismatch + `expires_at` check |
 | T8 | An adversarial E01 contains a crafted document that would trip the parser itself | Out of scope for Slice 5 — flagged as Slice 5.5 / Slice 7 concern; documented as extension point |
 
-**Why this step exists:** without an explicit list, the implementation drifts. The threat list is what the test plan in Step 8 is built against.
+**Why this step exists:** without an explicit list, the implementation drifts. The threat list is what the test plan in Step 10 is built against.
 
 - [ ] Threat-model document landed and checked in
 - [ ] NotebookLM consulted on completeness — any well-known DFIR-relevant threat we missed?
 
 ---
 
-## Step 1 — Schema additions (notebook C15 and server module)
+## Step 1 — Module layout + extraction boundary
+
+Slice 5 is where the notebook-first prototyping from Slices 2 / 3 promotes to real modules. The extraction is bundled with this slice — not a separate migration — because (a) Slice 5's `EvidenceRecord` contract rewrites the executor API anyway, (b) the node-lift (C6/C8/C9 bodies → function definitions) IS the module motion, (c) Slice 6's eval harness is a CLI and wants modules regardless. See the "Module promotion deferred to Slice 5 exit" Key Decision row in [PLAN.md](../planning/PLAN.md).
+
+### 1a — Target module tree
+
+```
+experiments/slice-2-notebook/
+  pipeline/
+    __init__.py
+    schemas.py          # from C2 — all Pydantic types (ArtifactCandidate, ToolPlan,
+                        #   RawResult, Finding, Findings, RuleFailure, CritiqueResult,
+                        #   CriticDisagreement, Classification, RuleId, FailureCode,
+                        #   ATTACK_MAPPING, + new Slice 5 types: CapabilityToken,
+                        #   EvidenceRecord, InjectionFlag, FsstatResult, FlsEntry,
+                        #   IcatResult, RegripperResult, ScheduledTasksResult,
+                        #   ScheduledTaskEntry)
+    critic.py           # from C10 + C11 + C12 — rule bodies, CRITIC_RULES,
+                        #   ESCALATE_CODES, orchestrator, NEW_INSTRUCTION_TEMPLATES,
+                        #   RETRY_BRANCH, critic_edge
+    graph.py            # from C4 — build_graph(), PipelineState, checkpointer,
+                        #   _compute_thread_id
+    nodes.py            # plan_node, execute_node, interpret_node, debounce_*,
+                        #   human_review_node, critic_node (bodies land here in Step 7)
+    mcp/                # MCP server — already a module, grows in Slice 5
+      server.py         # existing + _require_capability decorator + 5th tool
+      tokens.py         # NEW — capability token issuer + verifier
+      injection_scanner.py  # NEW — pattern library + heuristic (server-side)
+      scheduled_tasks.py    # NEW — XML parser for scheduled_tasks_parse
+  tests/                # NEW — pytest suite (see Step 11)
+    test_schemas.py
+    test_critic.py
+    test_graph.py
+    test_tokens.py
+    test_injection_scanner.py
+    test_scheduled_tasks.py
+  slice2.ipynb          # slimmed — imports from pipeline/, narrative + one-case run
+                        #   + findings/audit display (see Step 12)
+```
+
+### 1b — Extraction order (dependency-respecting)
+
+1. `pipeline/schemas.py` first — everything else imports from it.
+2. `pipeline/critic.py` next — depends on `schemas` only; pure-Python, testable in isolation.
+3. `pipeline/mcp/tokens.py`, `pipeline/mcp/injection_scanner.py`, `pipeline/mcp/scheduled_tasks.py` — built directly in-module as Steps 3–6 land (never a notebook version).
+4. `pipeline/nodes.py` + `pipeline/graph.py` — built together in Step 7, after the Slice 5 server API (`EvidenceRecord`) has stabilized in Steps 5–6.
+5. Notebook slim-down in Step 12 — last, so nothing in the notebook is deleted before its replacement is wired and tested.
+
+### 1c — Before/after cell map
+
+| Cell | Today (end of Phase C) | After Slice 5 |
+|---|---|---|
+| C2 | Inline: all Pydantic types | `from pipeline.schemas import *` + a markdown cell listing what's imported |
+| C4 | Inline: LangGraph build + checkpointer + topology | `from pipeline.graph import build_graph`, one-line build, Mermaid display |
+| C6 / C8 / C9 | Inline: prompt definitions AND body logic | Prompt *definitions* stay inline (narrative value); body logic moves to `pipeline/nodes.py` and is invoked by the graph |
+| C10 | Inline: rule bodies + `CRITIC_RULES` | `from pipeline.critic import CRITIC_RULES, ESCALATE_CODES` |
+| C10b | Inline: `_check()` harness with hand-rolled fixtures | Deleted — `tests/test_critic.py` replaces it |
+| C11 | Inline: orchestrator | `from pipeline.critic import run_critic` |
+| C12 | Inline: templates + retry-branch + `critic_edge` | `from pipeline.critic import build_new_instruction, critic_edge` |
+
+### 1d — Byte-identical regression gate (acceptance test for the extraction itself)
+
+Before **any** Slice-5-specific step lands, extract `schemas.py` + `critic.py` + `graph.py` + `nodes.py` from the current Phase-C notebook (pure structural move, no behavioural change), then run `base-wkstn-05` end-to-end with the *pre-extraction* notebook and again with the *post-extraction* modules. **Both runs must produce byte-identical `findings.json` and `audit.jsonl`.** This proves the extraction didn't introduce a bug before any new Slice 5 control layers on top. Any mismatch → debug the extraction, not the Slice 5 design.
+
+### 1e — Fail-fast probe
+
+- [ ] `d:/tmp/probe_pipeline_import_roundtrip.py` — import `pipeline.schemas` / `pipeline.critic` / `pipeline.graph`; reconstruct `CRITIC_RULES`, `ESCALATE_CODES`, `NEW_INSTRUCTION_TEMPLATES`, `RETRY_BRANCH` from the module; assert the set of rule names and failure codes equals the Phase-C notebook's state (captured via `nbformat` read of slice2.ipynb pre-extraction).
+- [ ] `d:/tmp/probe_findings_byte_identical.py` — as described in 1d; both `findings.json` and `audit.jsonl` must `hashlib.sha256()` to the same value across the two runs.
+
+---
+
+## Step 2 — Schema additions (`pipeline/schemas.py`)
 
 Three new Pydantic types: `CapabilityToken`, `EvidenceRecord`, `InjectionFlag`. Plus typed structured-field shapes (`FsstatResult`, `FlsEntry`, `IcatResult`, `RegripperResult`, `RegripperEntry`, **`ScheduledTasksResult`, `ScheduledTaskEntry`**) used by channel B.
 
-### 1a — Add types to C2 (Phase 6 section) and a parallel `pipeline/slice5_schemas.py`
+### 2a — Add types to `pipeline/schemas.py`
 
-Types live in both locations for the same reason as Slice 3's types: notebook-first prototyping, `pipeline/` for the MCP server import. Keep the two in sync with a `diff` check in the fail-fast probe.
+After Step 1's extraction, `pipeline/schemas.py` is the single home for all Pydantic types. The new Slice-5 types listed below land there directly — no parallel notebook version, no `pipeline/slice5_schemas.py` split (the pre-extraction "both locations" pattern is superseded by Step 1's byte-identical regression gate).
 
 - [ ] `CapabilityToken` with `token_id`, `case_id`, `allowed_tools: frozenset[str]` (must include `"scheduled_tasks_parse"` as an allowed value), `allowed_paths: tuple[str, ...]`, `plan_digest`, `expires_at`, `signature`
 - [ ] `EvidenceRecord` with `tool_call_id`, `raw_sha256`, `raw_path`, `structured_fields: dict`, `injection_flags: list[InjectionFlag]`, `expected_paths_covered: list[str]`, `tool_execution_status: Literal["ok","timeout","permission_denied","parse_error","empty"]`, `issued_at`, `token_id` (audit link). The last two fields feed R_06 + R_12 respectively (carried items 10 + 11).
@@ -152,16 +223,16 @@ Types live in both locations for the same reason as Slice 3's types: notebook-fi
 - [ ] Typed structured-field shapes per tool — see Architecture table — including the new `ScheduledTasksResult` / `ScheduledTaskEntry` pair for the `scheduled_tasks_parse` tool
 - [ ] Round-trip test: Pydantic dump → JSON → load → equality (same contract as C2 round-trip)
 
-### 1b — Fail-fast probe
+### 2b — Fail-fast probe
 - [ ] `d:/tmp/probe_slice5_schemas.py` — construct a populated `EvidenceRecord` with one `quarantine` flag; serialize; re-parse; assert equality. Run in container venv before landing in the notebook.
 
 ---
 
-## Step 2 — Capability token issuer + verifier (pure Python)
+## Step 3 — Capability token issuer + verifier (`pipeline/mcp/tokens.py`)
 
 Two small modules, no MCP involvement yet.
 
-### 2a — Issuer (runs in the orchestrator / notebook process)
+### 3a — Issuer (runs in the orchestrator / notebook process)
 
 ```
 def issue_token(plan: ToolPlan, case_id: str, allowed_paths: tuple[str,...], ttl_seconds: int = 1800) -> CapabilityToken
@@ -172,7 +243,7 @@ def issue_token(plan: ToolPlan, case_id: str, allowed_paths: tuple[str,...], ttl
 - [ ] Sign with HMAC-SHA256 over the canonical serialization using `CAPABILITY_TOKEN_KEY` env var
 - [ ] Return the `CapabilityToken`
 
-### 2b — Verifier (runs in the MCP server)
+### 3b — Verifier (runs in the MCP server)
 
 ```
 def verify_token(token: CapabilityToken, tool: str, path: str, plan_digest: str) -> None  # raises on rejection
@@ -185,13 +256,13 @@ def verify_token(token: CapabilityToken, tool: str, path: str, plan_digest: str)
 - [ ] Reject if `plan_digest != token.plan_digest`
 - [ ] All rejections emit a structured `CapabilityDenial` to the server log with `token_id` for forensic correlation
 
-### 2c — Fail-fast probe — 10 hostile cases
+### 3c — Fail-fast probe — 10 hostile cases
 - [ ] Tampered signature, wrong tool, wrong path, expired token, wrong plan_digest, wrong case_id, right token wrong tool order, token reused across plans, token with empty `allowed_paths`, token with path-escape via `..`
 - [ ] Each case exits with the expected `CapabilityDenial.reason`
 
 ---
 
-## Step 3 — MCP server enforcement (`_require_capability` decorator)
+## Step 4 — MCP server enforcement (`_require_capability` decorator)
 
 The enforcement point — every tool function gets the decorator, capability check runs before `_run_and_record`.
 
@@ -200,17 +271,17 @@ The enforcement point — every tool function gets the decorator, capability che
 - [ ] Calls `verify_token(...)`; on rejection, returns `ToolResult(exit_code=-1, stderr="capability_denied: <reason>")` — **does not raise**, because the agent should learn from the denial and re-plan, not crash
 - [ ] Decorator logs both success and denial to the audit trail (feeds into Slice 6 integrity ledger)
 
-### 3a — Update existing tool functions + add the 5th tool
+### 4a — Update existing tool functions + add the 5th tool
 - [ ] `fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run` each gain `@_require_capability` and a new first parameter `capability_token`
 - [ ] **Add `scheduled_tasks_parse(capability_token, e01_path, task_xml_inode, dest_filename)`** (carried item 15). Internally it chains `icat_extract` + `_parse_scheduled_tasks`; the function is its own MCP-exposed tool so the PLAN prompt can advertise T1053.005 coverage without the orchestrator chaining two calls
 - [ ] Update the MCP tool signatures advertised to the client (JSON-RPC `tools/list`) — now 5 tools
 - [ ] Update C6 PLAN prompt `AVAILABLE_TOOLS` to advertise `scheduled_tasks_parse` with a purpose-line tying it to T1053.005; add a structural invariant: every `scheduled_tasks_parse` call has an upstream `fls_list` in `depends_on` that located the Task XML inodes
 
-### 3b — Orchestrator change
+### 4b — Orchestrator change
 - [ ] C7 (human checkpoint) issues the capability token *after* the human approves the plan; token is attached to `PipelineState.capability_token`
 - [ ] C8 (execute_node) passes the token on every MCP call
 
-### 3c — Fail-fast probe
+### 4c — Fail-fast probe
 - [ ] Live server call without a token → denial
 - [ ] Live server call with a tampered token → denial
 - [ ] Live server call with a valid token for `fls_list` but trying `regripper_run` → denial
@@ -218,11 +289,11 @@ The enforcement point — every tool function gets the decorator, capability che
 
 ---
 
-## Step 4 — Injection scanner (`pipeline/injection_scanner.py`)
+## Step 5 — Injection scanner (`pipeline/mcp/injection_scanner.py`)
 
 A small, deterministic pattern library + one heuristic. Runs in the MCP server on the channel-A bytes and on free-text portions of channel-B structured fields before they're returned to the orchestrator.
 
-### 4a — Pattern library (v1, exact-match and case-insensitive)
+### 5a — Pattern library (v1, exact-match and case-insensitive)
 
 | Pattern ID | Description | Example |
 |---|---|---|
@@ -235,16 +306,16 @@ A small, deterministic pattern library + one heuristic. Runs in the MCP server o
 
 **Scope discipline:** v1 is pattern-based. v2 (deferred) can add an LLM-judge fallback. Pattern-based is **defensible** (reviewable, reproducible) and sufficient for the demo.
 
-### 4b — Heuristic: free-text field audit
+### 5b — Heuristic: free-text field audit
 - [ ] Any free-text field (`value_data_safe`, `filename_safe`) gets counted for imperative verbs. ≥3 imperatives in a ≤200-char string → `severity: "warn"`.
 
-### 4c — Scanner output
+### 5c — Scanner output
 - [ ] Returns `list[InjectionFlag]`. Severity logic:
   - `info` — low-confidence match, log but do not quarantine
   - `warn` — bubbles up as a `requires_disambiguation` hint on any Finding whose evidence spans the flagged excerpt
   - `quarantine` — triggers the LangGraph `escalate` edge (same as `ESCALATE_CODES` in C12) → `human_review` node
 
-### 4d — Fail-fast probe
+### 5d — Fail-fast probe
 - [ ] Seed 6 patterns' worth of hostile strings into a test E01 filename list (no real disk write — synthetic `FlsEntry[]` input)
 - [ ] Scanner reports one `InjectionFlag` per seeded pattern at `severity: "quarantine"`
 - [ ] Clean strings produce zero flags (no FP)
@@ -252,7 +323,7 @@ A small, deterministic pattern library + one heuristic. Runs in the MCP server o
 
 ---
 
-## Step 5 — Dual-channel plumbing in `_run_and_record`
+## Step 6 — Dual-channel plumbing in `_run_and_record`
 
 Modify the server's subprocess runner so every tool call emits both channels.
 
@@ -262,7 +333,7 @@ Modify the server's subprocess runner so every tool call emits both channels.
 - [ ] Returns `EvidenceRecord` instead of `ToolResult` (new shape — Slice 5 breaking change on the server API)
 - [ ] `ToolResult.stdout_excerpt` is **removed** from the agent-visible output; Pipeline state holds the full `EvidenceRecord`, but `INTERPRET`'s bundle only includes `structured_fields`
 
-### 5a — Parsers per tool
+### 6a — Parsers per tool
 - [ ] `_parse_fsstat(stdout) -> FsstatResult` — regex over known fsstat output shape; also surfaces `install_time` for R_13 temporal consistency
 - [ ] `_parse_fls(stdout) -> list[FlsEntry]` — already-structured bodyfile format; derive `expected_paths_covered` from the enumerated directory
 - [ ] `_parse_icat(stdout, dest_path) -> IcatResult`
@@ -270,18 +341,45 @@ Modify the server's subprocess runner so every tool call emits both channels.
 - [ ] **`_parse_scheduled_tasks(xml_bytes) -> ScheduledTasksResult`** — `xml.etree.ElementTree` over the Task XML schema; emits one `ScheduledTaskEntry` per task; `expected_paths_covered` records which Task XML files were examined (by inode + filename)
 - [ ] Every parser also populates `tool_execution_status` based on subprocess return (ok / timeout / permission_denied / parse_error / empty) — this is the R_12 Evidence-of-Absence hook
 
-### 5b — Chain-of-custody hook (stub for the Slice 6 hash-chain ledger, carried item 9)
+### 6b — Chain-of-custody hook (stub for the Slice 6 hash-chain ledger, carried item 9)
 - [ ] `_append_integrity_entry(tool_call_id, raw_sha256, token_id, prev_entry_hash)` writes to `out/runs/<case>/integrity_stub.jsonl`. The stub **already records the `prev_entry_hash` field** so Slice 6 just replaces the writer implementation — the shape is stable. Each entry's own hash is `sha256(plan_digest ‖ raw_sha256 ‖ critic_decision ‖ prev_entry_hash)`; in Slice 5 the `critic_decision` slot is a placeholder `"pending"` and gets backfilled at finding-commit time in Slice 6.
 - [ ] The stub-writer in Slice 5 does **not** need to be tamper-evident; it just needs to produce the right shape so `verify_chain_of_custody.py` (Slice 6) reads a contiguous chain when the real writer replaces the stub.
 
-### 5c — Fail-fast probe
+### 6c — Fail-fast probe
 - [ ] Run the full 5-tool flow against `base-wkstn-05` (including `scheduled_tasks_parse` on Task XML inodes surfaced by `fls_list`); assert each tool returns an `EvidenceRecord` with non-empty `structured_fields`, a `raw_sha256` that matches the on-disk `.raw` file's hash, `tool_execution_status == "ok"`, and a populated `expected_paths_covered`
 - [ ] Assert `INTERPRET`'s bundle contains no free-form stdout — only structured fields
 - [ ] Assert the 2.5 scorecard is **unchanged** (no precision/recall regression from the structural switch). If `scheduled_tasks_parse` surfaces a T1053.005 finding on a 2.5 case that wasn't annotated before, that's a ground-truth expansion on one case — document it, don't treat as a regression
 
 ---
 
-## Step 6 — LangGraph integration
+## Step 7 — Node-lift + graph build extraction
+
+Pulls C6's PLAN body, C8's EXECUTE body, and C9's INTERPRET body out of notebook scope and into `pipeline/nodes.py`, then builds the LangGraph graph in `pipeline/graph.py`. **This is the same motion as module extraction** (per Step 1's dependency order) — it happens here because the Slice 5 server API (`EvidenceRecord` instead of `ToolResult`) has just stabilized in Steps 5–6.
+
+### 7a — Node bodies → `pipeline/nodes.py`
+
+- [ ] `plan_node(state: PipelineState) -> dict` — the C6 body. Build PLAN prompt (with `state.corrective_instruction` as the retry hook from Phase C), call Sonnet, run structural invariants, return `{"tool_plan": ..., "plan_digest": ...}`
+- [ ] `execute_node(state: PipelineState) -> dict` — the C8 body. For each step in `state.tool_plan`, invoke the MCP tool with `state.capability_token`; collect `EvidenceRecord`s (channel B only surfaces to the LLM; channel A goes to the integrity stub); return `{"evidence": [...]}`
+- [ ] `interpret_node(state: PipelineState) -> dict` — the C9 body. Build INTERPRET prompt from `state.evidence` **structured fields only** (channel B), call Sonnet, parse into `Finding[]`, return `{"findings": [...]}`
+- [ ] `critic_node(state: PipelineState) -> dict` — consumes `state.findings` + `state.evidence`, runs `CRITIC_RULES`, returns `{"critique_results": [...], "failed_plan_hashes": [...]}`. Moves from today's inline C4 position.
+- [ ] `debounce_before_plan`, `debounce_before_interpret` — move as-is from Phase C C-3 surgery (observability-only in Slice 5; Slice 5's structured-fields removal is what finally makes them do real state-trimming)
+- [ ] `human_review_node(state: PipelineState) -> dict` — sink for `escalate` edges. Writes an audit entry and halts the graph.
+
+### 7b — Graph build → `pipeline/graph.py`
+
+- [ ] `build_graph(*, checkpointer=None) -> CompiledGraph` — constructs the `StateGraph`, wires all node functions, applies conditional edges via `critic_edge`, compiles with `MemorySaver`
+- [ ] `_compute_thread_id(case_id: str, run_uuid: str) -> str` — re-exported from Phase C C-4
+- [ ] `PipelineState` Pydantic dataclass moves here (from today's C4) — every node's input/output contract is against this class
+
+### 7c — Fail-fast probe
+
+- [ ] `d:/tmp/probe_node_lift.py` — call each `*_node` function directly with a synthetic `PipelineState`; assert the returned dict keys match what the graph's conditional edges expect
+- [ ] Re-run the byte-identical regression gate from Step 1d **against the post-Slice-5 server API** (now returning `EvidenceRecord`). `findings.json` should still match the post-extraction-pre-Slice-5 baseline on the 2.5 cases — equivalence under structural change (server returns structured fields, but the final findings shape is unchanged)
+- [ ] `d:/tmp/probe_graph_topology.py` — build the graph; assert every conditional edge reaches a terminal; `critic_edge` returns one of `{"commit","re_interpret","re_plan","escalate"}`; no orphan nodes
+
+---
+
+## Step 8 — LangGraph integration (capability-token + quarantine wiring)
 
 - [ ] `PipelineState` extended with `capability_token: CapabilityToken | None`
 - [ ] C7 (human checkpoint) sets it after plan approval
@@ -289,14 +387,14 @@ Modify the server's subprocess runner so every tool call emits both channels.
 - [ ] Quarantine handling: any `EvidenceRecord` with `quarantine`-severity flag is stored in state but not forwarded to INTERPRET's bundle; instead, Critic receives it and emits an automatic `escalate` (new `FailureCode: INJECTION_QUARANTINE`) → `human_review`
 - [ ] `capability_token` is included in the Langfuse span metadata (one more observability wedge for Slice 6)
 
-### 6a — Fail-fast probe — end-to-end with a seeded adversarial E01
+### 8a — Fail-fast probe — end-to-end with a seeded adversarial E01
 - [ ] Prepare a minimal synthetic E01 with one crafted filename containing `INJ_IMPERATIVE_IGNORE`
 - [ ] Run the pipeline; Critic emits `severity: escalate` with `code: INJECTION_QUARANTINE`
 - [ ] Human-review node receives the disagreement; audit log captures the flag, the excerpt, and the token_id
 
 ---
 
-## Step 7 — Adversarial-evidence demo E01
+## Step 9 — Adversarial-evidence demo E01
 
 The seeded-failure demo per [`docs/planning/vision.md`](../planning/vision.md) section "Three hard demos."
 
@@ -306,7 +404,7 @@ The seeded-failure demo per [`docs/planning/vision.md`](../planning/vision.md) s
 
 ---
 
-## Step 8 — Measured accuracy + ablation (carried items 5 + 6 from PLAN.md)
+## Step 10 — Measured accuracy + ablation (carried items 5 + 6 from PLAN.md)
 
 Prototyping the scorecard extension — does NOT ship full Slice 6 scorecard, just enough to prove the Slice 5 controls have measurable value.
 
@@ -323,11 +421,41 @@ Prototyping the scorecard extension — does NOT ship full Slice 6 scorecard, ju
 
 ---
 
-## Step 9 — Update PLAN.md, `_resume.md`, SKILL.md checkbox
+## Step 11 — Test suite migration
 
-- [ ] PLAN.md Slice 5 row → ✅; note the ablation numbers
+Replace the in-cell `_check()` harness (today's C10b) and the scattered `d:/tmp/probe_*.py` scripts with a proper pytest suite at `experiments/slice-2-notebook/tests/`. The probe scripts that validated each Phase C / Slice 5 change are the source material — promote them.
+
+- [ ] `tests/test_schemas.py` — round-trip every Pydantic type (same shape as C2's smoke test); assert `RuleId` / `FailureCode` literal membership; assert `ATTACK_MAPPING` covers every non-NOT_FOUND `PersistenceCategory`; assert `EvidenceRecord` round-trip with every `tool_execution_status` value
+- [ ] `tests/test_critic.py` — every rule in `CRITIC_RULES` gets a (`bad`, `good`) fixture pair (port the `_check()` cases from C10b); R_13 stub asserts no-op contract; R_12 fixture exercises the `ABSENCE_UNSUBSTANTIATED` path with a failed `EvidenceRecord`
+- [ ] `tests/test_graph.py` — graph-topology assertions (every conditional edge reaches a terminal, `critic_edge` returns one of `{"commit","re_interpret","re_plan","escalate"}`, no orphan nodes); checkpointer isolation test (two thread IDs, independent state)
+- [ ] `tests/test_tokens.py` — the 10 hostile cases from Step 3c, one test each
+- [ ] `tests/test_injection_scanner.py` — the 6 pattern seeds from Step 5d; assert zero FPs on the 2.5 baseline's known-clean evidence bytes (regression gate against an over-eager pattern library)
+- [ ] `tests/test_scheduled_tasks.py` — XML parsing against a handful of canned Task XML fixtures (valid task, malformed XML, empty file, unicode in `Author`, missing optional fields)
+- [ ] `pytest -q` runs green. Target execution time ≤10 s for the whole suite so the feedback loop is short enough to run reflexively after every module change.
+- [ ] C10b notebook cell **deleted** as the final act of this step — `tests/test_critic.py` is now the source of truth
+
+**Why this step exists:** the `_check()` harness is a notebook-era tool that doesn't survive extraction cleanly (it depends on cell-scoped globals like `_good_finding`, `_good_ctx`). A real pytest suite is also what unblocks future CI, enables a `pre-commit` hook, and matches what judges expect to see in a submission repo.
+
+---
+
+## Step 12 — Wrap — PLAN.md + `_resume.md` + notebook slim-down + SKILL.md
+
+- [ ] PLAN.md Slice 5 row → ✅; note the ablation numbers + the byte-identical extraction gate pass
 - [ ] `_resume.md` bookmark reset; mention that Slice 6 is the next big lift
-- [ ] Slice-close template: `[ ] SKILL.md retro` (carry-forward) and `[ ] Memory audit` (any new durable rules from this slice? — e.g., HMAC key management, adversarial-E01 test assets)
+- [ ] Slice-close template: `[ ] SKILL.md retro` (carry-forward) and `[ ] Memory audit` (any new durable rules from this slice? — e.g., HMAC key management, adversarial-E01 test assets, module-extraction-during-schema-shift pattern)
+
+### 12a — Notebook slim-down checklist
+
+The post-Slice-5 `slice2.ipynb` is a judge-walkthrough artifact, not a code home. Every remaining cell either (a) narrates the architecture, (b) runs one case end-to-end, or (c) displays a result. Code lives in `pipeline/`.
+
+- [ ] **Delete** C10b (`_check()` harness, replaced by `tests/test_critic.py`)
+- [ ] **Replace** C2 body with `from pipeline.schemas import *` + a markdown cell listing what was imported and why
+- [ ] **Replace** C4 body with `from pipeline.graph import build_graph, _compute_thread_id; graph = build_graph()` + the existing Mermaid display
+- [ ] **Replace** C10 body with `from pipeline.critic import CRITIC_RULES, ESCALATE_CODES` + a markdown cell summarizing the 13 rule IDs
+- [ ] **Replace** C11 / C12 bodies with matching imports from `pipeline.critic`
+- [ ] **Keep** the C6 / C8 / C9 prompt-definition cells — the prompts themselves have narrative value (a reader can see the exact text that drives each phase). Only the *body logic* has moved to `pipeline/nodes.py`.
+- [ ] **Add** a final cell: `# Run one case end-to-end; display findings + audit chain inline.` — imports, runs `base-wkstn-05` (or a tiny fixture case), pretty-prints `findings.json`, renders the hash-chain ledger entries as a table
+- [ ] Open the slimmed notebook; run top-to-bottom with a fresh kernel; confirm no errors and that every markdown cell reads cleanly on its own
 
 ---
 
@@ -366,6 +494,7 @@ Dual-channel is THE adversarial defense. If it's blocked, the submission narrati
 | 5th MCP tool (`scheduled_tasks_parse`) runs into an XML-parsing edge case | Defer the 5th tool to Slice 6; the 4-tool pipeline is still shippable. Do not let the new tool block the dual-channel ship. |
 | Eval precision drops after Slice 5 changes | **Halt Slice 5 merge.** Restore the Slice 2.5 pipeline. Do not ship until the regression is understood. |
 | Pattern library bloats past ~20 patterns in v1 | Stop adding patterns; the submission narrative is "defensible coverage of a small, named class of injection," not "we caught everything." Document uncovered classes as extension points. |
+| **Byte-identical regression gate fails** — post-extraction `findings.json` or `audit.jsonl` diverges from the pre-extraction baseline on a 2.5 case | **Halt Slice 5 merge.** The extraction itself introduced a bug — debug the `pipeline/*.py` migration before any Slice-5-specific step lands on top. The gate exists precisely to separate "extraction broke something" from "Slice 5 design broke something." |
 
 ## Reference — paths quick card
 
@@ -373,7 +502,8 @@ Dual-channel is THE adversarial defense. If it's blocked, the submission narrati
 |---|---|
 | MCP server | [`experiments/slice-2-notebook/mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) |
 | Notebook (schemas land in C15 / C16) | [`experiments/slice-2-notebook/slice2.ipynb`](../../experiments/slice-2-notebook/slice2.ipynb) |
-| Slice 5 module tree | `experiments/slice-2-notebook/pipeline/{slice5_schemas.py, capability_tokens.py, injection_scanner.py, scheduled_tasks_parser.py}` |
+| Pipeline modules (Slice 5 extraction, see Step 1) | `experiments/slice-2-notebook/pipeline/{__init__.py, schemas.py, critic.py, graph.py, nodes.py, mcp/{server.py, tokens.py, injection_scanner.py, scheduled_tasks.py}}` |
+| Test suite (Slice 5, see Step 11) | `experiments/slice-2-notebook/tests/test_{schemas, critic, graph, tokens, injection_scanner, scheduled_tasks}.py` |
 | Threat model | `docs/planning/slice-5-threat-model.md` (write in Step 0) |
 | Adversarial-E01 builder | `experiments/slice-5-notebook/make_adversarial_e01.py` |
 | Raw channel archive | `out/runs/<case>/raw/<tool_call_id>.raw` |
@@ -394,11 +524,10 @@ Dual-channel is THE adversarial defense. If it's blocked, the submission narrati
 
 ## Next
 
-Slice 5 sits between **Slice 3 Phase C** (items 14 + R_06 + R_12 + R_13 + node-wiring close-out, ~1 focused day at observed pace) and **Slice 6** (Reference Dataset + L3 ship + sampled-audit). Either can come first; recommended order per PLAN.md:
+Slice 5 sits between **Slice 3** (✅ closed 2026-04-20 — Phase A/B/C all shipped, all 13 Critic rule IDs registered, node-lift bundled into this slice's Step 7) and **Slice 6** (Reference Dataset + L3 ship + sampled-audit + linear-hash-chain ledger). Sequencing:
 
-1. **Slice 3 Phase C** — quick close-out; adds the Critic rules that Slice 5's structured-field metadata is already designed to feed.
-2. **Slice 5** — this runbook.
-3. **Slice 6** — the big one.
+1. **Slice 5** — this runbook. Module extraction bundled in (Steps 1, 7, 11, 12).
+2. **Slice 6** — the big one.
 
 Pre-work that should run in parallel (async to whoever is driving code):
 

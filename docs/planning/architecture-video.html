@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Find Evil — Pipeline (video view)</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #ffffff;
+    color: #1a1a2e;
+    font-family: 'IBM Plex Sans', sans-serif;
+    max-width: 1400px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 36px 44px 32px;
+  }
+
+  /* ── Scene wrapper ───────────────────────── */
+  .scene {
+    padding: 32px 0 40px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .scene:last-of-type { border-bottom: none; }
+  .scene:first-of-type { padding-top: 0; }
+
+  .scene-head {
+    margin-bottom: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  .scene-head .scene-num {
+    padding: 3px 10px;
+    background: #1a1a2e;
+    color: #fff;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    flex-shrink: 0;
+  }
+  .scene-head h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1a1a2e;
+    line-height: 1.15;
+  }
+  .scene-head .scene-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: #6b7280;
+    margin-left: auto;
+  }
+
+  /* ── Scene 1 — hero pipeline ─────────────── */
+  .flow-wrap {
+    overflow-x: auto;
+    margin: 0 -44px;
+    padding: 18px 44px 4px;
+  }
+  .flow-wrap::-webkit-scrollbar { height: 8px; }
+  .flow-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  .flow {
+    display: flex;
+    align-items: stretch;
+    min-width: 1160px;
+    gap: 0;
+  }
+  .arr {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+  }
+  .arr svg { width: 24px; height: 14px; }
+
+  .card {
+    background: #fff;
+    border: 2px solid #d1d5db;
+    border-radius: 12px;
+    padding: 14px 10px 10px;
+    text-align: center;
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .top { flex: 0 0 auto; }
+  .card .middle { flex: 1 1 auto; display: flex; flex-direction: column; }
+  .card .bottom { flex: 0 0 auto; margin-top: 6px; }
+
+  .card .step-badge {
+    position: absolute;
+    top: -10px;
+    left: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    letter-spacing: 0.08em;
+  }
+  .card .role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #9ca3af;
+    margin-bottom: 2px;
+  }
+  .card .name { font-size: 15px; font-weight: 700; line-height: 1.15; }
+  .card .model {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 20px;
+    margin-top: 4px;
+  }
+  .card .detail {
+    font-size: 9.5px;
+    color: #6b7280;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+  .card .eg {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8.5px;
+    color: #475569;
+    background: #f8fafc;
+    border-left: 2px solid #94a3b8;
+    padding: 4px 6px;
+    margin-top: 6px;
+    text-align: left;
+    line-height: 1.4;
+    border-radius: 0 3px 3px 0;
+    word-break: break-word;
+  }
+  .card .eg .eg-lbl {
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 7.5px;
+    display: block;
+    margin-bottom: 1px;
+  }
+  .cache-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+    letter-spacing: 0.05em;
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+  }
+
+  .card.io { flex: 0 0 110px; background: #eff6ff; border-color: #3b82f6; }
+  .card.io .name { color: #2563eb; font-size: 13px; }
+  .card.io.out { background: #ecfdf5; border-color: #10b981; }
+  .card.io.out .name { color: #047857; }
+
+  .card.s1 { border-color: #3b82f6; }
+  .card.s1 .name { color: #1d4ed8; }
+  .card.s1 .step-badge { background: #dbeafe; color: #1d4ed8; border: 1.5px solid #93c5fd; }
+
+  .card.s2 { border-color: #7c3aed; }
+  .card.s2 .name { color: #5b21b6; }
+  .card.s2 .step-badge { background: #ede9fe; color: #5b21b6; border: 1.5px solid #c4b5fd; }
+
+  .card.s3 { border-color: #475569; }
+  .card.s3 .name { color: #334155; }
+  .card.s3 .step-badge { background: #e2e8f0; color: #334155; border: 1.5px solid #94a3b8; }
+
+  .card.s4 { border-color: #0891b2; }
+  .card.s4 .name { color: #0e7490; }
+  .card.s4 .step-badge { background: #cffafe; color: #0e7490; border: 1.5px solid #67e8f9; }
+
+  .card.s5 { border-color: #4f46e5; }
+  .card.s5 .name { color: #3730a3; }
+  .card.s5 .step-badge { background: #e0e7ff; color: #3730a3; border: 1.5px solid #a5b4fc; }
+
+  .card.s6 { border-color: #dc2626; }
+  .card.s6 .name { color: #991b1b; }
+  .card.s6 .step-badge { background: #fee2e2; color: #991b1b; border: 1.5px solid #fca5a5; }
+
+  /* ── Scene 2 — pillars grid ──────────────── */
+  .pillars-grid {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .pillar {
+    flex: 1 1 240px;
+    min-width: 240px;
+    padding: 18px 16px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+  }
+  .pillar .pillar-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: #ede9fe;
+    color: #5b21b6;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .pillar h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+    line-height: 1.25;
+  }
+  .pillar .lede {
+    font-size: 11.5px;
+    color: #475569;
+    line-height: 1.55;
+    margin-bottom: 10px;
+  }
+  .pillar .novel-line {
+    padding: 8px 10px;
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 4px 4px 0;
+    font-size: 11px;
+    color: #78350f;
+    line-height: 1.5;
+  }
+  .pillar .novel-line b {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #92400e;
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    margin-right: 5px;
+  }
+
+  /* ── Scene 3 — topology ──────────────────── */
+  .container-box {
+    border: 2px dashed #94a3b8;
+    border-radius: 10px;
+    padding: 30px 20px 18px;
+    background: #f8fafc;
+    position: relative;
+  }
+  .container-label {
+    position: absolute;
+    top: -11px;
+    left: 16px;
+    padding: 3px 10px;
+    background: #f8fafc;
+    border: 1.5px solid #94a3b8;
+    border-radius: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    letter-spacing: 0.05em;
+  }
+  .processes {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .process {
+    flex: 1 1 260px;
+    min-width: 260px;
+    padding: 14px 16px;
+    background: #fff;
+    border: 2px solid #d1d5db;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+  }
+  .process.agent { border-color: #4f46e5; }
+  .process.mcp { border-color: #0891b2; }
+  .process .process-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 2px;
+  }
+  .process.agent .process-title { color: #3730a3; }
+  .process.mcp .process-title { color: #0e7490; }
+  .process .process-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  .process .process-body {
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.55;
+  }
+  .process .process-body .mono-inline {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #1d4ed8;
+  }
+  .stdio-arrow {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+  .stdio-arrow .stdio-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #64748b;
+    margin-bottom: 2px;
+    letter-spacing: 0.05em;
+  }
+  .stdio-arrow .stdio-symbol {
+    font-size: 26px;
+    color: #94a3b8;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .shared-resources {
+    padding: 10px 14px;
+    background: #fff;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    font-size: 11px;
+    color: #475569;
+  }
+  .shared-resources .shared-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 8px;
+  }
+  .shared-resources .mono-inline {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #1d4ed8;
+    background: #eff6ff;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .boundary-arrow {
+    text-align: center;
+    padding: 8px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #94a3b8;
+    letter-spacing: 0.05em;
+  }
+  .external-ledger {
+    padding: 12px 16px;
+    background: #fffbeb;
+    border: 1.5px solid #fcd34d;
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: #78350f;
+    line-height: 1.55;
+  }
+  .external-ledger .ext-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #92400e;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 8px;
+  }
+  .external-ledger .ext-name {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #78350f;
+    font-weight: 700;
+  }
+  .topology-caveat-compact {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: #fff1f2;
+    border-left: 3px solid #f43f5e;
+    border-radius: 0 6px 6px 0;
+    font-size: 11.5px;
+    color: #4b5563;
+    line-height: 1.55;
+  }
+  .topology-caveat-compact .tag {
+    color: #9f1239;
+    text-transform: uppercase;
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    margin-right: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+  }
+
+  /* ── Scene 4 — results scorecard ─────────── */
+  .scorecard {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .metric {
+    flex: 1 1 180px;
+    min-width: 180px;
+    padding: 22px 18px;
+    background: #fff;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .metric.good { border-color: #10b981; background: #ecfdf5; }
+  .metric.pending { border-color: #fcd34d; background: #fffbeb; }
+  .metric .metric-value {
+    display: block;
+    font-size: 38px;
+    font-weight: 700;
+    color: #1a1a2e;
+    line-height: 1;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .metric.good .metric-value { color: #047857; }
+  .metric.pending .metric-value { color: #b45309; font-size: 26px; padding-top: 6px; }
+  .metric .metric-label {
+    display: block;
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-top: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+  }
+  .metric .metric-note {
+    display: block;
+    font-size: 9.5px;
+    color: #94a3b8;
+    margin-top: 6px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
+  }
+  .results-summary {
+    padding: 14px 16px;
+    background: #f8fafc;
+    border-left: 3px solid #3b82f6;
+    border-radius: 0 6px 6px 0;
+    font-size: 11.5px;
+    color: #334155;
+    line-height: 1.55;
+  }
+  .results-summary b {
+    color: #1a1a2e;
+  }
+  .results-summary .tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    color: #1d4ed8;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 6px;
+    font-weight: 700;
+  }
+
+  /* ── Failure demo mini-panel (scene 4) ──── */
+  .demo-panel {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+  }
+  .demo-panel h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+  }
+  .demo-panel .demo-flow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.7;
+  }
+  .demo-panel .demo-flow .hop {
+    padding: 3px 8px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    color: #1a1a2e;
+    font-weight: 700;
+  }
+  .demo-panel .demo-flow .hop.fail {
+    background: #fee2e2;
+    border-color: #fca5a5;
+    color: #991b1b;
+  }
+  .demo-panel .demo-flow .hop.recover {
+    background: #d1fae5;
+    border-color: #6ee7b7;
+    color: #065f46;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 1 — HERO PIPELINE -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene">
+  <div class="scene-head">
+    <span class="scene-num">Scene 1</span>
+    <h1>Find Evil — an autonomous DFIR agent that investigates persistence on real Windows disk images</h1>
+    <span class="scene-sub">SANS Find Evil 2026</span>
+  </div>
+
+  <div class="flow-wrap">
+    <div class="flow">
+
+      <div class="card io">
+        <div class="top">
+          <div class="role">Input</div>
+          <div class="name">E01 image</div>
+        </div>
+        <div class="middle">
+          <div class="detail">forensic disk copy<br>(read-only)</div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s1">
+        <div class="top">
+          <div class="step-badge">STEP 1</div>
+          <div class="role">Extract</div>
+          <div class="name">EXTRACT</div>
+          <div class="model">gemini-3.1-flash-lite</div>
+        </div>
+        <div class="middle">
+          <div class="detail">enumerate candidate<br>artifact paths</div>
+          <div class="eg">
+            <span class="eg-lbl">output</span>
+            HKLM\…\Run<br>\System32\Tasks\<br>\Startup\
+          </div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s2">
+        <div class="top">
+          <div class="step-badge">STEP 2</div>
+          <div class="role">Plan</div>
+          <div class="name">PLAN</div>
+          <div class="model">claude-sonnet-4.6</div>
+        </div>
+        <div class="middle">
+          <div class="detail">order forensic tool<br>calls + dependencies</div>
+          <div class="eg">
+            <span class="eg-lbl">output</span>
+            fsstat → fls → icat<br>→ regripper(run plugin)
+          </div>
+        </div>
+        <div class="bottom">
+          <span class="cache-badge">CACHED</span>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s3">
+        <div class="top">
+          <div class="step-badge">STEP 3</div>
+          <div class="role">Gates</div>
+          <div class="name">GATES</div>
+        </div>
+        <div class="middle">
+          <div class="detail">validate plan<br>issue capability token</div>
+          <div class="eg">
+            <span class="eg-lbl">checks</span>
+            regripper ⟵ icat ✓<br>paths ⊂ case ✓
+          </div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s4">
+        <div class="top">
+          <div class="step-badge">STEP 4</div>
+          <div class="role">Execute</div>
+          <div class="name">EXECUTE</div>
+          <div class="model">MCP · stdio</div>
+        </div>
+        <div class="middle">
+          <div class="detail">verify token · run tool<br>split output</div>
+          <div class="eg">
+            <span class="eg-lbl">raw → ledger · parsed → agent</span>
+            "svchost" = C:\…\a.exe
+          </div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s5">
+        <div class="top">
+          <div class="step-badge">STEP 5</div>
+          <div class="role">Interpret</div>
+          <div class="name">INTERPRET</div>
+          <div class="model">claude-sonnet-4.6</div>
+        </div>
+        <div class="middle">
+          <div class="detail">typed Finding<br>DFIR classification</div>
+          <div class="eg">
+            <span class="eg-lbl">output</span>
+            class: attacker_persistence<br>ATT&amp;CK: T1547.001
+          </div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card s6">
+        <div class="top">
+          <div class="step-badge">STEP 6</div>
+          <div class="role">Critic</div>
+          <div class="name">CRITIC</div>
+        </div>
+        <div class="middle">
+          <div class="detail">13 deterministic rules<br>retry or escalate</div>
+          <div class="eg">
+            <span class="eg-lbl">example checks</span>
+            no invented text ✓<br>path in scope ✓<br>coverage ✓
+          </div>
+        </div>
+      </div>
+
+      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
+
+      <div class="card io out">
+        <div class="top">
+          <div class="role">Output</div>
+          <div class="name">findings.json</div>
+        </div>
+        <div class="middle">
+          <div class="detail">+ plan digest<br>+ audit trail</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 2 — FOUR PILLARS (condensed) -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene">
+  <div class="scene-head">
+    <span class="scene-num">Scene 2</span>
+    <h1>What's novel — four boundaries that standard agent frameworks don't draw</h1>
+  </div>
+
+  <div class="pillars-grid">
+
+    <div class="pillar">
+      <span class="pillar-tag">Pillar 1</span>
+      <h3>Deterministic 13-rule Critic</h3>
+      <div class="lede">Code-level validation over every LLM output. No "LLM-as-judge" — 13 Python rules, each deterministic, each returning a pass/fail with a corrective instruction for retry.</div>
+      <div class="novel-line"><b>Novel</b> stress-tested against a published <i>no-persistence</i> scenario to prove the Critic isn't rubber-stamping LLM positive-finding bias.</div>
+    </div>
+
+    <div class="pillar">
+      <span class="pillar-tag">Pillar 2</span>
+      <h3>Evidence splitter</h3>
+      <div class="lede">In DFIR the adversary authors the evidence — a filename or registry value can carry prompt-injection payload. Tool output is parsed server-side: raw bytes to the ledger, structured fields to the agent.</div>
+      <div class="novel-line"><b>Novel</b> defending prompt injection at the <i>evidence boundary</i>, not the prompt boundary.</div>
+    </div>
+
+    <div class="pillar">
+      <span class="pillar-tag">Pillar 3</span>
+      <h3>Tokens bound to plan</h3>
+      <div class="lede">Every tool call carries an HMAC-signed permission slip scoped to (case, tools, paths, plan_digest, expiry). MCP server refuses anything outside scope.</div>
+      <div class="novel-line"><b>Novel</b> the <i>plan_digest</i> binding — tokens die when the plan changes, so they can't be replayed across plans.</div>
+    </div>
+
+    <div class="pillar">
+      <span class="pillar-tag">Pillar 4</span>
+      <h3>Linear hash chain</h3>
+      <div class="lede">Each ledger entry embeds SHA-256 of the previous entry. Ledger lives outside the case folder. A companion replay tool walks the chain and passes or fails loudly.</div>
+      <div class="novel-line"><b>Novel</b> tamper-evidence <i>by construction</i>, with separate-ledger storage that defeats self-attestation.</div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 3 — DEPLOYMENT TOPOLOGY (condensed) -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene">
+  <div class="scene-head">
+    <span class="scene-num">Scene 3</span>
+    <h1>Where it runs — what's inside the container, what lives outside for integrity</h1>
+  </div>
+
+  <div class="container-box">
+    <span class="container-label">SIFT Docker container · single UID</span>
+
+    <div class="processes">
+      <div class="process agent">
+        <span class="process-title">LangGraph orchestrator</span>
+        <span class="process-role">the "agent" process</span>
+        <div class="process-body">
+          runs <span class="mono-inline">EXTRACT · PLAN · GATES · INTERPRET · CRITIC</span><br>
+          holds <span class="mono-inline">PipelineState</span>, retry budget, checkpointer
+        </div>
+      </div>
+
+      <div class="stdio-arrow">
+        <span class="stdio-label">stdio · MCP</span>
+        <span class="stdio-symbol">⇄</span>
+      </div>
+
+      <div class="process mcp">
+        <span class="process-title">MCP server</span>
+        <span class="process-role">the "tools" process</span>
+        <div class="process-body">
+          runs <span class="mono-inline">fsstat · fls · icat · regripper · tasks</span><br>
+          verifies capability tokens · splits evidence output
+        </div>
+      </div>
+    </div>
+
+    <div class="shared-resources">
+      <span class="shared-label">shared mount</span>
+      <span class="mono-inline">/cases/&lt;id&gt;/</span> — forensic disk image, read-only bind mount
+    </div>
+  </div>
+
+  <div class="boundary-arrow">↓ &nbsp;audit writes leave the container boundary &nbsp;↓</div>
+
+  <div class="external-ledger">
+    <span class="ext-label">outside the container</span>
+    <span class="ext-name">integrity ledger</span> — append-only, SHA-linked, on a separate volume so the container can't silently rewrite its own audit trail.
+  </div>
+
+  <div class="topology-caveat-compact">
+    <span class="tag">Caveat</span> same-container deployment means tokens are application-layer, <i>not</i> cryptographic. The evidence splitter (Pillar 2) carries the real injection defense — if injection never reaches the agent, hijack can't happen.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 4 — RESULTS + ONE FAILURE DEMO -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene">
+  <div class="scene-head">
+    <span class="scene-num">Scene 4</span>
+    <h1>Results — what the pipeline is actually producing</h1>
+  </div>
+
+  <div class="scorecard">
+    <div class="metric good">
+      <span class="metric-value">1.00</span>
+      <span class="metric-label">Precision</span>
+      <span class="metric-note">on validated positive CTF cases</span>
+    </div>
+    <div class="metric good">
+      <span class="metric-value">0</span>
+      <span class="metric-label">Hallucinations</span>
+      <span class="metric-note">zero invented quotes or paths</span>
+    </div>
+    <div class="metric">
+      <span class="metric-value">&lt;60s</span>
+      <span class="metric-label">Per-case runtime</span>
+      <span class="metric-note">end-to-end, cached prompt</span>
+    </div>
+    <div class="metric pending">
+      <span class="metric-value">pending</span>
+      <span class="metric-label">Negative-case test</span>
+      <span class="metric-note">published no-persistence scenario — the adversarial validation</span>
+    </div>
+  </div>
+
+  <div class="results-summary">
+    <span class="tag">Architecture</span> <b>13 deterministic Critic rules</b>, grouped into three failure routes (10 retry through a sycophancy-detecting repeat guard, 3 escalate directly). Bounded retry budget prevents infinite loops. Every run produces a tamper-evident audit trail.
+  </div>
+
+  <div class="demo-panel">
+    <h4>Seeded failure demo — the critic catches a hallucination</h4>
+    <div class="demo-flow">
+      <span class="hop">INTERPRET</span> &nbsp;<i>quotes a registry key that doesn't exist in tool output</i> &nbsp;→&nbsp;
+      <span class="hop fail">Rule fails</span> &nbsp;<i>"no invented text"</i> &nbsp;→&nbsp;
+      <span class="hop">repeat guard</span> &nbsp;→&nbsp;
+      <span class="hop">fresh context</span> &nbsp;→&nbsp;
+      <span class="hop recover">retry with corrective</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
