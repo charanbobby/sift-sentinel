@@ -67,39 +67,57 @@ Legend: ✅ shipped • 🟡 in progress • ⬜ defined, not built
 
 ---
 
-## 3. The AI components, at a high level
+## 3. The AI components, explained from first principles
 
-You don't need to become an LLM engineer to contribute. But four concepts carry most of the architecture — if these click, everything else follows.
+You don't need to become an LLM engineer to contribute here — but a working mental model of a handful of concepts will make everything else in the repo legible. If you've built SOAR playbooks that orchestrate API calls against typed integrations, you already have ~80% of what you need; the rest is vocabulary.
+
+### 3.0. AI vocabulary foundation (two-minute read)
+
+These six terms show up everywhere in this project. If they're already familiar, skip to §3a.
+
+- **LLM (Large Language Model).** An API endpoint that takes text in and returns text out. Claude (Anthropic), Gemini (Google), and GPT (OpenAI) are the three vendors we deal with. You call them over HTTPS, get back a response, pay per million tokens in + out. That's the whole developer-facing interface. No models run locally; it's all SaaS.
+- **Token.** The unit the LLM bills on. Roughly ¾ of an English word. "Windows service `coreupdater`" is ~5 tokens. When you hear "context window = 200K tokens," that's the prompt+response budget for a single call — about 150K words, or ~300 typical SIEM alerts' worth of text.
+- **Structured output / JSON mode.** Instead of asking the LLM for prose, you constrain it to emit **JSON matching a declared schema**. Every stage of our pipeline uses this — the LLM never returns free-form text we later regex-parse. This is the difference between a fragile chatbot and a deterministic pipeline component. The schemas themselves are defined using **Pydantic**, Python's standard schema-validation library.
+- **Tool calling / function calling.** A specific flavor of structured output where the LLM's response *is a request to invoke a function*. Instead of `{"answer": "it's coreupdater"}`, it emits `{"tool": "regripper_run", "args": {"hive": "SYSTEM", "plugin": "services"}}`. Your code executes the tool, feeds the result back as another message, and loops. **The LLM never touches the filesystem directly** — it just proposes tool calls, which is the core safety property our whole architecture leans on.
+- **Agent loop.** The Python while-loop that keeps feeding tool results back to the LLM until it produces a final answer instead of another tool request. "Agent" isn't a different kind of AI; it's a *pattern* — LLM + tools + a loop. Our pipeline is a structured, gated version of this loop.
+- **Prompt caching.** Anthropic-specific billing feature: you tag the stable prefix of your prompt (system instructions, schema definitions, few-shot examples) and subsequent calls with the same prefix are billed at ~10% of normal input-token cost. We use it on every Claude call; more in §3d.
+
+Everything below is a specific library or design pattern built on these six primitives.
 
 ### 3a. MCP (Model Context Protocol)
 
-An Anthropic-backed open protocol that standardizes the LLM ↔ tools interface. Think of it as **the "generic SOAR connector spec" for LLM agents** — replacing ad-hoc function-calling.
+Open spec released by Anthropic in late 2024 that standardizes the LLM↔tools interface. Before MCP, every LLM vendor had its own "function calling" format — OpenAI JSON schemas, Anthropic tool blocks, Google declarations — and your integration code didn't port. **Think of MCP as "the generic SOAR-connector spec for LLM agents"** — an API boundary that decouples *what the tools do* from *which LLM calls them*.
 
-- A **server** exposes typed tools (name + JSON-schema inputs + structured output).
-- A **client** (our LangGraph executor) calls them during reasoning.
-- Today we use stdio transport (`docker exec`); Slice 5 swaps to HTTP/SSE over an internal Docker bridge for least-privilege reasons (see [PLAN.md "Carried item 16"](../planning/PLAN.md)).
+Three moving parts:
 
-Our MCP server lives at [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py). Every tool has argv-array exec (no `shell=True`), read-only evidence paths, and — once Slice 5 lands — a capability-token middleware.
+- **MCP server** — a process that advertises typed tools (name, JSON-schema inputs, structured output). Our server is [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) and exposes 4 tools today: `fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run`. This server is the *only* place forensic binaries (`tsk`, `RegRipper`) are actually invoked on disk.
+- **MCP client** — a library embedded in the agent that calls the server and unpacks responses. Handles the JSON-RPC wire format.
+- **Transport** — how the two processes communicate. Today: stdio over `docker exec` (bytes across a pipe between containers). Slice 5: HTTP/SSE over an internal Docker bridge — this closes a privilege-escalation hole involving the mounted Docker socket (see [PLAN.md "Carried item 16"](../planning/PLAN.md)).
+
+Every tool has argv-array exec (no `shell=True`, so shell-injection is structurally impossible), read-only evidence paths, and — once Slice 5 lands — capability-token middleware enforcing `(case_id, allowed_tools, allowed_paths, plan_digest)` scoping on every call.
 
 ### 3b. LangGraph (the pipeline state machine)
 
-A Python library by LangChain for building stateful, graph-shaped agent workflows. You can read it as **"a SOAR playbook engine with first-class conditional loops."**
+Python library by LangChain for building **stateful, graph-shaped agent workflows**. It's a SOAR playbook engine with first-class support for conditional loops, retries, and state persistence. Without LangGraph, the same pipeline would be a 500-line procedural script with fragile hand-rolled retry logic; with it, we get a declarative graph plus infrastructure (visualization, state snapshotting, tracing hooks) for free.
 
-- **Nodes:** each major stage (`extract`, `plan`, `execute`, `interpret`, `critic`, `re_plan`, `re_interpret`, `human_review`).
-- **Edges:** transitions, including conditional edges driven by Critic verdicts.
-- **`PipelineState`:** a typed Pydantic object that every node reads/writes — our "shared blackboard."
-- **Checkpointer:** persists state per `thread_id`, scoped to `(case_id, run_uuid)` for forensic isolation between cases.
+The primitives:
 
-The graph is compiled in [`slice2.ipynb`](../../experiments/slice-2-notebook/slice2.ipynb) C4. LangGraph gives us a free Mermaid/PNG visualization of the running flow — useful for the demo video (Slice 8).
+- **Node** — one Python function. Takes a `PipelineState`, returns an updated `PipelineState`. Each major stage of our pipeline is one node: `extract`, `plan`, `execute`, `interpret`, `critic`, `re_plan`, `re_interpret`, `human_review`.
+- **Edge** — a transition between nodes. Can be **unconditional** (`A → B`) or **conditional** (`A → B if critic_passed else re_plan`). The conditional edges are what make the self-correction loop possible — no hand-written if/else, just a routing function that returns the next node's name.
+- **`PipelineState`** — a typed Pydantic object every node reads from and writes to. The "shared blackboard" for one investigation: `case_id`, `candidates`, `tool_plan`, `tool_calls`, `findings`, `critic_verdict`, `retry_count`, etc.
+- **Checkpointer** — state persistence. Every node transition snapshots the state keyed by `thread_id`. We scope `thread_id` cryptographically to `(case_id, run_uuid)` so a resumed graph can never inherit state from a different forensic case — cross-case contamination would be a forensic-integrity failure, not just a bug.
+- **Graph visualization** — LangGraph emits a Mermaid/PNG diagram of the running graph for free. Used in the demo video, also handy for catching dead edges when the graph gets revised.
 
-### 3c. The Critic (the detection engineering layer)
+If you've written a state machine in C using enums + a switch statement, LangGraph is the same idea with much better infrastructure. The compiled graph lives in [`slice2.ipynb`](../../experiments/slice-2-notebook/slice2.ipynb) C4.
+
+### 3c. The Critic (the detection-engineering layer)
 
 The highest-leverage thing in the project and probably the quickest on-ramp for your background.
 
-**What it is:** a pure-Python function that takes the LLM's `findings.json` and runs 13 deterministic rules against it. Any rule failure produces a **structured error** with a **correction template** that gets threaded back into the next LLM attempt as a "corrective instruction" (secondary system-prompt block — cached first block preserved).
+**What it is:** a pure-Python function that takes the LLM's `findings.json` and runs 13 deterministic rules against it. No LLM call involved — just code-level invariants. Any rule failure produces a **structured error** with a **correction template** that gets threaded back into the next LLM attempt as a "corrective instruction" (a secondary system-prompt block, so the cached first block is preserved — see §3d).
 
 **Example rules (abbreviated):**
-- **R_05 — Excerpt hallucination:** every `output_excerpt` in the finding must appear verbatim in `tool_calls.jsonl` for this run. If the LLM fabricated a quote, we catch it.
+- **R_05 — Excerpt hallucination:** every `output_excerpt` in a finding must appear verbatim in `tool_calls.jsonl` for this run. If the LLM fabricated a quote, we catch it.
 - **R_07 — Tool-category consistency:** a finding classified `attacker_persistence` must cite a tool call whose output-type can evidence persistence. Catches "registry key cited by an `fsstat` call" mismatches.
 - **R_10 — Injection flag:** if the dual-channel handler (Slice 5) flagged content, the corresponding finding escalates to human review.
 - **R_12 — Evidence-of-absence vs absence-of-evidence:** a `findings: []` result is only accepted if the collection tools actually ran cleanly; a silent tool failure can't masquerade as "no persistence found."
@@ -107,11 +125,31 @@ The highest-leverage thing in the project and probably the quickest on-ramp for 
 
 **Why it matters:** this is the submission's **headline engineering claim** — findings pass through a code-level gate, not just a prompt. You'll recognize the shape; it's detection engineering on the agent's output artifact, with retries bounded by a plan-hash dedup loop so we don't infinitely sycophant-retry the same bad plan. Full rule catalog in [architecture-detailed.md §7](../planning/architecture-detailed.md#7-critic-rule-catalog-13-rules-r_01r_13).
 
-### 3d. Prompt caching
+### 3d. Prompt caching — why it's mandatory, not optional
 
-An Anthropic feature — mark a stable prefix of the prompt with `cache_control: ephemeral` and subsequent calls hitting the same prefix pay ~10× less for those tokens. We verified 10× on 2026-04-19. We treat it as **on-by-default**; a missing `cache_control` on a Claude call is considered a defect.
+Anthropic-specific billing feature. You mark the stable prefix of your prompt (system instructions, schema definitions, few-shot examples) with `cache_control: ephemeral` and subsequent calls hitting that same prefix get billed at ~10% of normal input-token cost — a **10× reduction** on the cached portion. Verified empirically on a real pipeline run on 2026-04-19.
 
-Relevant when you touch any LLM call in the notebook — if you add a corrective/dynamic section, it has to come **after** the cached block, not inside it.
+**Why it's critical for this project:**
+
+- Each PLAN call sends ~2.5K tokens of system prompt + MCP tool schemas + RegRipper plugin allowlist + DFIR disambiguation rules. Uncached, ~$0.04 per call. Cached, ~$0.004.
+- Over a full Reference Dataset run (7 cases × ~30 LLM calls) the difference is $8 vs. $0.80 — an order of magnitude.
+- On retry loops, the same cached prefix hits on every iteration — so caching pays *more* the more the Critic fires. The architecture makes retries cheap.
+
+**The rule you need to remember:** cache only hits when the first N tokens are **byte-identical** across calls. Dynamic content (the Critic's corrective instruction on retry; the case-specific evidence) goes **after** the cached block, not inside it. We implement this as a **two-system-block pattern** — one stable cached block, then a second system block with per-call dynamic content. If you touch any LLM call in the notebook, preserve that split or caching silently breaks and costs 10×.
+
+Missing `cache_control` on a Claude call in this project is treated as a defect, not an oversight.
+
+### 3e. Langfuse (LLM observability — "the SIEM for the agent")
+
+We trace every LLM call to **Langfuse**, an open-source LLM observability platform. **Clean analogy: Langfuse is to agent behavior what a SIEM is to endpoint behavior.** Every model call becomes an event; events are grouped into traces by session/run ID; traces carry tokens, cost, latency, and the full input/output payload.
+
+Why it matters:
+
+- **Post-hoc debugging.** When the Critic fires on a retry, you can replay the full `PLAN → EXECUTE → INTERPRET` sequence from the trace rather than trying to reproduce the run locally.
+- **Cost visibility.** You see exactly which LLM call spent which tokens. The "should we swap Sonnet → Haiku?" decision logged in [PLAN.md](../planning/PLAN.md) was driven by Langfuse cost/latency data.
+- **Named spans.** Each LangGraph node's LLM call gets its own span name (`plan_node`, `interpret_node`, `critic_node`), so a trace reads like a timeline of the investigation — very close in shape to a SIEM session view.
+
+Free tier is enough for project usage; credentials live in the notebook's `.env`.
 
 ---
 
@@ -234,8 +272,16 @@ If you've instrumented SOAR playbook effectiveness before, the design here shoul
 | **TA0003** | MITRE ATT&CK Tactic ID for Persistence. |
 | **Hadi3** | A public no-persistence DFIR scenario we use as a negative-case stress test. |
 | **PipelineState** | The typed Pydantic blackboard every LangGraph node reads/writes. |
-| **Langfuse** | Our LLM observability platform — every call, token, cost, span. |
+| **Langfuse** | Our LLM observability platform — every call, token, cost, span. Analogous to a SIEM for agent behavior. |
 | **OpenRouter** | Our LLM gateway — single API for Claude / Gemini / others, with prompt caching. |
+| **LLM** | Large Language Model — a text-in, text-out API (Claude, Gemini, GPT). Billed per million tokens. |
+| **Token** | The unit LLMs bill on. ~¾ of an English word. Our 200K context window = ~150K words per call. |
+| **JSON mode / structured output** | LLM constrained to emit parseable JSON matching a declared schema — not free-form prose. |
+| **Pydantic** | Python's standard schema-validation library. We use it to declare `Finding`, `ToolPlan`, `PipelineState`. |
+| **Tool calling** | The LLM emits a structured *request to invoke a function* rather than a text answer. MCP is the protocol that wraps this. |
+| **Agent loop** | LLM → tool call → tool result → LLM → … until a final answer. "Agent" = the loop, not a different kind of AI. |
+| **Prompt caching** | Anthropic billing feature. Cached prompt prefixes billed at ~10% of normal. Byte-identical prefix required. |
+| **LangGraph** | Python library for declarative stateful agent workflows. Nodes = stages, edges = transitions, `PipelineState` = blackboard. |
 
 ---
 

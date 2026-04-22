@@ -12,6 +12,20 @@ This file walks through *one* pipeline run stage-by-stage, pointing at the actua
 
 ---
 
+## Quick AI vocabulary cheat sheet
+
+If AI-side terminology feels unfamiliar, the full explanation is in [`01-onboarding.md` §3](01-onboarding.md#3-the-ai-components-explained-from-first-principles). One-line mental models for the terms you'll hit below:
+
+- **LLM** — a text-in, text-out API (Claude, Gemini, GPT). Billed per million tokens.
+- **Model IDs** — `google/gemini-3.1-flash-lite-preview`, `anthropic/claude-sonnet-4.6`. We route through **OpenRouter**, a single API that fronts all major vendors.
+- **JSON mode / schema-enforced** — the LLM is constrained to emit JSON matching a declared schema, not free-form prose. Makes downstream parsing deterministic.
+- **Pydantic** — Python library for declaring + validating these schemas. A `model_validator` is a hook that runs *after* the LLM output is parsed — we use it to deterministically populate MITRE ATT&CK fields from `category` (LLM's answer on those fields is discarded).
+- **Prompt caching** — Anthropic feature. Stable prompt prefixes billed at ~10% of normal. Every Claude call in our pipeline uses it. Dynamic content (e.g. Critic corrective) goes in a *second* system block so the first stays byte-identical.
+- **LangGraph node** — one Python function that owns one stage of the pipeline. The pipeline is a graph of nodes connected by conditional edges; the self-correction loop is a conditional edge from Critic back to PLAN.
+- **Tool calling (via MCP)** — the LLM emits a structured tool-invocation request; the MCP server executes it and returns the result. The LLM never runs forensic binaries directly.
+
+---
+
 ## 0. Inputs
 
 - **Evidence:** `/mnt/derived/dfirmadness-desktop.ntfs.dd` (14.4 GB raw NTFS partition).
