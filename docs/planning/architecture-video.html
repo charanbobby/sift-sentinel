@@ -2,825 +2,611 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Find Evil — Pipeline (video view)</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<title>Find Evil — Video Storyboard</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Serif:wght@400;600&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    background: #ffffff;
+    background: #f5f5f4;
     color: #1a1a2e;
     font-family: 'IBM Plex Sans', sans-serif;
-    max-width: 1400px;
+    max-width: 1200px;
     width: 100%;
     margin: 0 auto;
-    padding: 36px 44px 32px;
+    padding: 32px 36px 40px;
   }
 
-  /* ── Scene wrapper ───────────────────────── */
-  .scene {
-    padding: 32px 0 40px;
-    border-bottom: 1px solid #e5e7eb;
+  /* ── Header strip ───────────────────────── */
+  .sb-head {
+    margin-bottom: 22px;
+    padding-bottom: 14px;
+    border-bottom: 3px solid #1a1a2e;
   }
-  .scene:last-of-type { border-bottom: none; }
-  .scene:first-of-type { padding-top: 0; }
-
-  .scene-head {
-    margin-bottom: 24px;
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-  }
-  .scene-head .scene-num {
-    padding: 3px 10px;
-    background: #1a1a2e;
-    color: #fff;
-    border-radius: 4px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
+  .sb-head h1 {
+    font-size: 22px;
     font-weight: 700;
-    letter-spacing: 0.15em;
-    flex-shrink: 0;
+    letter-spacing: -0.01em;
   }
-  .scene-head h1 {
-    font-size: 24px;
-    font-weight: 700;
-    color: #1a1a2e;
-    line-height: 1.15;
-  }
-  .scene-head .scene-sub {
+  .sb-head .sb-sub {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: #6b7280;
-    margin-left: auto;
-  }
-
-  /* ── Scene 1 — hero pipeline ─────────────── */
-  .flow-wrap {
-    overflow-x: auto;
-    margin: 0 -44px;
-    padding: 18px 44px 4px;
-  }
-  .flow-wrap::-webkit-scrollbar { height: 8px; }
-  .flow-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-  .flow {
-    display: flex;
-    align-items: stretch;
-    min-width: 1160px;
-    gap: 0;
-  }
-  .arr {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 3px;
-  }
-  .arr svg { width: 24px; height: 14px; }
-
-  .card {
-    background: #fff;
-    border: 2px solid #d1d5db;
-    border-radius: 12px;
-    padding: 14px 10px 10px;
-    text-align: center;
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .card .top { flex: 0 0 auto; }
-  .card .middle { flex: 1 1 auto; display: flex; flex-direction: column; }
-  .card .bottom { flex: 0 0 auto; margin-top: 6px; }
-
-  .card .step-badge {
-    position: absolute;
-    top: -10px;
-    left: 12px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    font-weight: 700;
-    padding: 2px 7px;
-    border-radius: 20px;
-    letter-spacing: 0.08em;
-  }
-  .card .role {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #9ca3af;
-    margin-bottom: 2px;
-  }
-  .card .name { font-size: 15px; font-weight: 700; line-height: 1.15; }
-  .card .model {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    color: #64748b;
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 20px;
     margin-top: 4px;
   }
-  .card .detail {
-    font-size: 9.5px;
-    color: #6b7280;
-    margin-top: 6px;
-    line-height: 1.4;
-  }
-  .card .eg {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 8.5px;
-    color: #475569;
-    background: #f8fafc;
-    border-left: 2px solid #94a3b8;
-    padding: 4px 6px;
-    margin-top: 6px;
-    text-align: left;
-    line-height: 1.4;
-    border-radius: 0 3px 3px 0;
-    word-break: break-word;
-  }
-  .card .eg .eg-lbl {
-    font-weight: 700;
-    color: #64748b;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-size: 7.5px;
-    display: block;
-    margin-bottom: 1px;
-  }
-  .cache-badge {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 8px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    display: inline-block;
-    letter-spacing: 0.05em;
-    background: #d1fae5;
-    color: #065f46;
-    border: 1px solid #6ee7b7;
-  }
 
-  .card.io { flex: 0 0 110px; background: #eff6ff; border-color: #3b82f6; }
-  .card.io .name { color: #2563eb; font-size: 13px; }
-  .card.io.out { background: #ecfdf5; border-color: #10b981; }
-  .card.io.out .name { color: #047857; }
-
-  .card.s1 { border-color: #3b82f6; }
-  .card.s1 .name { color: #1d4ed8; }
-  .card.s1 .step-badge { background: #dbeafe; color: #1d4ed8; border: 1.5px solid #93c5fd; }
-
-  .card.s2 { border-color: #7c3aed; }
-  .card.s2 .name { color: #5b21b6; }
-  .card.s2 .step-badge { background: #ede9fe; color: #5b21b6; border: 1.5px solid #c4b5fd; }
-
-  .card.s3 { border-color: #475569; }
-  .card.s3 .name { color: #334155; }
-  .card.s3 .step-badge { background: #e2e8f0; color: #334155; border: 1.5px solid #94a3b8; }
-
-  .card.s4 { border-color: #0891b2; }
-  .card.s4 .name { color: #0e7490; }
-  .card.s4 .step-badge { background: #cffafe; color: #0e7490; border: 1.5px solid #67e8f9; }
-
-  .card.s5 { border-color: #4f46e5; }
-  .card.s5 .name { color: #3730a3; }
-  .card.s5 .step-badge { background: #e0e7ff; color: #3730a3; border: 1.5px solid #a5b4fc; }
-
-  .card.s6 { border-color: #dc2626; }
-  .card.s6 .name { color: #991b1b; }
-  .card.s6 .step-badge { background: #fee2e2; color: #991b1b; border: 1.5px solid #fca5a5; }
-
-  /* ── Scene 2 — pillars grid ──────────────── */
-  .pillars-grid {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .pillar {
-    flex: 1 1 240px;
-    min-width: 240px;
-    padding: 18px 16px;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-  }
-  .pillar .pillar-tag {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 3px;
-    background: #ede9fe;
-    color: #5b21b6;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 8.5px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 10px;
-  }
-  .pillar h3 {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 8px;
-    line-height: 1.25;
-  }
-  .pillar .lede {
-    font-size: 11.5px;
-    color: #475569;
-    line-height: 1.55;
-    margin-bottom: 10px;
-  }
-  .pillar .novel-line {
-    padding: 8px 10px;
-    background: #fef3c7;
-    border-left: 3px solid #f59e0b;
-    border-radius: 0 4px 4px 0;
-    font-size: 11px;
-    color: #78350f;
-    line-height: 1.5;
-  }
-  .pillar .novel-line b {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #92400e;
-    text-transform: uppercase;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    margin-right: 5px;
-  }
-
-  /* ── Scene 3 — topology ──────────────────── */
-  .container-box {
-    border: 2px dashed #94a3b8;
-    border-radius: 10px;
-    padding: 30px 20px 18px;
-    background: #f8fafc;
-    position: relative;
-  }
-  .container-label {
-    position: absolute;
-    top: -11px;
-    left: 16px;
-    padding: 3px 10px;
-    background: #f8fafc;
-    border: 1.5px solid #94a3b8;
-    border-radius: 20px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    font-weight: 700;
-    color: #475569;
-    letter-spacing: 0.05em;
-  }
-  .processes {
-    display: flex;
-    align-items: stretch;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-  .process {
-    flex: 1 1 260px;
-    min-width: 260px;
-    padding: 14px 16px;
-    background: #fff;
-    border: 2px solid #d1d5db;
-    border-radius: 8px;
-    display: flex;
-    flex-direction: column;
-  }
-  .process.agent { border-color: #4f46e5; }
-  .process.mcp { border-color: #0891b2; }
-  .process .process-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 2px;
-  }
-  .process.agent .process-title { color: #3730a3; }
-  .process.mcp .process-title { color: #0e7490; }
-  .process .process-role {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 8px;
-  }
-  .process .process-body {
-    font-size: 11px;
-    color: #475569;
-    line-height: 1.55;
-  }
-  .process .process-body .mono-inline {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    color: #1d4ed8;
-  }
-  .stdio-arrow {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    padding: 0 16px;
-    flex-shrink: 0;
-  }
-  .stdio-arrow .stdio-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    color: #64748b;
-    margin-bottom: 2px;
-    letter-spacing: 0.05em;
-  }
-  .stdio-arrow .stdio-symbol {
-    font-size: 26px;
-    color: #94a3b8;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .shared-resources {
-    padding: 10px 14px;
-    background: #fff;
-    border: 1px dashed #cbd5e1;
-    border-radius: 6px;
-    font-size: 11px;
-    color: #475569;
-  }
-  .shared-resources .shared-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-right: 8px;
-  }
-  .shared-resources .mono-inline {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #1d4ed8;
-    background: #eff6ff;
-    padding: 1px 4px;
-    border-radius: 3px;
-  }
-  .boundary-arrow {
-    text-align: center;
-    padding: 8px 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px;
-    color: #94a3b8;
-    letter-spacing: 0.05em;
-  }
-  .external-ledger {
-    padding: 12px 16px;
-    background: #fffbeb;
-    border: 1.5px solid #fcd34d;
-    border-radius: 6px;
-    font-size: 11.5px;
-    color: #78350f;
-    line-height: 1.55;
-  }
-  .external-ledger .ext-label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    color: #92400e;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-right: 8px;
-  }
-  .external-ledger .ext-name {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #78350f;
-    font-weight: 700;
-  }
-  .topology-caveat-compact {
-    margin-top: 12px;
-    padding: 10px 14px;
-    background: #fff1f2;
-    border-left: 3px solid #f43f5e;
-    border-radius: 0 6px 6px 0;
-    font-size: 11.5px;
-    color: #4b5563;
-    line-height: 1.55;
-  }
-  .topology-caveat-compact .tag {
-    color: #9f1239;
-    text-transform: uppercase;
-    font-size: 9.5px;
-    letter-spacing: 0.1em;
-    margin-right: 6px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 700;
-  }
-
-  /* ── Scene 4 — results scorecard ─────────── */
-  .scorecard {
+  .sb-meta-row {
     display: flex;
     gap: 14px;
-    margin-bottom: 18px;
+    align-items: center;
+    margin-bottom: 28px;
+    padding: 10px 14px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: #475569;
     flex-wrap: wrap;
   }
-  .metric {
-    flex: 1 1 180px;
-    min-width: 180px;
-    padding: 22px 18px;
-    background: #fff;
-    border: 2px solid #e5e7eb;
-    border-radius: 10px;
-    text-align: center;
-  }
-  .metric.good { border-color: #10b981; background: #ecfdf5; }
-  .metric.pending { border-color: #fcd34d; background: #fffbeb; }
-  .metric .metric-value {
-    display: block;
-    font-size: 38px;
-    font-weight: 700;
-    color: #1a1a2e;
-    line-height: 1;
-    font-family: 'IBM Plex Mono', monospace;
-  }
-  .metric.good .metric-value { color: #047857; }
-  .metric.pending .metric-value { color: #b45309; font-size: 26px; padding-top: 6px; }
-  .metric .metric-label {
-    display: block;
+  .sb-meta-row .tag {
+    padding: 3px 8px;
+    background: #1a1a2e;
+    color: #fff;
+    border-radius: 3px;
     font-size: 10px;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    margin-top: 10px;
-    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .sb-meta-row .m {
+    color: #1a1a2e;
     font-weight: 700;
   }
-  .metric .metric-note {
-    display: block;
-    font-size: 9.5px;
-    color: #94a3b8;
-    margin-top: 6px;
-    font-family: 'IBM Plex Sans', sans-serif;
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    line-height: 1.4;
-  }
-  .results-summary {
+
+  .sb-intro {
     padding: 14px 16px;
-    background: #f8fafc;
-    border-left: 3px solid #3b82f6;
+    margin-bottom: 24px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
     border-radius: 0 6px 6px 0;
     font-size: 11.5px;
     color: #334155;
     line-height: 1.55;
   }
-  .results-summary b {
-    color: #1a1a2e;
-  }
-  .results-summary .tag {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9.5px;
-    color: #1d4ed8;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-right: 6px;
-    font-weight: 700;
-  }
+  .sb-intro b { color: #78350f; }
 
-  /* ── Failure demo mini-panel (scene 4) ──── */
-  .demo-panel {
-    margin-top: 16px;
-    padding: 14px 16px;
+  /* ── Scene card ─────────────────────────── */
+  .scene-card {
     background: #fff;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
+    margin-bottom: 22px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,.02);
   }
-  .demo-panel h4 {
-    font-size: 13px;
+
+  .scene-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 18px;
+    background: #1a1a2e;
+    color: #fff;
+    flex-wrap: wrap;
+  }
+  .scene-header .timecode {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
     font-weight: 700;
-    color: #1a1a2e;
-    margin-bottom: 8px;
+    color: #fbbf24;
+    letter-spacing: 0.02em;
   }
-  .demo-panel .demo-flow {
+  .scene-header .scene-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    padding: 2px 8px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 3px;
+  }
+  .scene-header .scene-title {
+    font-size: 16px;
+    font-weight: 700;
+    flex: 1;
+  }
+  .scene-header .duration {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
-    color: #475569;
-    line-height: 1.7;
-  }
-  .demo-panel .demo-flow .hop {
-    padding: 3px 8px;
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    color: #1a1a2e;
+    color: #94a3b8;
     font-weight: 700;
   }
-  .demo-panel .demo-flow .hop.fail {
-    background: #fee2e2;
-    border-color: #fca5a5;
-    color: #991b1b;
+
+  .scene-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    gap: 0;
   }
-  .demo-panel .demo-flow .hop.recover {
-    background: #d1fae5;
-    border-color: #6ee7b7;
-    color: #065f46;
+
+  @media (max-width: 900px) {
+    .scene-body { grid-template-columns: 1fr; }
+  }
+
+  .visual-col,
+  .script-col {
+    padding: 18px 20px;
+  }
+
+  .visual-col {
+    background: #fafafa;
+    border-right: 1px solid #e5e7eb;
+  }
+  .col-label {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: #64748b;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    margin-bottom: 12px;
+  }
+
+  .visual-content {
+    font-size: 12.5px;
+    color: #334155;
+    line-height: 1.65;
+  }
+  .visual-content p { margin-bottom: 8px; }
+  .visual-content ul { margin-left: 16px; margin-bottom: 8px; }
+  .visual-content li { margin-bottom: 3px; }
+  .visual-content .ref {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: #1d4ed8;
+    background: #eff6ff;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .visual-content .cue {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #0e7490;
+    background: #cffafe;
+    border: 1px solid #67e8f9;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 4px;
+  }
+
+  .script-col {
+    background: #fff;
+  }
+  .script-content {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 14px;
+    color: #1a1a2e;
+    line-height: 1.7;
+  }
+  .script-content p { margin-bottom: 10px; }
+  .script-content .emph {
+    font-style: italic;
+    color: #0e7490;
+  }
+  .script-content .pause {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #9ca3af;
+    font-style: normal;
+    padding: 0 4px;
+  }
+  .script-content .beat {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #dc2626;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 10px 0 4px;
+  }
+
+  .scene-notes {
+    padding: 10px 18px;
+    background: #f8fafc;
+    border-top: 1px solid #e5e7eb;
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.55;
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .scene-notes .notes-block {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .scene-notes .notes-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-right: 6px;
+  }
+  .scene-notes b { color: #1a1a2e; }
+
+  /* ── Running timeline ──────────────────── */
+  .timeline {
+    margin: 30px 0 14px;
+    padding: 14px 16px;
+    background: #1a1a2e;
+    color: #fff;
+    border-radius: 8px;
+  }
+  .timeline .tl-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: #94a3b8;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    font-weight: 700;
+  }
+  .timeline .tl-bar {
+    display: flex;
+    height: 28px;
+    border-radius: 4px;
+    overflow: hidden;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .timeline .tl-seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    padding: 0 6px;
+    text-align: center;
+  }
+  .timeline .tl-seg.s1 { background: #3b82f6; }
+  .timeline .tl-seg.s2 { background: #7c3aed; }
+  .timeline .tl-seg.s3 { background: #0891b2; }
+  .timeline .tl-seg.s4 { background: #4f46e5; }
+  .timeline .tl-seg.s5 { background: #dc2626; }
+  .timeline .tl-seg.s6 { background: #059669; }
+
+  /* ── Footer ────────────────────────────── */
+  .sb-foot {
+    margin-top: 28px;
+    padding-top: 14px;
+    border-top: 1px solid #e5e7eb;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
   }
 
 </style>
 </head>
 <body>
 
+<div class="sb-head">
+  <h1>Find Evil — Video Storyboard</h1>
+  <div class="sb-sub">working production tool · not a submission artifact · read top-down, record scene by scene</div>
+</div>
+
+<div class="sb-meta-row">
+  <span class="tag">target</span>
+  <span class="m">5:00 total</span>
+  <span>·</span>
+  <span class="m">6 scenes</span>
+  <span>·</span>
+  <span>screen-capture of <span style="font-family:inherit;color:#1d4ed8;">architecture.html</span> + live pipeline demo</span>
+</div>
+
+<div class="sb-intro">
+  <b>How to use this file:</b> each scene has three parts — <b>on-screen visual</b> (what the viewer sees / what to capture), <b>narrator script</b> (verbatim, time-budgeted), and <b>production notes</b> (transitions, overlays, cues). The <span style="font-family:'IBM Plex Mono',monospace;color:#0e7490;background:#cffafe;padding:1px 5px;border-radius:3px;font-size:10px;">cyan cue tags</span> mark navigation moves inside <span style="font-family:'IBM Plex Mono',monospace;">architecture.html</span>. Scene colors at the bottom mirror the progress bar above.
+</div>
+
+<!-- ── TIMELINE ───────────────────────────── -->
+<div class="timeline">
+  <div class="tl-label">timeline · 5:00</div>
+  <div class="tl-bar">
+    <div class="tl-seg s1" style="flex: 25;">1 · Hook · 25s</div>
+    <div class="tl-seg s2" style="flex: 65;">2 · Pipeline · 65s</div>
+    <div class="tl-seg s3" style="flex: 75;">3 · Novelty · 75s</div>
+    <div class="tl-seg s4" style="flex: 35;">4 · Topology · 35s</div>
+    <div class="tl-seg s5" style="flex: 70;">5 · Demo · 70s</div>
+    <div class="tl-seg s6" style="flex: 30;">6 · Close · 30s</div>
+  </div>
+</div>
+
+
 <!-- ═══════════════════════════════════════════════════════ -->
-<!-- SCENE 1 — HERO PIPELINE -->
+<!-- SCENE 1 — HOOK -->
 <!-- ═══════════════════════════════════════════════════════ -->
-<div class="scene">
-  <div class="scene-head">
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">0:00 → 0:25</span>
     <span class="scene-num">Scene 1</span>
-    <h1>Find Evil — an autonomous DFIR agent that investigates persistence on real Windows disk images</h1>
-    <span class="scene-sub">SANS Find Evil 2026</span>
+    <span class="scene-title">Hook — why this matters</span>
+    <span class="duration">25s</span>
   </div>
-
-  <div class="flow-wrap">
-    <div class="flow">
-
-      <div class="card io">
-        <div class="top">
-          <div class="role">Input</div>
-          <div class="name">E01 image</div>
-        </div>
-        <div class="middle">
-          <div class="detail">forensic disk copy<br>(read-only)</div>
-        </div>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">COLD OPEN</span> black screen, text fade-in:</p>
+        <ul>
+          <li>Line 1 (large): <b>SANS Find Evil 2026</b></li>
+          <li>Line 2 (smaller): <i>thousands of teams · one winner</i></li>
+        </ul>
+        <p><span class="cue">BEAT 0:12</span> fade to <span class="ref">architecture.html</span> at the top, showing the hero pipeline. Hold for 10s.</p>
       </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s1">
-        <div class="top">
-          <div class="step-badge">STEP 1</div>
-          <div class="role">Extract</div>
-          <div class="name">EXTRACT</div>
-          <div class="model">gemini-3.1-flash-lite</div>
-        </div>
-        <div class="middle">
-          <div class="detail">enumerate candidate<br>artifact paths</div>
-          <div class="eg">
-            <span class="eg-lbl">output</span>
-            HKLM\…\Run<br>\System32\Tasks\<br>\Startup\
-          </div>
-        </div>
+    </div>
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>SANS Find Evil 2026. Thousands of teams will ship broad, shallow forensic agents. <span class="pause">[beat]</span> <span class="emph">We're building a narrow, deep one</span> — auditable by construction.</p>
+        <p>Here's the shape.</p>
       </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s2">
-        <div class="top">
-          <div class="step-badge">STEP 2</div>
-          <div class="role">Plan</div>
-          <div class="name">PLAN</div>
-          <div class="model">claude-sonnet-4.6</div>
-        </div>
-        <div class="middle">
-          <div class="detail">order forensic tool<br>calls + dependencies</div>
-          <div class="eg">
-            <span class="eg-lbl">output</span>
-            fsstat → fls → icat<br>→ regripper(run plugin)
-          </div>
-        </div>
-        <div class="bottom">
-          <span class="cache-badge">CACHED</span>
-        </div>
-      </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s3">
-        <div class="top">
-          <div class="step-badge">STEP 3</div>
-          <div class="role">Gates</div>
-          <div class="name">GATES</div>
-        </div>
-        <div class="middle">
-          <div class="detail">validate plan<br>issue capability token</div>
-          <div class="eg">
-            <span class="eg-lbl">checks</span>
-            regripper ⟵ icat ✓<br>paths ⊂ case ✓
-          </div>
-        </div>
-      </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s4">
-        <div class="top">
-          <div class="step-badge">STEP 4</div>
-          <div class="role">Execute</div>
-          <div class="name">EXECUTE</div>
-          <div class="model">MCP · stdio</div>
-        </div>
-        <div class="middle">
-          <div class="detail">verify token · run tool<br>split output</div>
-          <div class="eg">
-            <span class="eg-lbl">raw → ledger · parsed → agent</span>
-            "svchost" = C:\…\a.exe
-          </div>
-        </div>
-      </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s5">
-        <div class="top">
-          <div class="step-badge">STEP 5</div>
-          <div class="role">Interpret</div>
-          <div class="name">INTERPRET</div>
-          <div class="model">claude-sonnet-4.6</div>
-        </div>
-        <div class="middle">
-          <div class="detail">typed Finding<br>DFIR classification</div>
-          <div class="eg">
-            <span class="eg-lbl">output</span>
-            class: attacker_persistence<br>ATT&amp;CK: T1547.001
-          </div>
-        </div>
-      </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card s6">
-        <div class="top">
-          <div class="step-badge">STEP 6</div>
-          <div class="role">Critic</div>
-          <div class="name">CRITIC</div>
-        </div>
-        <div class="middle">
-          <div class="detail">13 deterministic rules<br>retry or escalate</div>
-          <div class="eg">
-            <span class="eg-lbl">example checks</span>
-            no invented text ✓<br>path in scope ✓<br>coverage ✓
-          </div>
-        </div>
-      </div>
-
-      <div class="arr"><svg viewBox="0 0 24 14" fill="none"><line x1="0" y1="7" x2="16" y2="7" stroke="#9ca3af" stroke-width="2"/><polygon points="16,3 24,7 16,11" fill="#9ca3af"/></svg></div>
-
-      <div class="card io out">
-        <div class="top">
-          <div class="role">Output</div>
-          <div class="name">findings.json</div>
-        </div>
-        <div class="middle">
-          <div class="detail">+ plan digest<br>+ audit trail</div>
-        </div>
-      </div>
-
+    </div>
+  </div>
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> cold open, no B-roll. Large title card. Slow fade (~0.5s) into architecture.html capture.
+    </div>
+    <div class="notes-block">
+      <span class="notes-label">Music</span> start low ambient pad, keep under narrator, crescendo at 0:20 into Scene 2.
     </div>
   </div>
 </div>
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<!-- SCENE 2 — FOUR PILLARS (condensed) -->
+<!-- SCENE 2 — PIPELINE -->
 <!-- ═══════════════════════════════════════════════════════ -->
-<div class="scene">
-  <div class="scene-head">
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">0:25 → 1:30</span>
     <span class="scene-num">Scene 2</span>
-    <h1>What's novel — four boundaries that standard agent frameworks don't draw</h1>
+    <span class="scene-title">What the pipeline does — 8 cards, left to right</span>
+    <span class="duration">65s</span>
   </div>
-
-  <div class="pillars-grid">
-
-    <div class="pillar">
-      <span class="pillar-tag">Pillar 1</span>
-      <h3>Deterministic 13-rule Critic</h3>
-      <div class="lede">Code-level validation over every LLM output. No "LLM-as-judge" — 13 Python rules, each deterministic, each returning a pass/fail with a corrective instruction for retry.</div>
-      <div class="novel-line"><b>Novel</b> stress-tested against a published <i>no-persistence</i> scenario to prove the Critic isn't rubber-stamping LLM positive-finding bias.</div>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">HOLD</span> hero pipeline from <span class="ref">architecture.html</span>. Zoom 110%.</p>
+        <p><span class="cue">HIGHLIGHT PASS</span> spotlight each card as it's named. Dim the rest (reduce opacity to 0.3). ~7 seconds per card:</p>
+        <ul>
+          <li>E01 → EXTRACT → PLAN → GATES → EXECUTE → INTERPRET → CRITIC → findings.json</li>
+        </ul>
+        <p><span class="cue">0:55</span> pull back to show full flow for the last 10s. No highlight — let the whole picture settle.</p>
+      </div>
     </div>
-
-    <div class="pillar">
-      <span class="pillar-tag">Pillar 2</span>
-      <h3>Evidence splitter</h3>
-      <div class="lede">In DFIR the adversary authors the evidence — a filename or registry value can carry prompt-injection payload. Tool output is parsed server-side: raw bytes to the ledger, structured fields to the agent.</div>
-      <div class="novel-line"><b>Novel</b> defending prompt injection at the <i>evidence boundary</i>, not the prompt boundary.</div>
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>An <b>E01 disk image</b> goes in. <span class="pause">[beat]</span></p>
+        <p>A fast skim model — Gemini Flash-Lite — scans for <span class="emph">candidate paths</span> where persistence typically hides: Run keys, scheduled tasks, startup folders.</p>
+        <p>A reasoning model — Claude Sonnet — orders a <span class="emph">dependency-aware tool plan</span>. You can't run RegRipper on a hive you haven't extracted, so the plan says: <span class="emph">icat first, then regripper</span>.</p>
+        <p>Gates run <span class="emph">structural invariants</span>. If the plan passes, gates <span class="emph">issue a capability token</span> — a scoped permission slip.</p>
+        <p>EXECUTE calls the MCP server — five typed forensic tools running the real SIFT toolchain. Every tool's output is <span class="emph">split</span>: raw bytes to the integrity ledger, parsed fields to the agent.</p>
+        <p>INTERPRET synthesizes <span class="emph">typed findings</span> with DFIR classification. CRITIC validates every finding with <span class="emph">thirteen deterministic rules</span>.</p>
+        <p>Out comes <b>findings.json</b>, plus a tamper-evident audit trail.</p>
+      </div>
     </div>
-
-    <div class="pillar">
-      <span class="pillar-tag">Pillar 3</span>
-      <h3>Tokens bound to plan</h3>
-      <div class="lede">Every tool call carries an HMAC-signed permission slip scoped to (case, tools, paths, plan_digest, expiry). MCP server refuses anything outside scope.</div>
-      <div class="novel-line"><b>Novel</b> the <i>plan_digest</i> binding — tokens die when the plan changes, so they can't be replayed across plans.</div>
+  </div>
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> the highlight pass is the load-bearing visual of this scene. If you can't automate the dim-undim, record 9 separate takes with a static zoom on each card and edit together.
     </div>
-
-    <div class="pillar">
-      <span class="pillar-tag">Pillar 4</span>
-      <h3>Linear hash chain</h3>
-      <div class="lede">Each ledger entry embeds SHA-256 of the previous entry. Ledger lives outside the case folder. A companion replay tool walks the chain and passes or fails loudly.</div>
-      <div class="novel-line"><b>Novel</b> tamper-evidence <i>by construction</i>, with separate-ledger storage that defeats self-attestation.</div>
+    <div class="notes-block">
+      <span class="notes-label">Pacing</span> don't rush — this scene carries the whole architecture. 65s is comfortable; if you run short, linger on EXECUTE (the three-chip MCP card is dense).
     </div>
-
   </div>
 </div>
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<!-- SCENE 3 — DEPLOYMENT TOPOLOGY (condensed) -->
+<!-- SCENE 3 — NOVELTY -->
 <!-- ═══════════════════════════════════════════════════════ -->
-<div class="scene">
-  <div class="scene-head">
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">1:30 → 2:45</span>
     <span class="scene-num">Scene 3</span>
-    <h1>Where it runs — what's inside the container, what lives outside for integrity</h1>
+    <span class="scene-title">What's novel — four safety pillars</span>
+    <span class="duration">75s</span>
   </div>
-
-  <div class="container-box">
-    <span class="container-label">SIFT Docker container · single UID</span>
-
-    <div class="processes">
-      <div class="process agent">
-        <span class="process-title">LangGraph orchestrator</span>
-        <span class="process-role">the "agent" process</span>
-        <div class="process-body">
-          runs <span class="mono-inline">EXTRACT · PLAN · GATES · INTERPRET · CRITIC</span><br>
-          holds <span class="mono-inline">PipelineState</span>, retry budget, checkpointer
-        </div>
-      </div>
-
-      <div class="stdio-arrow">
-        <span class="stdio-label">stdio · MCP</span>
-        <span class="stdio-symbol">⇄</span>
-      </div>
-
-      <div class="process mcp">
-        <span class="process-title">MCP server</span>
-        <span class="process-role">the "tools" process</span>
-        <div class="process-body">
-          runs <span class="mono-inline">fsstat · fls · icat · regripper · tasks</span><br>
-          verifies capability tokens · splits evidence output
-        </div>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">SCROLL</span> from hero to the four-pillar block in <span class="ref">architecture.html</span>.</p>
+        <p><span class="cue">HOLD</span> on full four-pillar grid for ~8s while narrator sets up.</p>
+        <p><span class="cue">ZOOM</span> into each pillar card in order (16s each). Enlarge the Novel callout line when zoomed.</p>
+        <ul>
+          <li>Pillar 1 — Deterministic 13-rule Critic</li>
+          <li>Pillar 2 — Evidence splitter</li>
+          <li>Pillar 3 — Tokens bound to plan</li>
+          <li>Pillar 4 — Linear hash chain</li>
+        </ul>
+        <p><span class="cue">2:40</span> zoom back out to full grid for 5s.</p>
       </div>
     </div>
-
-    <div class="shared-resources">
-      <span class="shared-label">shared mount</span>
-      <span class="mono-inline">/cases/&lt;id&gt;/</span> — forensic disk image, read-only bind mount
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>At a glance, this reads <span class="emph">"LLM → tools → LLM → checker."</span> Standard agent pattern. What's new lives in four places.</p>
+        <span class="beat">Pillar 1</span>
+        <p>The Critic is <b>deterministic</b> — thirteen Python rules, no second LLM. Most agent frameworks review an LLM's output with another LLM, which rubber-stamps the same positive-finding bias. Our Critic is stress-tested against a published no-persistence scenario: the pipeline must return an empty findings list on a case where an attacker wasn't there. <span class="pause">[beat]</span> That's the test.</p>
+        <span class="beat">Pillar 2</span>
+        <p>In DFIR, the <span class="emph">adversary authors the evidence</span>. A filename, a registry value, a document body can carry a prompt-injection payload. The splitter routes raw bytes to the integrity ledger and parsed, sanitized fields to the agent. <span class="emph">By design, the attacker's payload never reaches the LLM's context.</span></p>
+        <span class="beat">Pillar 3</span>
+        <p>Capability tokens bound to the specific plan hash. If the plan changes, every outstanding token dies. You can't replay yesterday's permission for today's plan.</p>
+        <span class="beat">Pillar 4</span>
+        <p>The audit ledger is a <b>linear hash chain</b>. Each entry embeds the SHA-256 of the one before. The ledger lives <span class="emph">outside</span> the case folder — because a process that writes evidence <span class="emph">and</span> the hashes that attest to it is self-attestation, not audit.</p>
+      </div>
     </div>
   </div>
-
-  <div class="boundary-arrow">↓ &nbsp;audit writes leave the container boundary &nbsp;↓</div>
-
-  <div class="external-ledger">
-    <span class="ext-label">outside the container</span>
-    <span class="ext-name">integrity ledger</span> — append-only, SHA-linked, on a separate volume so the container can't silently rewrite its own audit trail.
-  </div>
-
-  <div class="topology-caveat-compact">
-    <span class="tag">Caveat</span> same-container deployment means tokens are application-layer, <i>not</i> cryptographic. The evidence splitter (Pillar 2) carries the real injection defense — if injection never reaches the agent, hijack can't happen.
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> this scene is the submission's pitch. Slow down, use the <span class="ref">beat</span> labels as visual transitions — a small title card flashes for each Pillar label.
+    </div>
+    <div class="notes-block">
+      <span class="notes-label">Emphasis</span> "adversary authors the evidence" is the money line for Pillar 2. Hit it hard. Consider a sound sting here.
+    </div>
   </div>
 </div>
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<!-- SCENE 4 — RESULTS + ONE FAILURE DEMO -->
+<!-- SCENE 4 — TOPOLOGY -->
 <!-- ═══════════════════════════════════════════════════════ -->
-<div class="scene">
-  <div class="scene-head">
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">2:45 → 3:20</span>
     <span class="scene-num">Scene 4</span>
-    <h1>Results — what the pipeline is actually producing</h1>
+    <span class="scene-title">Where it runs — and what we're honest about</span>
+    <span class="duration">35s</span>
   </div>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">SCROLL</span> to the deployment topology block in <span class="ref">architecture.html</span>.</p>
+        <p><span class="cue">HOLD</span> on the container box with both processes visible (25s).</p>
+        <p><span class="cue">ZOOM</span> into the external ledger + caveat panel for the last 10s. The rose-bordered caveat should be clearly readable.</p>
+      </div>
+    </div>
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>Deployment is deliberately honest. The orchestrator and the MCP server run in the <span class="emph">same container</span>, under the same UID. Capability tokens are application-layer routing — <span class="emph">not a cryptographic sandbox</span>. A fully hijacked agent could bypass the MCP boundary directly.</p>
+        <p>That's why <b>Pillar 2</b> — the evidence splitter — is the real injection defense. If injection never reaches the agent's context, the hijack never happens in the first place.</p>
+        <p>The integrity ledger lives <span class="emph">outside</span> the container, on a separate volume. The container can't silently rewrite its own audit trail.</p>
+      </div>
+    </div>
+  </div>
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> the honesty beat earns credibility with security-aware judges. Don't skip it — judges are conditioned to hear overclaim in hackathon videos; the caveat calibrates expectations.
+    </div>
+    <div class="notes-block">
+      <span class="notes-label">Lower-third</span> optional: <b>"application-layer routing ≠ cryptographic sandbox"</b> as a graphic overlay during the first two sentences.
+    </div>
+  </div>
+</div>
 
-  <div class="scorecard">
-    <div class="metric good">
-      <span class="metric-value">1.00</span>
-      <span class="metric-label">Precision</span>
-      <span class="metric-note">on validated positive CTF cases</span>
-    </div>
-    <div class="metric good">
-      <span class="metric-value">0</span>
-      <span class="metric-label">Hallucinations</span>
-      <span class="metric-note">zero invented quotes or paths</span>
-    </div>
-    <div class="metric">
-      <span class="metric-value">&lt;60s</span>
-      <span class="metric-label">Per-case runtime</span>
-      <span class="metric-note">end-to-end, cached prompt</span>
-    </div>
-    <div class="metric pending">
-      <span class="metric-value">pending</span>
-      <span class="metric-label">Negative-case test</span>
-      <span class="metric-note">published no-persistence scenario — the adversarial validation</span>
-    </div>
-  </div>
 
-  <div class="results-summary">
-    <span class="tag">Architecture</span> <b>13 deterministic Critic rules</b>, grouped into three failure routes (10 retry through a sycophancy-detecting repeat guard, 3 escalate directly). Bounded retry budget prevents infinite loops. Every run produces a tamper-evident audit trail.
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 5 — DEMO -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">3:20 → 4:30</span>
+    <span class="scene-num">Scene 5</span>
+    <span class="scene-title">Demo — Critic catches a hallucination, escalates</span>
+    <span class="duration">70s</span>
   </div>
-
-  <div class="demo-panel">
-    <h4>Seeded failure demo — the critic catches a hallucination</h4>
-    <div class="demo-flow">
-      <span class="hop">INTERPRET</span> &nbsp;<i>quotes a registry key that doesn't exist in tool output</i> &nbsp;→&nbsp;
-      <span class="hop fail">Rule fails</span> &nbsp;<i>"no invented text"</i> &nbsp;→&nbsp;
-      <span class="hop">repeat guard</span> &nbsp;→&nbsp;
-      <span class="hop">fresh context</span> &nbsp;→&nbsp;
-      <span class="hop recover">retry with corrective</span>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">SCREEN CAPTURE</span> seeded failure case: a Finding that quotes a registry key absent from raw tool output. Pre-record the notebook run so timing is clean.</p>
+        <p>Split-screen (50/50):</p>
+        <ul>
+          <li><b>Left:</b> notebook terminal — INTERPRET produces the Finding, CRITIC fires <span class="ref">R_02 no invented text</span>, routing to <span class="ref">human_review</span></li>
+          <li><b>Right:</b> the <b>13-rule Critic</b> table in <span class="ref">architecture.html</span>, flashing the R_02 row and the "escalate vs. retry" routing callout</li>
+        </ul>
+        <p><span class="cue">4:15</span> overlay: <b>R_02 fires · invented text caught · finding quarantined · escalated to human_review</b> — hold 10s.</p>
+      </div>
+    </div>
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>Watch. The agent quotes a registry key — <span class="pause">[pause]</span> — that <span class="emph">doesn't exist</span> in the raw tool output. Rule <b>R_02 — no invented text</b> — fires. The Finding is <span class="emph">quarantined</span> before it reaches the report.</p>
+        <p>This is the load-bearing claim of the submission: invented text <span class="emph">cannot</span> pass the Critic, because R_02 is thirteen lines of Python, not another LLM's opinion.</p>
+        <span class="beat">today</span>
+        <p>R_02 catches it. CRITIC escalates to <b>human_review</b>. The run stops, the ledger records the attempt, and the case folder never gets the bad Finding.</p>
+        <span class="beat">next</span>
+        <p>The shipped build routes most Critic failures through a bounded retry — <b>repeat guard</b> blocks sycophantic duplicates, <b>fresh context</b> clears stale state, PLAN regenerates with a corrective instruction. Three of the thirteen rules always escalate; the rest retry.</p>
+        <p>Either way: <span class="emph">no hallucinated evidence survives the Critic.</span></p>
+      </div>
     </div>
   </div>
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> the live demo is the highest-risk scene to record — rehearse the seeded failure until the timing lines up. If the notebook run takes &gt;45s, pre-record and scrub it down.
+    </div>
+    <div class="notes-block">
+      <span class="notes-label">Overlay</span> scorecard card at 4:15 should animate the numbers counting up. Don't flash them — let them land.
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SCENE 6 — CLOSE -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="scene-card">
+  <div class="scene-header">
+    <span class="timecode">4:30 → 5:00</span>
+    <span class="scene-num">Scene 6</span>
+    <span class="scene-title">Close — one frame they can screenshot</span>
+    <span class="duration">30s</span>
+  </div>
+  <div class="scene-body">
+    <div class="visual-col">
+      <span class="col-label">On screen</span>
+      <div class="visual-content">
+        <p><span class="cue">FINAL CARD</span> single still image, centered. Hold for 20s.</p>
+        <p><b>Title:</b> <i>Find Evil — Autonomous DFIR Pipeline</i></p>
+        <p><b>Four claims</b>, one line each (large type):</p>
+        <ul>
+          <li>Deterministic 13-rule Critic — validated against a no-persistence scenario</li>
+          <li>Evidence splitter — injection defense at the evidence boundary</li>
+          <li>Capability tokens bound to plan — tokens die when the plan changes</li>
+          <li>Linear hash chain — tamper-evident audit, replayable months later</li>
+        </ul>
+        <p><b>Footer:</b> <span class="ref">SANS Find Evil 2026 · submission 2026-06-15</span></p>
+        <p><span class="cue">4:50</span> fade to black + end credit (1 line, small: "MCP-native · SIFT Workstation").</p>
+      </div>
+    </div>
+    <div class="script-col">
+      <span class="col-label">Narrator</span>
+      <div class="script-content">
+        <p>SANS Find Evil 2026.</p>
+        <p><span class="emph">Auditable by construction.</span> Every finding carries a tamper-evident chain of custody. Built to replay months from now and produce the same result.</p>
+        <p>That's the submission.</p>
+      </div>
+    </div>
+  </div>
+  <div class="scene-notes">
+    <div class="notes-block">
+      <span class="notes-label">Production</span> this is the <b>screenshot frame</b> — the one image a judge will grab to paste into their review doc. Every word needs to land. Rehearse the final card in a still-image editor until it reads well at thumbnail size.
+    </div>
+    <div class="notes-block">
+      <span class="notes-label">Music</span> cut ambient pad at "That's the submission." Beat of silence, then end-card.
+    </div>
+  </div>
+</div>
+
+
+<div class="sb-foot">
+  <span>docs/planning/architecture-video.html · production tool · not submitted</span>
+  <span>target: 2026-06-15 SANS Find Evil submission</span>
 </div>
 
 </body>
