@@ -33,6 +33,9 @@ services:
     # server runs in the narrowest box we can give it.
     environment:
       - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
+      # Slice 5 Step 3 — HMAC key used by verify_token to check capability
+      # token signatures on every MCP tool call. Same value as sift-sentinel's.
+      - CAPABILITY_TOKEN_KEY=${CAPABILITY_TOKEN_KEY}
     volumes:
       # Persist case audit trails + extracted hives across restarts.
       - sift-home:/home/sansforensics
@@ -67,6 +70,9 @@ services:
       # header on every streamable-HTTP connection; sift-mcp's Starlette middleware
       # rejects anything else before the MCP handshake.
       - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
+      # Slice 5 Step 3 — HMAC key used by issue_token to sign capability tokens
+      # minted after plan approval. Same value as sift-mcp's; one key, two uses.
+      - CAPABILITY_TOKEN_KEY=${CAPABILITY_TOKEN_KEY}
       # Force Python (and thus Jupyter Server) into UTF-8 mode regardless of
       # the container's locale. Prevents round-trip CP1252 corruption of em-dashes /
       # arrows / ellipses in slice2.ipynb on save. Discovered 2026-04-19 after 183
