@@ -1,16 +1,14 @@
 """Pipeline schemas — Pydantic contracts shared across every phase.
 
 Single home for type definitions used by EXTRACT, PLAN, EXECUTE, INTERPRET, and
-CRITIC. Extracted from slice2.ipynb C2 at Slice 5 Step 1 (dependency-leaf first).
+CRITIC, plus the Slice-5 capability-token / dual-channel-evidence / injection-flag
+shapes used by the MCP server-side modules.
 
 Not included here, by design:
   - `PipelineState` — lives in `pipeline/graph.py` (LangGraph runtime, not shared data).
-  - `CriticContext`  — lives in `pipeline/critic.py` (ephemeral per-invocation context).
-  - Slice-5 types (`CapabilityToken`, `EvidenceRecord`, `InjectionFlag`, and the
-    structured-field types `FsstatResult`, `FlsEntry`, `IcatResult`,
-    `RegripperResult`, `ScheduledTasksResult`) — land here during Slice 5 Step 2.
+  - `CriticContext` — lives in `pipeline/critic.py` (ephemeral per-invocation context).
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
@@ -166,9 +164,133 @@ class CriticDisagreement(BaseModel):
     timestamp_utc: datetime
 
 
+# ============================================================================
+# Slice 5 Step 2 additions — capability tokens, dual-channel evidence records,
+# injection flags, and per-tool structured-field shapes (channel B of the
+# dual-channel handler). Declared here; Steps 3/4/5/6 populate their runtime
+# uses. No behavior lives in these types — they are shape contracts only.
+# ============================================================================
+
+# ---- Capability tokens (Slice 5 Step 3) ----
+class CapabilityToken(BaseModel):
+    """Per-plan least-privilege scope issued by the orchestrator after human
+    approval and verified by the MCP server on every tool call. HMAC-SHA256 over
+    the canonical serialization; the shared key lives in the container env.
+    """
+    token_id: str                      # uuid4 for audit-trail correlation
+    case_id: str
+    allowed_tools: frozenset[str]      # subset of exposed MCP tool names
+    allowed_paths: tuple[str, ...]     # canonical path prefixes; order-sensitive
+    plan_digest: str                   # sha256 of the approved ToolPlan — binds the token to the reviewed plan
+    expires_at: datetime               # short window (~30 min typical)
+    signature: str = Field(..., min_length=64, max_length=64)  # hex-encoded HMAC-SHA256
+
+
+# ---- Injection flags (Slice 5 Step 5) ----
+class InjectionFlag(BaseModel):
+    """Pattern-match hit from the injection scanner. Attached to an
+    EvidenceRecord so downstream handling can decide whether to quarantine the
+    record from the agent context (severity='quarantine') or just record the
+    signal for audit (severity='info' / 'warn').
+    """
+    pattern_id: str                    # e.g. "INJ_IMPERATIVE_IGNORE", "INJ_ATTCK_EMIT"
+    excerpt: str = Field(..., max_length=128)  # audit-log locator; scanner must truncate before this
+    field_path: str                    # free-form locator into structured_fields, e.g. "entries[3].value_data_safe"
+    severity: Literal["info", "warn", "quarantine"]
+
+
+# ---- Evidence record (Slice 5 Step 6) ----
+ToolExecutionStatus = Literal["ok", "timeout", "permission_denied", "parse_error", "empty"]
+
+
+class EvidenceRecord(BaseModel):
+    """Replaces ToolResult as the MCP server's return shape. Two channels:
+      A) raw bytes preserved immutably (raw_sha256 + raw_path on disk)
+      B) structured fields parsed server-side and handed to the LLM
+    The LLM never sees raw stdout under Slice 5+ — only structured_fields.
+    """
+    tool_call_id: str
+    raw_sha256: str = Field(..., min_length=64, max_length=64)
+    raw_path: str                      # absolute path inside sift-mcp; for Slice 6 integrity-ledger replay
+    # structured_fields — shape is per-tool; see FsstatResult / FlsResult / etc.
+    # Must be JSON-safe at construction time (call `result.model_dump(mode="json")`
+    # when nesting a per-tool Result into this dict). The outer `dict` type has
+    # no Pydantic validator to re-hydrate nested datetimes on parse, so passing
+    # a Python-native dict with datetime values breaks JSON round-trip equality.
+    structured_fields: dict
+    injection_flags: list[InjectionFlag] = Field(default_factory=list)
+    expected_paths_covered: list[str] = Field(default_factory=list)  # feeds R_06 Negative-Result-Metadata
+    tool_execution_status: ToolExecutionStatus                        # feeds R_12 Evidence-of-Absence
+    issued_at: datetime
+    token_id: str                      # audit-link to the CapabilityToken that authorized this call
+
+
+# ---- Per-tool structured-field shapes (Slice 5 Step 6, channel B) ----
+class FsstatResult(BaseModel):
+    fs_type: str                       # e.g. "NTFS"
+    block_size: int
+    mft_offset: int | None = None      # NTFS-only
+    volume_serial: str | None = None
+    partition_count: int = 1
+    install_time: datetime | None = None  # for R_13 Temporal Consistency
+
+
+class FlsEntry(BaseModel):
+    inode: int
+    entry_type: Literal["file", "directory", "symlink", "other"]
+    size: int
+    mtime: datetime | None = None
+    atime: datetime | None = None
+    ctime: datetime | None = None
+    crtime: datetime | None = None
+    filename_safe: str                 # adversarial filename bytes replaced with <NON_PRINTABLE>; inode+size preserved so Plan can still chain
+
+
+class FlsResult(BaseModel):
+    entries: list[FlsEntry]
+
+
+class IcatResult(BaseModel):
+    dest_path: str                     # absolute path under <case>/analysis/extracted/
+    bytes_written: int
+    sha256: str = Field(..., min_length=64, max_length=64)  # of extracted bytes
+    magic_bytes: str                   # first 16 bytes as hex
+
+
+class RegripperEntry(BaseModel):
+    key_path: str
+    value_name: str
+    value_type: str                    # REG_SZ, REG_DWORD, etc.
+    value_data_safe: str               # parsed; free-text portions scanner-checked
+    last_write: datetime | None = None  # for R_13 Temporal Consistency
+
+
+class RegripperResult(BaseModel):
+    plugin_name: str
+    hive_type: str                     # Software | System | NTUSER.DAT
+    entries: list[RegripperEntry]
+
+
+class ScheduledTaskEntry(BaseModel):
+    task_name: str
+    author_safe: str = ""
+    description_safe: str = ""
+    trigger_type: str                  # LogonTrigger | TimeTrigger | BootTrigger | ... | Unknown
+    action_command_safe: str
+    action_arguments_safe: str = ""
+    enabled: bool = True
+    last_run_time: datetime | None = None
+    next_run_time: datetime | None = None
+
+
+class ScheduledTasksResult(BaseModel):
+    tasks: list[ScheduledTaskEntry]
+
+
 __all__ = [
     # Literals
     "Confidence", "PersistenceCategory", "Classification", "RuleId", "FailureCode",
+    "ToolExecutionStatus",
     # ATT&CK
     "ATTACK_MAPPING", "ATTACK_TACTIC_ID", "ATTACK_TACTIC_NAME",
     # Phase 1
@@ -181,4 +303,12 @@ __all__ = [
     "Evidence", "Finding", "Findings",
     # Phase 5 (CRITIC)
     "RuleFailure", "CritiqueResult", "CriticDisagreement",
+    # Slice 5 Step 2 — capability tokens, dual-channel evidence, injection flags
+    "CapabilityToken", "InjectionFlag", "EvidenceRecord",
+    # Slice 5 Step 2 — per-tool structured-field shapes (channel B)
+    "FsstatResult",
+    "FlsEntry", "FlsResult",
+    "IcatResult",
+    "RegripperEntry", "RegripperResult",
+    "ScheduledTaskEntry", "ScheduledTasksResult",
 ]
