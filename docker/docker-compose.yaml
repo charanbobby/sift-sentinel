@@ -1,45 +1,72 @@
-# SIFT DFIR container for Protocol SIFT + Claude Code
+# Find Evil — two-container stack for Slice 5+
+#
+#   sift-mcp      — long-lived FastMCP streamable-HTTP endpoint. Extends
+#                   digitalsleuth/sift-docker:jammy with uv + mcp + pydantic + the
+#                   rip.pl patch (see sift/Dockerfile). Runs as non-privileged
+#                   sansforensics user; holds the forensic toolchain the agent
+#                   calls as subprocesses. The agent's only capability surface.
+#   sift-sentinel — the agent's home: Jupyter + LangGraph + MCP client. Talks to
+#                   sift-mcp over the `findevil-internal` bridge network (internal:
+#                   true — no host port publish, not externally reachable).
+#
+# Slice 5 Step 0.5 (2026-04-22): swapped stdio-over-docker-exec → streamable-HTTP,
+# dropped /var/run/docker.sock + docker.io from sift-sentinel, renamed `notebook`
+# → `sift-sentinel`, moved the MCP server into its own `sift-mcp` service. See
+# docs/runbooks/slice-5-runbook.md § Step 0.5 for rationale.
+#
+# Note: an interactive `sift` workbench service was kept during Step 0.5 for manual
+# DFIR (ewfmount, volatility, Claude Code CLI) but later removed (2026-04-22) after
+# review concluded it was vestigial — not on the agent's data path, not load-bearing
+# for the pipeline. Ad-hoc manual work happens via `docker run --rm -it --privileged
+# -v <evidence>:/mnt/hackathon:ro find-evil/sift:slice5 bash` when needed.
+#
 # Runs on Docker Desktop (WSL2 backend) — uses Hyper-V natively for speed.
-# See docs/runbooks/slice-1-docker-runbook.md for full usage.
 
 services:
-  sift:
-    build: ./sift                              # extends digitalsleuth/sift-docker:jammy, adds uv + mcp + pydantic (see sift/Dockerfile)
-    image: find-evil/sift:slice2               # local image tag so `docker compose build sift` is cached/reusable
-    container_name: sift
-    hostname: sift
-    privileged: true                            # needed for FUSE-based image mounting
-    cap_add:
-      - SYS_ADMIN
-      - MKNOD
-    devices:
-      - /dev/fuse:/dev/fuse                     # lets Sleuth Kit / ewfmount attach E01s
+  sift-mcp:
+    build: ./sift                              # extends digitalsleuth/sift-docker:jammy, adds uv + mcp + pydantic + rip.pl patch
+    image: find-evil/sift:slice5               # local image tag; also reusable for ad-hoc `docker run` privileged workbench sessions
+    container_name: sift-mcp
+    hostname: sift-mcp
+    # Intentionally NOT privileged / no FUSE devices: fsstat / fls / icat / rip.pl
+    # operate directly on the E01 via libewf — no mount needed. The agent's tool
+    # server runs in the narrowest box we can give it.
+    environment:
+      - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
     volumes:
-      # Persist the sansforensics home — ~/.claude/, ~/cases/, shell history all survive restarts
+      # Persist case audit trails + extracted hives across restarts.
       - sift-home:/home/sansforensics
-      # Evidence read-only — forensic integrity, and keeps 14 GB on D: (no VM disk bloat)
+      # Evidence read-only — forensic integrity, and keeps 14 GB on D: (no VM disk bloat).
       - "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026:/mnt/hackathon:ro"
       # Derived artifacts (preprocessed raw partitions, exported hives etc) — writable,
       # bind-mounted to the host so we don't bloat the sift-home volume. Kept OUTSIDE
-      # the :ro evidence mount so the agent / MCP can't accidentally write through to
-      # raw evidence. First use: DFIR Madness DESKTOP.ntfs.dd extracted via dd from the
-      # ewfmount'd multi-segment E01.
+      # the :ro evidence mount so the MCP server can't accidentally write through to
+      # raw evidence. Preprocessing that needs FUSE (ewfmount on multi-segment E01s)
+      # happens ad-hoc via `docker run --privileged` — not in this long-lived service.
       - "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/derived:/mnt/derived:rw"
-      # Our MCP server — bind-mounted read-only so edits on the host take effect on the next spawn.
+      # Our MCP server code — read-only bind; host edits take effect on service restart.
       - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook/mcp_server:/opt/mcp:ro"
-    stdin_open: true
-    tty: true
+    user: sansforensics                         # least-privilege; root not needed for libewf tools
+    working_dir: /home/sansforensics
+    command: ["python3", "/opt/mcp/server.py"]
+    networks:
+      - findevil-internal
+    # No ports: — reachable only from sift-sentinel on the internal bridge.
     restart: unless-stopped
 
-  notebook:
-    build: ./notebook
-    container_name: find-evil-notebook
-    depends_on: [sift]
+  sift-sentinel:
+    build: ./notebook                           # directory keeps its path; only the service/container name flipped
+    container_name: sift-sentinel
+    depends_on: [sift-mcp]
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      # Bearer token shared with sift-mcp. The agent puts this in the Authorization
+      # header on every streamable-HTTP connection; sift-mcp's Starlette middleware
+      # rejects anything else before the MCP handshake.
+      - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
       # Force Python (and thus Jupyter Server) into UTF-8 mode regardless of
       # the container's locale. Prevents round-trip CP1252 corruption of em-dashes /
       # arrows / ellipses in slice2.ipynb on save. Discovered 2026-04-19 after 183
@@ -48,19 +75,31 @@ services:
     volumes:
       # Notebook workspace (pyproject, pipeline/, mcp_server/, slice2.ipynb, out/)
       - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook:/workspace"
-      # Docker CLI talks to the host daemon → `docker exec -i sift ...` bridges MCP stdio
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Read-only view of sift's case directory so C8's resolver can open stdout_path
-      # files (bodyfile output from fls -m) that the MCP server wrote inside sift.
-      # Mounted at the same path sift sees so `open(raw_result.stdout_path)` just works.
+      # Read-only view of sift-mcp's case directory so C8's resolver can open
+      # stdout_path files (bodyfile output from fls -m) that the MCP server wrote.
+      # Kept through Step 0.5 as an interim; Step 6's dual-channel EvidenceRecord
+      # will eliminate the need for the notebook to read raw files directly.
       - "sift-home:/home/sansforensics:ro"
     working_dir: /workspace
     ports:
-      - "8888:8888"
+      - "8888:8888"                             # Jupyter only; MCP is NOT published to host
+    networks:
+      # `default` keeps outbound reachability for OpenRouter / Langfuse over the
+      # internet; `findevil-internal` is the bridge to sift-mcp only.
+      - default
+      - findevil-internal
     # Single line avoids YAML folded-block quirks. `--allow-root` is required
-    # because the notebook container runs as root (it's a dev container).
+    # because the sift-sentinel container runs as root (it's a dev container).
     command: ["bash", "-c", "uv sync && uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
     restart: unless-stopped
+
+networks:
+  findevil-internal:
+    # `internal: true` means no NAT to the host — sift-sentinel can reach sift-mcp
+    # on this network, but the port is not published to the Docker host and not
+    # reachable from outside. This is the primary isolation mechanism now that the
+    # Docker socket is gone from sift-sentinel.
+    internal: true
 
 volumes:
   sift-home:

@@ -131,10 +131,179 @@ Before writing any code, enumerate what the capability-token + dual-channel syst
 | T7 | Token leaks from a log and is replayed on a different case | `case_id` mismatch + `expires_at` check |
 | T8 | An adversarial E01 contains a crafted document that would trip the parser itself | Out of scope for Slice 5 — flagged as Slice 5.5 / Slice 7 concern; documented as extension point |
 
+**T0 addition (post-carried-item-16, 2026-04-21):**
+
+| # | Threat | Which Slice 5 control stops it |
+|---|---|---|
+| T0 | Hijacked agent process calls the host Docker daemon directly (`docker exec --user root sift bash`, `docker run -v /:/host alpine`) via the mounted `/var/run/docker.sock`, bypassing MCP server and capability tokens entirely | Step 0.5 — drop `/var/run/docker.sock` mount and `docker.io` CLI from the `sift-sentinel` container; MCP becomes the agent's *only* capability |
+
 **Why this step exists:** without an explicit list, the implementation drifts. The threat list is what the test plan in Step 10 is built against.
 
 - [ ] Threat-model document landed and checked in
 - [ ] NotebookLM consulted on completeness — any well-known DFIR-relevant threat we missed?
+
+---
+
+## Step 0.5 — MCP transport swap: HTTP/SSE over internal bridge, drop Docker socket
+
+Committed as **carried item 16** in [PLAN.md](../planning/PLAN.md) (2026-04-21). This step **runs before every other engineering step in this slice** — every control in Steps 3–8 (capability tokens, injection scanner, dual-channel) assumes the MCP boundary is the only route from agent to evidence. Under the current stdio transport, `/var/run/docker.sock` is mounted into the notebook container and `docker.io` is installed, which means a hijacked agent has a root-on-host route that bypasses everything downstream. Swap the transport first; then Steps 3–8 layer onto a boundary that is actually the only boundary.
+
+### 0.5a — Target shape
+
+**Two-container topology with an internal-only Docker bridge network:**
+
+```
+┌──────────────────────────┐          ┌──────────────────────────┐
+│ sift-sentinel            │          │ sift                     │
+│  (Jupyter + agent code)  │          │  (sshd, base SIFT tools) │
+│                          │          │                          │
+│  - no docker.sock        │          │  - /mnt/hackathon  (ro)  │
+│  - no docker.io CLI      │          │  - /mnt/derived    (rw)  │
+│  - streamablehttp_client │          │  - FUSE / privileged     │
+└──────────┬───────────────┘          └──────────────────────────┘
+           │                                         ▲
+           │           (internal: true)              │
+           │  ┌──────────────────────────────────┐   │
+           └──► sift-mcp                          │◄─┘ (shares sift-home volume + evidence
+              │  (long-lived FastMCP, streamable │     mounts so tool subprocesses can read/write)
+              │   HTTP transport)                │
+              │  - same image as sift            │
+              │  - CMD: python3 /opt/mcp/server.py
+              │  - EXPOSE 8000 (bridge-only)     │
+              └──────────────────────────────────┘
+```
+
+The `sift-sentinel ↔ sift-mcp` hop rides the `findevil-internal` Compose network with `internal: true` — **no host port publish, no external reachability.** `sift-mcp` shares `sift-home` with `sift-sentinel` (rw / ro respectively) and binds the host evidence directories so the MCP tool subprocesses can read E01s and write to `<case>/analysis/` exactly as they did before the transport swap.
+
+*(An interactive `sift` workbench service was kept during Step 0.5 for ad-hoc manual work but later removed 2026-04-22 as vestigial — not on the agent's data path, not load-bearing for the pipeline. Manual workbench sessions now happen via one-off `docker run --rm -it --privileged --device /dev/fuse -v <evidence>:/mnt/hackathon:ro find-evil/sift:slice5 bash`.)*
+
+**Rename note (2026-04-22):** the former `notebook` Compose service / `find-evil-notebook` container is renamed to `sift-sentinel` (matches the repo name committed 2026-04-20 and positions the container as *the agent's home*, not merely a notebook runtime). Directory `docker/notebook/Dockerfile` keeps its path for minimum churn — only names flip. See the compose + client steps below.
+
+**Transport-layer auth (distinct from Slice-5 capability tokens):** bearer token in the `Authorization` header on every SSE connection. Shared secret in `MCP_TRANSPORT_TOKEN` env var, pinned via `.env` and `docker-compose.yaml`. Think of this as the WiFi-password layer: it says "this client is allowed to connect to the MCP endpoint at all." Per-call scope (which tool, which path, which case) is the capability-token layer in Steps 3–4 and sits *on top of* the bearer check.
+
+### 0.5b — `case_id` refactor: env var → per-call parameter
+
+Today [`mcp_server/server.py:38`](../../experiments/slice-2-notebook/mcp_server/server.py#L38) reads `FIND_EVIL_CASE_ID` from env at module import; `ANALYSIS_DIR`, `RAW_OUT_DIR`, `EXTRACTED_DIR`, `TOOL_CALLS_LOG` are all computed from it at module scope (lines 56–60) and `mkdir`-ed at import time (76–78). A long-lived server cannot be locked to one case — it serves many.
+
+Refactor:
+- [ ] `CASE_ID` module global → removed. `FIND_EVIL_CASE_ID` env var check at import → removed.
+- [ ] Every tool function gains a `case_id: str` first parameter.
+- [ ] Case-directory layout helpers (`_case_analysis_dir(case_id)`, `_case_raw_dir(case_id)`, etc.) compute paths on demand and `mkdir(parents=True, exist_ok=True)` at call time.
+- [ ] `_run_and_record` takes `case_id` so it knows which `tool_calls.jsonl` to append to.
+- [ ] `_check_extracted_path(case_id, path_str)` — scopes the regripper-hive-path check per-case (today it's globally locked to the one case's extracted/).
+- [ ] **Interim contract** (this step): `case_id` is a plain string argument. Server trusts the caller to pass a valid, consistent value.
+- [ ] **Final contract** (Step 3 once capability tokens land): `case_id` comes from the verified `CapabilityToken`, not the raw call args. Mismatch = `capability_denied`.
+
+Why this is safe as an interim: `sift-sentinel` is the only caller, it's single-tenant on one laptop, and the bearer-token check already gates connection. The per-call `case_id` trust window is ≤1 step, and Step 3 closes it.
+
+### 0.5c — Transport choice: `streamable-http` (not `sse`)
+
+FastMCP (current `mcp` package) supports both `transport="sse"` (legacy) and `transport="streamable-http"` (current MCP spec, recommended). Resolved via quick probe on the sift container 2026-04-22: `FastMCP.run()` signature is `run(self, transport: Literal['stdio', 'sse', 'streamable-http'] = 'stdio', mount_path: str | None = None)`, and the client side (`sift-sentinel` container) exposes both `mcp.client.sse.sse_client(url, headers, ...)` and `mcp.client.streamable_http.streamablehttp_client(url, headers, ...)`.
+
+Picking **`streamable-http`** because:
+- It's the current MCP-spec-recommended transport (SSE is being phased out in newer MCP versions); migrating to it now avoids a second transport swap later.
+- Default mount path is `/mcp` (vs `/sse` + `/messages/` for SSE — simpler single-URL surface).
+- Bidirectional — client POSTs + server streams on one endpoint; the legacy SSE transport uses a separate message POST path.
+- Both transports accept `Authorization` headers identically, so bearer-token design is unchanged.
+
+**Fixed constants resolved by probe A+B (2026-04-22):**
+- Server-side invocation: `FastMCP(name=..., host="0.0.0.0", port=8000, streamable_http_path="/mcp", transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))` — rebinding-protection disabled because we're on an internal-only bridge and bearer auth gates connection; otherwise FastMCP rejects `Host: sift-mcp:8000` (allowlist defaults to `127.0.0.1:*`, `localhost:*`, `[::1]:*` only).
+- URL from `sift-sentinel`: `http://sift-mcp:8000/mcp`.
+- Client factory: `streamablehttp_client(url, headers={"Authorization": f"Bearer {token}"})`.
+
+**Still unverified, to be resolved by full end-to-end probe:**
+- `TBD-probe-D`: Concrete bearer-middleware shape — FastMCP exposes `streamable_http_app()` returning a Starlette ASGI app. Wrapping with a Starlette `BaseHTTPMiddleware` that checks the `Authorization` header, then running via `uvicorn.run(wrapped_app, ...)` instead of `mcp.run(transport="streamable-http")`. Confirm via probe that the wrapped app still passes the MCP session handshake cleanly (initialize + list_tools + call_tool roundtrip).
+- `TBD-probe-E`: Two concurrent client sessions against the same long-lived FastMCP — do tool calls interleave cleanly on disk appends? Affects whether `_run_and_record`'s append to `tool_calls.jsonl` needs a lock.
+- `TBD-probe-F`: Internal-bridge isolation — a `curl` from the host to `localhost:8000` fails (port not published), while `curl` from the `sift-sentinel` container to `http://sift-mcp:8000/mcp` succeeds.
+
+### 0.5d — Fail-fast probes (run before any real file change)
+
+Each probe is a standalone throwaway file under `d:/tmp/`. Run in the appropriate container venv per probe. Only after each exits clean with the expected output does the matching file change in Steps 0.5e/0.5f/0.5g land.
+
+- [x] **Probe A+B** resolved 2026-04-22 via `docker exec sift python3 -c …` introspection — signatures + default paths captured above.
+- [ ] **Probe C+D** — `d:/tmp/probe_fastmcp_http_server.py` (runs on `sift`): FastMCP + trivial `ping` tool + Starlette `BearerAuth` middleware wrapping `streamable_http_app()` + uvicorn. **Plus** `d:/tmp/probe_fastmcp_http_client.py` (runs on `sift-sentinel`): `async with streamablehttp_client("http://sift:8000/mcp", headers={"Authorization": f"Bearer {SECRET}"}) as (r, w, get_session_id): … session.call_tool("ping", {"msg":"hello"})`. Assert: (a) correct-bearer roundtrip succeeds with `"pong: hello"` payload, (b) missing-bearer → 401, (c) wrong-bearer → 401.
+- [ ] **Probe E** — `d:/tmp/probe_fastmcp_concurrent_sessions.py`: two concurrent client sessions (same bearer, same server) each call a tool that appends a line to `/tmp/probe_concurrent.log`. Assert each line is intact (no interleaved bytes); if interleaving observed, add a `threading.Lock` (or `asyncio.Lock`) around the `_run_and_record` append and re-probe.
+- [ ] **Probe F** — `d:/tmp/probe_internal_bridge.sh`: after the real compose change lands in Step 0.5f, run `docker exec sift-sentinel curl -sv -H "Authorization: Bearer <tok>" http://sift-mcp:8000/mcp` → succeeds (200 or MCP handshake response). Then `curl -sv http://localhost:8000/mcp` from the **host** → connection refused or timeout. Confirms no host-side port publish.
+
+### 0.5e — Server changes (`mcp_server/server.py`)
+
+After probes C+D+E resolve:
+- [ ] Replace `mcp.run()` (line 335) with explicit uvicorn invocation wrapping `mcp.streamable_http_app()` in a Starlette `BearerAuth` middleware (pattern from probe). `FastMCP()` constructor gains `host="0.0.0.0"`, `port=8000`, `streamable_http_path="/mcp"`, `transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)`.
+- [ ] Add the `BearerAuth` middleware class, reading `MCP_TRANSPORT_TOKEN` from env at process start; reject connections whose `Authorization` header != `Bearer {MCP_TRANSPORT_TOKEN}`.
+- [ ] Apply the `case_id` refactor from Step 0.5b. Keep the existing 4 tool functions' signatures otherwise stable for now (the 5th tool, `EvidenceRecord` return shape, and `_require_capability` decorator land in Steps 2–4).
+- [ ] Remove the `FIND_EVIL_CASE_ID` fatal-at-import block (lines 38–49).
+
+### 0.5f — Compose changes (`docker/docker-compose.yaml`)
+
+- [ ] Add `networks: {findevil-internal: {internal: true}}` at file level.
+- [ ] Attach `sift-mcp` to `findevil-internal`.
+- [ ] Attach `sift-sentinel` to `findevil-internal` (and keep it on the default bridge for outbound LLM API calls — confirm during probe D whether dual-network attachment works as expected).
+- [ ] **Add `sift-mcp` service** — `build: ./sift` (extends `digitalsleuth/sift-docker:jammy`), tag as `find-evil/sift:slice5`, mount `sift-home` + evidence + `mcp_server` bind-mount, CMD `python3 /opt/mcp/server.py`, no `stdin_open`/`tty`, no published ports, `user: sansforensics`.
+- [ ] **Remove `/var/run/docker.sock` mount from `sift-sentinel`** (line 52).
+- [ ] **Remove `sift-home:/home/sansforensics:ro` mount from `sift-sentinel`** (lines 55–56) once the notebook no longer needs to `open(stdout_path)` directly — *confirm*: does current C8 resolver still need this after transport swap? Interim answer: yes, until Step 6's `EvidenceRecord` replaces `ToolResult`. **Keep the mount through Step 0.5; revisit removal in Step 6.**
+- [ ] Add `MCP_TRANSPORT_TOKEN` env var on both `sift-sentinel` and `sift-mcp` (pinned via `.env`).
+
+### 0.5g — `sift-sentinel` Dockerfile changes (`docker/notebook/Dockerfile`)
+
+Directory path keeps `docker/notebook/` (per sub-option (i) minimum-rename); only the image it builds is now used by the renamed `sift-sentinel` service.
+
+- [ ] Remove `docker.io` from the `apt-get install` line (line 7).
+- [ ] Update the pinning comment at the top — the "bookworm pin because trixie dropped the docker CLI" rationale is now obsolete; the pin can stay for reproducibility but the comment should reflect post-Step-0.5 reality.
+- [ ] Rebuild the image; confirm `docker` binary is gone (`docker exec sift-sentinel which docker` → no output, exit 1).
+
+### 0.5h — Notebook client changes (`slice2.ipynb`, C3 + C8)
+
+After probe C resolves:
+- [ ] C3 smoke-test cell: replace `StdioServerParameters(command="docker", args=[...])` block and `stdio_client(params)` context-manager with `streamablehttp_client("http://sift-mcp:8000/mcp", headers={"Authorization": f"Bearer {os.environ['MCP_TRANSPORT_TOKEN']}"})`. Note the three-tuple return: `(read, write, get_session_id)` — prior stdio form returned a two-tuple.
+- [ ] C3: pass `case_id` as a tool argument on each `session.call_tool` invocation.
+- [ ] C8 execute cell: same swap.
+- [ ] Remove `FIND_EVIL_CASE_ID=<case>` env-injection (it was passed via `docker exec -e`; no longer meaningful).
+
+### 0.5h2 — User-run: fill `.env` + rebuild stack
+
+After all four code edits land ([mcp_server/server.py](../../experiments/slice-2-notebook/mcp_server/server.py), [docker/docker-compose.yaml](../../docker/docker-compose.yaml), [docker/notebook/Dockerfile](../../docker/notebook/Dockerfile), [slice2.ipynb](../../experiments/slice-2-notebook/slice2.ipynb) cells C3 + C8), the user runs these three commands from a shell **on the Windows host**:
+
+```bash
+# 1. Generate a 32-byte random bearer token and pin it into docker/.env.
+#    On Windows (Git Bash / WSL / PowerShell core), any of these works:
+python -c "import secrets; print('MCP_TRANSPORT_TOKEN=' + secrets.token_urlsafe(32))"
+# → copy the printed line, replace the empty `MCP_TRANSPORT_TOKEN=` row in docker/.env
+
+# 2. Bring down the old two-container stack (notebook + sift); new stack has three services.
+docker compose -f docker/docker-compose.yaml down
+
+# 3. Rebuild + start the two-container stack (sift-mcp, sift-sentinel).
+docker compose -f docker/docker-compose.yaml up -d --build
+```
+
+Expected result:
+- `docker ps` shows two containers: `sift-mcp`, `sift-sentinel`.
+- `sift-mcp` logs (`docker logs sift-mcp`) show `[mcp-server] starting streamable-HTTP on 0.0.0.0:8000/mcp`.
+- Jupyter at http://localhost:8888 still answers (served by `sift-sentinel`).
+- `docker exec sift-sentinel which docker` → empty / exit 1 (Docker CLI is gone).
+
+### 0.5i — End-to-end regression gate
+
+- [ ] Run C3 smoke test against all 4 existing tools on `base-wkstn-05` over the HTTP transport; assert same `stdout_hash` values as the pre-swap baseline (audit trail at `out/runs/srl-2018-wkstn-05/analysis/tool_calls.jsonl`).
+- [ ] Run C8 against `base-wkstn-05`; assert `findings.json` is byte-identical to the pre-swap Phase C baseline (SHA-256 match). Any divergence = bug in the swap, not a Slice 5 design issue.
+- [ ] Repeat on `dfirmadness-001-desktop` (the second canonical case).
+- [ ] Probe F isolation gate: `docker exec sift-sentinel curl ... http://sift-mcp:8000/mcp` (with valid bearer) succeeds; same `curl` from the **host** fails with connection-refused.
+
+### 0.5j — Downstream updates
+
+- [ ] Update [architecture.html](../planning/architecture.html) deployment-topology section: old two-container (sift + notebook) → new two-container (`sift-mcp` + `sift-sentinel`); stdio-over-docker-exec → streamable-HTTP over internal bridge; remove the "shared UID" caveat (it was misdescribed anyway — see carried item 16 rationale).
+- [ ] PLAN.md Slice 5 row stays ⬜ until all of Slice 5 ships; add a bullet under Current Status recording Step 0.5 completion date.
+- [ ] Update [mcp_server/server.py](../../experiments/slice-2-notebook/mcp_server/server.py) module docstring (lines 1–20) to replace the stdio-spawn-via-docker-exec narrative with the streamable-HTTP long-lived-service narrative.
+
+### 0.5k — Tripwires specific to the transport swap
+
+| Trigger | Action |
+|---|---|
+| FastMCP's installed version lacks `streamable-http` transport support | Pin a newer `mcp` package version in sift Dockerfile; re-run probes A+B before proceeding |
+| Starlette-middleware wrapping breaks the MCP session handshake | Fall back to FastMCP's native `auth` / `token_verifier` hooks (OAuth-style); document the OAuth-bearer shim as a Slice-5 artifact |
+| Concurrent-session probe shows `tool_calls.jsonl` interleaving | Add a per-case `asyncio.Lock` (or `threading.Lock` if the `_run_and_record` path is sync) around the append; regression-test the concurrency probe |
+| Two-network attach (`sift-sentinel` on both default + internal) misbehaves | Fall back to single-network internal + add a dedicated outbound-egress sidecar; flag as Slice-5.5 concern |
+| Post-swap `findings.json` diverges from pre-swap baseline | **Halt Step 0.5.** The transport swap must be a structural no-op at the findings layer; any divergence means the `case_id` refactor or the server-side mkdir-at-call-time logic changed behavior. Debug before any Step-3/4 capability-token work lands. |
 
 ---
 
