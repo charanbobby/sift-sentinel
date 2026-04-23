@@ -475,20 +475,28 @@ A small, deterministic pattern library + one heuristic. Runs in the MCP server o
 
 **Scope discipline:** v1 is pattern-based. v2 (deferred) can add an LLM-judge fallback. Pattern-based is **defensible** (reviewable, reproducible) and sufficient for the demo.
 
+- [x] Module shipped at `pipeline/mcp/injection_scanner.py` exposing `scan_text`, `scan_bytes`, `scan_evidence`. All 6 patterns above + the 5b density heuristic. Patterns compile once at module import; no per-call regex cost.
+- [x] Imperative-verb list **tightened** from the draft to exclude common DFIR modals (`must` / `should` / `run` / `return` / `execute`) — otherwise a Windows service description or a Registry Run-key value would FP. Final list: ignore, pretend, respond, reveal, disclose, bypass, override, emit, classify, output, flag. Rationale inline in the module.
+- [x] `_IMPERATIVE_IGNORE` regex handles any combination of qualifier words (`all` / `any` / `every` / `the` / `previous` / `prior` / `above`) between `ignore` and `instructions` — earlier draft used two separate optional groups and missed `"ignore all previous instructions"`. Caught by the probe before shipping.
+
 ### 5b — Heuristic: free-text field audit
-- [ ] Any free-text field (`value_data_safe`, `filename_safe`) gets counted for imperative verbs. ≥3 imperatives in a ≤200-char string → `severity: "warn"`.
+- [x] Any free-text field gets counted for imperative verbs. ≥3 imperatives in a ≤200-char string → `severity: "warn"` with `pattern_id: INJ_IMPERATIVE_DENSITY`.
 
 ### 5c — Scanner output
-- [ ] Returns `list[InjectionFlag]`. Severity logic:
-  - `info` — low-confidence match, log but do not quarantine
-  - `warn` — bubbles up as a `requires_disambiguation` hint on any Finding whose evidence spans the flagged excerpt
-  - `quarantine` — triggers the LangGraph `escalate` edge (same as `ESCALATE_CODES` in C12) → `human_review` node
+- [x] Returns `list[InjectionFlag]`. Severity logic:
+  - `info` — low-confidence match, log but do not quarantine *(reserved for future patterns; v1 has none at this severity)*
+  - `warn` — bubbles up as a `requires_disambiguation` hint on any Finding whose evidence spans the flagged excerpt *(used by the density heuristic only)*
+  - `quarantine` — triggers the LangGraph `escalate` edge (same as `ESCALATE_CODES` in C12) → `human_review` node *(used by all 6 pattern detectors)*
+- [x] Excerpts: widened ±20 chars around each match, control-char-escaped, truncated to 128 (schema constraint). JSON-safe on every path.
 
 ### 5d — Fail-fast probe
-- [ ] Seed 6 patterns' worth of hostile strings into a test E01 filename list (no real disk write — synthetic `FlsEntry[]` input)
-- [ ] Scanner reports one `InjectionFlag` per seeded pattern at `severity: "quarantine"`
-- [ ] Clean strings produce zero flags (no FP)
-- [ ] Latency: ≤5 ms per 1000 entries (pattern library must stay cheap)
+- [x] `d:/tmp/probe_step5_scanner.py` — 6 test groups, all green 2026-04-22:
+  - 6/6 hostile seeds → 1 flag each, correct `pattern_id`, `severity: quarantine`
+  - 13/13 clean DFIR-realistic strings → zero flags (Chrome path, Adobe command-line, audio-service description, task with "must"/"should", RegRipper output lines, short base64, normal NTFS filenames)
+  - Density heuristic fires `warn` on "Please ignore, pretend, and reveal everything"
+  - `scan_bytes` decodes UTF-8 with replacement chars + matches role marker
+  - `scan_evidence` composite attributes flags to correct `field_path`
+  - Latency: **3.36 ms per 1000 entries** (gate ≤5 ms; comfortable headroom)
 
 ---
 
