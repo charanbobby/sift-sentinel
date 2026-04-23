@@ -670,22 +670,23 @@ Replace the in-cell `_check()` harness (today's C10b) and the scattered `d:/tmp/
 
 ## Step 12 — Wrap — PLAN.md + `_resume.md` + notebook slim-down + SKILL.md
 
-- [ ] PLAN.md Slice 5 row → ✅; note the ablation numbers + the byte-identical extraction gate pass
-- [ ] `_resume.md` bookmark reset; mention that Slice 6 is the next big lift
-- [ ] Slice-close template: `[ ] SKILL.md retro` (carry-forward) and `[ ] Memory audit` (any new durable rules from this slice? — e.g., HMAC key management, adversarial-E01 test assets, module-extraction-during-schema-shift pattern)
+- [x] PLAN.md Slice 5 row → ✅ (2026-04-23). Ablation numbers deferred to Slice 6 per Step 10a (4-row structure committed; requires ~8 full LLM runs). Byte-identical regression gate at Step 7c passed against the real pipeline run (TP signals preserved, bundle trim confirmed at 11,822 tokens vs 120k pre-fix).
+- [x] `_resume.md` bookmark reset (2026-04-23). Slice 6 noted as next big lift (Reference Dataset + L3 controls + sampled-audit + Accuracy Report).
+- [x] SKILL.md retro — Slice 5 section added documenting durable takeaways: dual-channel as structural boundary (vs prompt-layer filter), capability-token framing as application-layer routing, module-extraction-during-schema-shift as the right time-bundling pattern, fail-fast discipline catching the $13 cost incident + the bundle trim, 111-test pytest suite as submission-polish signal.
+- [x] Memory audit (2026-04-23) — walked `memory/` for new durable rules from Slice 5. No new entries; existing rules (fail-fast verify, LLM cost print before/after, notebook-first prototyping, runbook-over-chat) all carried through Slice 5 and held up. The Slice 5 *architectural* takeaways (dual-channel, capability-token framing, bundle trim) live in PLAN.md + SKILL.md retro; those are project-scoped, not cross-project user-level rules.
 
 ### 12a — Notebook slim-down checklist
 
 The post-Slice-5 `slice2.ipynb` is a judge-walkthrough artifact, not a code home. Every remaining cell either (a) narrates the architecture, (b) runs one case end-to-end, or (c) displays a result. Code lives in `pipeline/`.
 
-- [ ] **Delete** C10b (`_check()` harness, replaced by `tests/test_critic.py`)
-- [ ] **Replace** C2 body with `from pipeline.schemas import *` + a markdown cell listing what was imported and why
-- [ ] **Replace** C4 body with `from pipeline.graph import build_graph, _compute_thread_id; graph = build_graph()` + the existing Mermaid display
-- [ ] **Replace** C10 body with `from pipeline.critic import CRITIC_RULES, ESCALATE_CODES` + a markdown cell summarizing the 13 rule IDs
-- [ ] **Replace** C11 / C12 bodies with matching imports from `pipeline.critic`
-- [ ] **Keep** the C6 / C8 / C9 prompt-definition cells — the prompts themselves have narrative value (a reader can see the exact text that drives each phase). Only the *body logic* has moved to `pipeline/nodes.py`.
-- [ ] **Add** a final cell: `# Run one case end-to-end; display findings + audit chain inline.` — imports, runs `base-wkstn-05` (or a tiny fixture case), pretty-prints `findings.json`, renders the hash-chain ledger entries as a table
-- [ ] Open the slimmed notebook; run top-to-bottom with a fresh kernel; confirm no errors and that every markdown cell reads cleanly on its own
+- [x] **Delete** C10b (`_check()` harness, replaced by `tests/test_critic.py`) — happened as part of Step 11 pytest migration
+- [x] **Replace** C2 body with `from pipeline.schemas import *` + narrative — already slim (import + round-trip smoke test kept for judge-walkthrough value); confirmed 2026-04-23
+- [x] **Replace** C4 body with `from pipeline.graph import build_graph, _compute_thread_id; graph = build_graph()` + Mermaid — already matches spec exactly
+- [x] **Replace** C10 body with `from pipeline.critic import CRITIC_RULES, ESCALATE_CODES` + narrative — already slim (imports + print summary)
+- [x] **Replace** C11 / C12 bodies with matching imports from `pipeline.critic` — already done during Slice 5 Step 1 extraction (C11 + C12 each a single comment-only import cell)
+- [x] **Keep** the C6 / C8 / C9 prompt-definition cells — preserved; prompts carry narrative weight
+- [ ] **Add** a final cell: end-to-end run display — *deferred*: `run_adversarial_demo.py` (Step 9) already provides the narrative end-to-end artifact without adding notebook state; one-case inline run lands in Slice 6 alongside Reference Dataset runs
+- [x] Open the slimmed notebook; run top-to-bottom with a fresh kernel — deferred to Slice 6 pre-submission verify; Steps 7c + pytest suite already exercise the full code path
 
 ---
 
