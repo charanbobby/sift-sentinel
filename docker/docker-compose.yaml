@@ -49,6 +49,11 @@ services:
       - "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/derived:/mnt/derived:rw"
       # Our MCP server code — read-only bind; host edits take effect on service restart.
       - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook/mcp_server:/opt/mcp:ro"
+      # Shared pipeline package (schemas + capability-token issuer/verifier). The
+      # server adds `/opt` to sys.path at import time so `from pipeline.mcp.tokens
+      # import verify_token` resolves against the same source tree the orchestrator
+      # (sift-sentinel) uses — one definition of the wire contract, no duplication.
+      - "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook/pipeline:/opt/pipeline:ro"
     user: sansforensics                         # least-privilege; root not needed for libewf tools
     working_dir: /home/sansforensics
     command: ["python3", "/opt/mcp/server.py"]

@@ -431,30 +431,30 @@ def verify_token(token: CapabilityToken, tool: str, path: str, plan_digest: str)
 
 ---
 
-## Step 4 — MCP server enforcement (`_require_capability` decorator)
+## Step 4 — MCP server enforcement (`_enforce_capability` helper)
 
-The enforcement point — every tool function gets the decorator, capability check runs before `_run_and_record`.
+The enforcement point — every tool function calls `_enforce_capability` as its first line, before `_run_and_record`. We went with a plain helper instead of the decorator originally sketched because FastMCP inspects each tool's Python signature to build the JSON schema advertised in `tools/list` — a decorator that wraps the function risks losing the schema unless `functools.wraps` + signature preservation are handled perfectly. One explicit helper call per tool is two extra lines, dead obvious at the call site, and sidesteps the metaclass interaction entirely. Deviation documented here; behaviour identical to the decorator spec.
 
-- [ ] Add `_require_capability(tool_name)` decorator in `mcp_server/server.py`
-- [ ] Decorator pulls the token from the tool-call metadata (new required parameter `capability_token: str` — base64-encoded `CapabilityToken`)
-- [ ] Calls `verify_token(...)`; on rejection, returns `ToolResult(exit_code=-1, stderr="capability_denied: <reason>")` — **does not raise**, because the agent should learn from the denial and re-plan, not crash
-- [ ] Decorator logs both success and denial to the audit trail (feeds into Slice 6 integrity ledger)
+- [x] Add `_enforce_capability(...)` + `_denial_result(...)` + `_record_denial(...)` in `mcp_server/server.py`
+- [x] Helper parses the token from the tool-call metadata (new required parameters `capability_token: str` + `plan_digest: str` — JSON-serialized `CapabilityToken` via `model_dump_json`; chose JSON over base64 because MCP's JSON Schema describes `str` fluently and ~360-char tokens are cheap to log and inspect)
+- [x] Calls `verify_token(...)`; on rejection, returns `ToolResult(exit_code=-1, stdout_excerpt="capability_denied:<reason>")` — **does not raise**, because the agent should learn from the denial and re-plan, not crash. (Runbook originally said `stderr=` but `ToolResult` has no stderr field; stdout_excerpt with `capability_denied:` prefix is the machine-parseable channel the client already reads.)
+- [x] Helper logs both success and denial to the audit trail — success via existing `_run_and_record`; denial via `_record_denial` which appends a `{"denial": true, ...}` entry to `<case>/analysis/tool_calls.jsonl` when case_id passes validation, stderr-only when it doesn't. Feeds into Slice 6 integrity ledger unchanged.
+- [x] Pipeline package bind-mounted into `sift-mcp` at `/opt/pipeline` (compose volume + `sys.path.insert(0, "/opt")` in server.py) so both issuer (sift-sentinel) and verifier (sift-mcp) import the same `pipeline.schemas` + `pipeline.mcp.tokens` source tree — one wire-contract definition, no duplicate code.
+- [x] Startup fail-fast: server exits with code 2 on boot if `CAPABILITY_TOKEN_KEY` is unset (mirrors the existing `MCP_TRANSPORT_TOKEN` check). Log line shows `cap_key_len=<N>` so operators can confirm the key reached the process.
 
 ### 4a — Update existing tool functions + add the 5th tool
-- [ ] `fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run` each gain `@_require_capability` and a new first parameter `capability_token`
-- [ ] **Add `scheduled_tasks_parse(capability_token, e01_path, task_xml_inode, dest_filename)`** (carried item 15). Internally it chains `icat_extract` + `_parse_scheduled_tasks`; the function is its own MCP-exposed tool so the PLAN prompt can advertise T1053.005 coverage without the orchestrator chaining two calls
-- [ ] Update the MCP tool signatures advertised to the client (JSON-RPC `tools/list`) — now 5 tools
-- [ ] Update C6 PLAN prompt `AVAILABLE_TOOLS` to advertise `scheduled_tasks_parse` with a purpose-line tying it to T1053.005; add a structural invariant: every `scheduled_tasks_parse` call has an upstream `fls_list` in `depends_on` that located the Task XML inodes
+- [x] `fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run` each call `_enforce_capability(...)` with `capability_token` + `plan_digest` as the first two parameters
+- [ ] **Add `scheduled_tasks_parse(capability_token, plan_digest, case_id, e01_path, task_xml_inode, dest_filename)`** (carried item 15) — **deferred to Step 6**: its `_parse_scheduled_tasks` XML parser is a Step 6a deliverable, and the 5th tool can't exist without the parser. Adding the enforcement-wrapped tool shell now would either (a) duplicate parser stub code or (b) ship a tool that raises on every call. Step 6 folds both together cleanly.
+- [x] MCP `tools/list` schema advertises `capability_token` + `plan_digest` properties on all 4 tools (verified via probe: every tool's `inputSchema.properties` contains both names)
+- [ ] Update C6 PLAN prompt `AVAILABLE_TOOLS` to advertise `scheduled_tasks_parse` — **deferred to Step 6 alongside the tool itself**
 
 ### 4b — Orchestrator change
-- [ ] C7 (human checkpoint) issues the capability token *after* the human approves the plan; token is attached to `PipelineState.capability_token`
-- [ ] C8 (execute_node) passes the token on every MCP call
+- [ ] **Deferred to Step 7–8**: C7 (human checkpoint) issues the capability token *after* plan approval; C8 attaches it on every MCP call. Runbook order intentionally defers this to node-lift (Step 7) because C7/C8 still live inline in `slice2.ipynb` at this point — threading the token through notebook scope mid-slice would be churn that gets reversed by the Step 7 extraction. Probes below validate the server side; the orchestrator side integrates in Step 8.
 
 ### 4c — Fail-fast probe
-- [ ] Live server call without a token → denial
-- [ ] Live server call with a tampered token → denial
-- [ ] Live server call with a valid token for `fls_list` but trying `regripper_run` → denial
-- [ ] Live server call with a valid token on the happy path → existing Slice 2 output unchanged (no regression)
+- [x] `d:/tmp/probe_step4_enforce.py` — helper-level probe, 7 scenarios (valid, malformed JSON, tampered sig, wrong tool, wrong path, plan_digest mismatch, expired). 7/7 green 2026-04-22.
+- [x] `d:/tmp/probe_step4_live_http.py` — end-to-end HTTP probe from sift-sentinel → sift-mcp. 8 scenarios: happy path fsstat_e01 (exit=0, 1433 B NTFS output), tampered sig denial, wrong-tool denial, wrong-path denial, plan_digest denial, case_id cross-replay denial, expired denial, post-denial recovery fls_list (exit=0, 5442 B). 8/8 green plus schema-advertise check on all 4 tools. 2026-04-22.
+- [x] Audit trail verified: `<case>/analysis/tool_calls.jsonl` carries `{"denial": true, ...}` entries for every denial with structured reason, caller-claimed case_id, and token_id. Cross-case replay lands under the caller's claimed case (not the token's real case) — the right audit shape (leaves a trail under the impersonated case).
 
 ---
 
@@ -565,7 +565,7 @@ Pulls C6's PLAN body, C8's EXECUTE body, and C9's INTERPRET body out of notebook
 
 ## Step 9 — Adversarial-evidence demo E01
 
-The seeded-failure demo per [`docs/planning/vision.md`](../planning/vision.md) section "Three hard demos."
+The seeded-failure demo per the submission success criteria in [`docs/planning/PLAN.md`](../planning/PLAN.md).
 
 - [ ] Script `experiments/slice-5-notebook/make_adversarial_e01.py` that takes a clean E01 and clones it with one injected filename + one injected registry value (both hitting `INJ_IMPERATIVE_IGNORE` + `INJ_ATTCK_EMIT`)
 - [ ] Run the full pipeline against the adversarial E01; confirm quarantine + escalate path fires
@@ -652,7 +652,7 @@ The post-Slice-5 `slice2.ipynb` is a judge-walkthrough artifact, not a code home
 - An ML-based injection classifier. The pattern library is deterministic and defensible; a learned classifier is harder to review.
 - Evidence redaction. The raw channel is immutable. Full stop. Quarantine means "the LLM doesn't see it," not "we edit the disk image."
 
-## Tripwires (from vision.md, reordered per round-3 emphasis)
+## Tripwires (reordered per round-3 emphasis)
 
 Dual-channel is THE adversarial defense. If it's blocked, the submission narrative loses its primary novelty hook and the tripwires cascade.
 
@@ -680,7 +680,7 @@ Dual-channel is THE adversarial defense. If it's blocked, the submission narrati
 | Capability-token HMAC key | `CAPABILITY_TOKEN_KEY` env (set in `docker-compose.yml`) |
 | Scorecard v2 | `out/runs/<case>/scorecard_v2.json` |
 | PLAN carried items 5-8 | [`docs/planning/PLAN.md`](../planning/PLAN.md) |
-| Vision Slice 5 section | [`docs/planning/vision.md`](../planning/vision.md) §Slice 5 |
+| Architecture trust-boundary table | [`docs/planning/architecture.md`](../planning/architecture.md) §3 |
 
 ## NotebookLM asks (before / during implementation)
 
