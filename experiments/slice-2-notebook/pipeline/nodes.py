@@ -464,10 +464,12 @@ async def execute_node(state: "PipelineState") -> dict:
       - Placeholder resolver iterates the upstream FlsResult instead of
         parsing an `fls -m /` bodyfile from disk.
 
-    Halt semantics — lifted from C8: any `tool_execution_status != "ok"` stops
-    the loop and raises `RuntimeError`. Step 8 will relax this so
-    `capability_denied` produces a Critic re_plan instead of a raise; for now
-    it halts uniformly to preserve C8-equivalent behavior.
+    Halt semantics — continues on `ok` AND `empty` (empty ≠ failure: the
+    tool ran cleanly and legitimately returned nothing, which is a real
+    evidence-of-absence signal that R_12 keys off). Halts on anything else
+    (`timeout`, `permission_denied`, `parse_error`, `capability_denied`).
+    Step 8 will further relax this so `capability_denied` produces a Critic
+    re_plan instead of a raise; for now those still raise.
 
     Requires: `state.tool_plan`, `state.plan_digest`, `state.capability_token`
     populated upstream. The PipelineState dataclass allows them to be None so
@@ -570,7 +572,15 @@ async def execute_node(state: "PipelineState") -> dict:
                                 },
                             )
 
-                            if ev.tool_execution_status != "ok":
+                            # Continue on ok AND empty. "empty" means the tool
+                            # ran cleanly and legitimately produced no data
+                            # (e.g. regripper winlogon_tln against a hive with
+                            # no Winlogon Userinit/Shell/Notify set); that's a
+                            # real null finding, not a failure. R_12 treats
+                            # {ok, empty} as the pair that substantiates an
+                            # evidence-of-absence claim — execute_node mirrors
+                            # that split.
+                            if ev.tool_execution_status not in ("ok", "empty"):
                                 tool_span.update(
                                     level="ERROR",
                                     status_message=f"tool_execution_status={ev.tool_execution_status}",
@@ -586,7 +596,12 @@ async def execute_node(state: "PipelineState") -> dict:
                 "n_steps_executed": len(collected),
                 "n_steps_planned": len(state.tool_plan.steps),
                 "failed_step": failed_step,
-                "all_ok": all(e.tool_execution_status == "ok" for e in collected),
+                "all_substantive": all(
+                    e.tool_execution_status in ("ok", "empty") for e in collected
+                ),
+                "n_empty": sum(
+                    1 for e in collected if e.tool_execution_status == "empty"
+                ),
             })
 
     langfuse.flush()
