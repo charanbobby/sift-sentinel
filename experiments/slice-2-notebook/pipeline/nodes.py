@@ -36,7 +36,13 @@ from typing import TYPE_CHECKING, Optional
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from pipeline.schemas import EvidenceRecord, Finding, Findings, ToolPlan
+from pipeline.schemas import (
+    CriticDisagreement,
+    EvidenceRecord,
+    Finding,
+    Findings,
+    ToolPlan,
+)
 from pipeline.mcp.tokens import compute_plan_digest
 
 if TYPE_CHECKING:
@@ -847,19 +853,139 @@ def interpret_node(state: "PipelineState") -> dict:
 
 
 # ============================================================================
-# CRITIC — stub until Step 7c (requires pipeline/critic.py EvidenceRecord adaptation)
+# CRITIC — real implementation (lifted from notebook C4, adapted to the
+# Slice-5 EvidenceRecord CriticContext shape).
 # ============================================================================
 
-def critic_node(state: "PipelineState") -> dict:
-    """Stub pending Step 7c. Real body constructs a CriticContext from
-    (state.tool_plan, state.evidence), runs the 13 rules, updates
-    failed_plan_hashes + attempts_per_finding + corrective_instruction.
+def _append_critic_disagreement(
+    disagreements_path: Path,
+    *,
+    plan_digest: str,
+    iteration: int,
+    original_finding: Finding,
+    critique,        # CritiqueResult — typed loosely to avoid forward-ref
+    resolution: dict,
+    cost_so_far: dict,
+) -> None:
+    """Append one JSONL line per Critic disagreement. Moved from notebook C13
+    at Step 7c. I/O-only — the pure `build_resolution` + `build_new_instruction`
+    logic lives in `pipeline.critic`. Caller skips the pass-severity case; we
+    don't write a no-op entry.
+
+    `resolution` shape (from critic.build_resolution):
+      {action: commit|retry|escalate, strategy: None|re_interpret|re_plan|human_review,
+       new_instruction: str|None}
+
+    `cost_so_far` shape:
+      {input_tokens: int, output_tokens: int, usd_estimate: float|None}
+
+    Write errors are intentionally NOT swallowed — an unwritable audit log is
+    a forensic-integrity failure; fail loudly so the pipeline halts.
     """
-    raise NotImplementedError(
-        "critic_node — lands in Slice 5 Step 7c (critic rules must first be "
-        "adapted to EvidenceRecord). Until then, the notebook's C4/C10–C13 "
-        "cells run Critic inline."
+    event = CriticDisagreement(
+        plan_digest=plan_digest,
+        iteration=iteration,
+        original_finding=original_finding,
+        critic_critique=critique,
+        resolution=resolution,
+        cost_so_far=cost_so_far,
+        timestamp_utc=datetime.now(timezone.utc),
     )
+    disagreements_path.parent.mkdir(parents=True, exist_ok=True)
+    with disagreements_path.open("a", encoding="utf-8") as fh:
+        fh.write(event.model_dump_json() + "\n")
+
+
+def critic_node(state: "PipelineState") -> dict:
+    """Run the deterministic Critic rules on every Finding, write audit entries
+    for disagreements, update retry-loop state.
+
+    Slice 5 adaptations (from C4's version):
+      - CriticContext takes `state.evidence` (list[EvidenceRecord]) instead of
+        `state.raw_results` (list[RawResult]).
+      - plan_digest is read from `state.plan_digest` (populated by plan_node)
+        rather than `state.findings.plan_digest` — both are present post-
+        interpret, but state.plan_digest is the authoritative binding to the
+        capability token and is available one node earlier.
+      - Phase C L3 primitive (plan-hash dedup): unchanged; `_plan_hash` now
+        lives in `pipeline.graph` as `plan_hash` and is the canonical
+        compute_plan_digest form (same hash space as the token binding).
+
+    Returns the standard Critic delta:
+      `critique_results`, `iteration+1`, `attempts_per_finding`,
+      `corrective_instruction`, `failed_plan_hashes`.
+
+    Returns `{}` if upstream state is incomplete (stub-only / partial run) —
+    matches C4's guard so the debounce smoke-run at graph compile time
+    doesn't raise.
+    """
+    # Local imports mirror the critic.py location of its exports
+    from pipeline.critic import (
+        CriticContext,
+        critic_evaluate,
+        build_resolution,
+    )
+    from pipeline.graph import plan_hash
+
+    if state.findings is None or state.tool_plan is None or not state.evidence:
+        return {}
+
+    current_hash = plan_hash(state.tool_plan)
+    plan_already_failed = current_hash in state.failed_plan_hashes
+
+    ctx = CriticContext(state.tool_plan, state.evidence)
+    results = [
+        critic_evaluate(f, ctx, i)
+        for i, f in enumerate(state.findings.findings)
+    ]
+
+    if plan_already_failed:
+        # L3 primitive: the LLM has produced this exact plan at least once
+        # already; retrying would loop. Force any non-pass severity to
+        # escalate so control transfers to human_review.
+        for r in results:
+            if r.severity != "pass":
+                r.severity = "escalate"
+
+    # Per-finding retry counter (for the per-finding budget gate in critic_edge)
+    attempts = dict(state.attempts_per_finding)
+    for r in results:
+        if r.severity == "retry":
+            attempts[r.finding_index] = attempts.get(r.finding_index, 0) + 1
+
+    # Audit-log writer + corrective-instruction collector
+    corrective_bits: list[str] = []
+    audit_path = OUT_DIR / "critic_disagreements.jsonl"
+    plan_digest = state.plan_digest or "sha256:unknown"
+    for r in results:
+        if r.severity == "pass":
+            continue
+        finding = state.findings.findings[r.finding_index]
+        resolution = build_resolution(r, finding, ctx)
+        _append_critic_disagreement(
+            audit_path,
+            plan_digest=plan_digest,
+            iteration=state.iteration,
+            original_finding=finding,
+            critique=r,
+            resolution=resolution,
+            cost_so_far={"input_tokens": 0, "output_tokens": 0, "usd_estimate": None},
+        )
+        if resolution.get("new_instruction"):
+            corrective_bits.append(resolution["new_instruction"])
+
+    # Record the current plan's hash so future cycles detect re-emission
+    new_failed = list(state.failed_plan_hashes)
+    if any(r.severity != "pass" for r in results) and current_hash not in new_failed:
+        new_failed.append(current_hash)
+
+    return {
+        "critique_results": results,
+        "iteration": state.iteration + 1,
+        "attempts_per_finding": attempts,
+        "corrective_instruction": "\n\n".join(corrective_bits) if corrective_bits else None,
+        "failed_plan_hashes": new_failed,
+    }
 
 
 # ============================================================================

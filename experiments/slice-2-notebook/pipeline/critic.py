@@ -1,8 +1,12 @@
 """Deterministic Critic — rule bodies, orchestrator, retry policy, edge router.
 
 Extracted from slice2.ipynb cells C10/C11/C12 at Slice 5 Step 1 (dependency-leaf
-after pipeline.schemas). Pure Python; no I/O beyond reading persisted stdout
-files via `CriticContext.get_full_stdout()`.
+after pipeline.schemas). Pure Python; no I/O — Slice 5 Step 7c removed the
+`get_full_stdout()` disk reader: under the dual-channel boundary the Critic
+only ever sees server-parsed `structured_fields`, and every rule operates
+against the exact JSON text the LLM was shown (see `CriticContext.
+agent_visible_text`). Audit-log writing (`append_critic_disagreement`) lives
+in `pipeline.nodes`, not here.
 
 Exports via `__all__`:
   - `CriticContext` — runtime read-only view the rules operate on.
@@ -15,18 +19,36 @@ Exports via `__all__`:
     `total_roundtrip_limit(plan)` — retry-budget knobs.
   - `NEW_INSTRUCTION_TEMPLATES`, `RETRY_BRANCH`, `build_new_instruction(...)`,
     `critic_edge(state)` — retry router.
+  - `build_resolution(critique, finding, ctx) -> dict` — assembles the audit-
+    log resolution payload (moved from notebook C13 at Step 7c).
 
-R_13 is a stub pending Slice 5's `hive_lastwrite` structured field.
-R_06 is minimum-viable pending Slice 5's `expected_paths_covered` per tool.
+Slice 5 Step 7c rule adaptations:
+  - `R_01`: `ctx.tool_calls` renamed to `ctx.evidence` (EvidenceRecord dict).
+  - `R_03`, `R_08`: `tool` field sourced from `ctx.tool_for(tool_call_id)`
+    because `EvidenceRecord` doesn't carry the tool name (server-side, only
+    the plan knows which tool was dispatched).
+  - `R_05`: "excerpt literally in raw stdout" → "excerpt literally in the
+    structured_fields JSON the LLM saw" (see `ctx.agent_visible_text`).
+  - `R_06`, `R_09`, `R_12`: `exit_code != 0` → `tool_execution_status != "ok"`.
+  - `R_10`: `injection_flagged` → `any(flag.severity in {"warn","quarantine"}
+    for flag in ev.injection_flags)`.
+
+R_13 is still a stub; Step 10+ wires it once the scorecard needs it.
+R_06 is minimum-viable — still uses `tool_execution_status` rather than the
+`expected_paths_covered` surface that Slice 5 added. Bumping it to consume
+that surface is a ~30-line follow-up; deferred to keep 7c scope tight.
 """
-from pathlib import Path
+from __future__ import annotations
+
+import json
 import re
 
 from pipeline.schemas import (
     CritiqueResult,
+    EvidenceRecord,
     Finding,
     PersistenceCategory,
-    RawResult,
+    PlannedStep,
     RuleFailure,
     ToolPlan,
 )
@@ -48,30 +70,67 @@ CATEGORY_REQUIRED_TOOLS: dict[PersistenceCategory, set[str]] = {
 class CriticContext:
     """Stateless read-only view the Critic operates on.
 
-    Receives:  the approved tool plan + the raw tool-call results.
-    Does NOT receive: Interpret LLM output, chain-of-thought, prior Findings.
-    """
-    def __init__(self, tool_plan: ToolPlan, raw_results: list[RawResult]):
-        self.tool_plan = tool_plan
-        self.tool_calls: dict[str, RawResult] = {r.tool_call_id: r for r in raw_results}
-        self._stdout_cache: dict[str, bytes] = {}
+    Slice-5 shape:
+      Receives:  the approved tool plan + the list of EvidenceRecords produced
+                 by `execute_node` (channel-B structured_fields only — raw
+                 bytes never reach the orchestrator under the dual-channel
+                 boundary).
+      Does NOT receive: Interpret LLM output, chain-of-thought, prior Findings.
 
-    def get_full_stdout(self, tool_call_id: str) -> bytes:
-        """Read the full persisted stdout for a tool call (not just the 64KB excerpt).
-        Used by R_05 when the cited excerpt might be past the excerpt cap.
-        Missing file → empty bytes; R_05 treats 'not found in stdout' as a fail."""
-        if tool_call_id in self._stdout_cache:
-            return self._stdout_cache[tool_call_id]
-        r = self.tool_calls.get(tool_call_id)
-        if r is None:
-            self._stdout_cache[tool_call_id] = b""
-            return b""
-        try:
-            data = Path(r.stdout_path).read_bytes()
-        except (FileNotFoundError, OSError, PermissionError):
-            data = b""
-        self._stdout_cache[tool_call_id] = data
-        return data
+    Since `EvidenceRecord` doesn't carry the tool name or the plan step_id
+    (the server only returns what it parsed), the constructor builds a
+    `tool_call_id → PlannedStep` side-car via positional correlation:
+    `state.evidence[i]` was produced by `state.tool_plan.steps[i]`. That
+    holds because `execute_node` iterates the plan in topological step_id
+    order and halts on first failure — `state.evidence` is always a prefix
+    of `state.tool_plan.steps`. If Slice 6+ parallelizes execution the
+    correlation needs to move into state as an explicit mapping; until then,
+    positional is correct and simple.
+    """
+
+    def __init__(self, tool_plan: ToolPlan, evidence: list[EvidenceRecord]):
+        self.tool_plan = tool_plan
+        self.evidence: dict[str, EvidenceRecord] = {
+            ev.tool_call_id: ev for ev in evidence
+        }
+        self._plan_step_by_tcid: dict[str, PlannedStep] = {}
+        for i, ev in enumerate(evidence):
+            if i < len(tool_plan.steps):
+                self._plan_step_by_tcid[ev.tool_call_id] = tool_plan.steps[i]
+        # agent_visible_text is the JSON the INTERPRET bundle-builder embeds
+        # under `structured_fields` for each step. R_05 checks that cited
+        # output_excerpts are literal substrings of this text — it's the
+        # "what did the model actually see?" reference the rule needs.
+        self._sf_text_cache: dict[str, str] = {}
+
+    def tool_for(self, tool_call_id: str) -> str | None:
+        """Return the tool name that produced this tool_call_id, per the
+        approved plan. `None` if the id isn't in the run — R_01 is the
+        dedicated catch for that case, so callers can treat None as 'skip'."""
+        step = self._plan_step_by_tcid.get(tool_call_id)
+        return step.tool if step else None
+
+    def agent_visible_text(self, tool_call_id: str) -> str:
+        """JSON-serialized `structured_fields` for one step, in the same
+        format `_build_interpret_bundle` renders (pretty, indent=2). This is
+        the exact text the model saw; R_05's substring check must match it
+        byte-for-byte or the rule would flag a correctly-quoted excerpt.
+        Cached per-tcid because the serialization cost is nontrivial on a
+        large RegRipper result."""
+        if tool_call_id in self._sf_text_cache:
+            return self._sf_text_cache[tool_call_id]
+        ev = self.evidence.get(tool_call_id)
+        if ev is None:
+            txt = ""
+        else:
+            # Match _build_interpret_bundle's outer `json.dumps(bundle, indent=2)`:
+            # the bundle wraps structured_fields unchanged under a dict key, so
+            # the model ultimately sees them re-serialized at indent=2 as part
+            # of the bundle. Producing the same rendering here makes R_05's
+            # substring check agree with what the LLM was actually shown.
+            txt = json.dumps(ev.structured_fields, indent=2, sort_keys=False)
+        self._sf_text_cache[tool_call_id] = txt
+        return txt
 
 
 # ---- Helpers used by multiple rules ----
@@ -90,9 +149,9 @@ def _path_tokens(s: str) -> set[str]:
 def R_01(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """Did the agent cite evidence that actually exists in the run log?"""
     for ev in finding.evidence:
-        if ev.tool_call_id not in ctx.tool_calls:
+        if ev.tool_call_id not in ctx.evidence:
             return RuleFailure(rule_id="R_01", code="EVID_UNRESOLVED",
-                               detail=f"evidence.tool_call_id={ev.tool_call_id!r} not in raw_results")
+                               detail=f"evidence.tool_call_id={ev.tool_call_id!r} not in run evidence")
     return None
 
 
@@ -118,8 +177,10 @@ def R_03(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     required = CATEGORY_REQUIRED_TOOLS.get(finding.category, set())
     if not required:
         return None
-    cited_tools = {ctx.tool_calls[ev.tool_call_id].tool
-                   for ev in finding.evidence if ev.tool_call_id in ctx.tool_calls}
+    cited_tools = {
+        t for ev in finding.evidence
+        if (t := ctx.tool_for(ev.tool_call_id)) is not None
+    }
     if cited_tools & required:
         return None
     return RuleFailure(rule_id="R_03", code="TOOL_MISMATCH",
@@ -141,23 +202,31 @@ def R_04(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 
 
 def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
-    """Is the quoted evidence actually present in the tool's output byte-for-byte?
-    ESCALATE (not retry) — excerpt fabrication is the most serious integrity failure."""
+    """Is the quoted evidence actually present in the tool's structured_fields
+    byte-for-byte?  ESCALATE (not retry) — excerpt fabrication is the most
+    serious integrity failure.
+
+    Slice 5 semantic change: under the dual-channel boundary the model never
+    sees raw stdout. R_05 now checks whether the cited `output_excerpt` is a
+    literal substring of the JSON-serialized `structured_fields` the model
+    was actually shown (via `_build_interpret_bundle`). The match must agree
+    byte-for-byte with that rendering — `ctx.agent_visible_text` produces
+    exactly that form.
+    """
     for ev in finding.evidence:
-        rr = ctx.tool_calls.get(ev.tool_call_id)
-        if rr is None:
+        if ev.tool_call_id not in ctx.evidence:
             continue  # R_01 handles
         needle = ev.output_excerpt or ""
         if not needle:
             continue  # empty excerpt is R_07 territory
-        if needle in rr.stdout_excerpt:
-            continue  # fast path: found in the 64KB excerpt
-        # fall back to the full persisted stdout (for excerpts past the 64KB cap)
-        haystack = ctx.get_full_stdout(ev.tool_call_id)
-        if needle.encode("utf-8", errors="replace") in haystack:
+        haystack = ctx.agent_visible_text(ev.tool_call_id)
+        if needle in haystack:
             continue
-        return RuleFailure(rule_id="R_05", code="EXCERPT_HALLUCINATION",
-                           detail=f"output_excerpt bytes not found in stdout for tool_call_id={ev.tool_call_id!r}")
+        return RuleFailure(
+            rule_id="R_05", code="EXCERPT_HALLUCINATION",
+            detail=f"output_excerpt not found in structured_fields for "
+                   f"tool_call_id={ev.tool_call_id!r}",
+        )
     return None
 
 
@@ -166,7 +235,11 @@ def R_06(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     if finding.category != "NOT_FOUND" or finding.confidence != "high":
         return None
     required_union = set().union(*CATEGORY_REQUIRED_TOOLS.values())
-    tools_run_ok = {r.tool for r in ctx.tool_calls.values() if r.exit_code == 0}
+    tools_run_ok = {
+        ctx.tool_for(tcid)
+        for tcid, ev in ctx.evidence.items()
+        if ev.tool_execution_status == "ok" and ctx.tool_for(tcid) is not None
+    }
     missing = required_union - tools_run_ok
     if missing:
         return RuleFailure(rule_id="R_06", code="SCOPE_INCOMPLETE",
@@ -193,8 +266,8 @@ def R_08(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     if not required:
         return None
     cited_primary = any(
-        ctx.tool_calls[ev.tool_call_id].tool in required
-        for ev in finding.evidence if ev.tool_call_id in ctx.tool_calls
+        ctx.tool_for(ev.tool_call_id) in required
+        for ev in finding.evidence
     )
     if cited_primary:
         return None
@@ -204,27 +277,49 @@ def R_08(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 
 
 def R_09(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
-    """Did every cited tool call actually succeed?"""
-    for ev in finding.evidence:
-        rr = ctx.tool_calls.get(ev.tool_call_id)
-        if rr is None:
+    """Did every cited tool call actually succeed?
+
+    Slice 5: FailureCode name still says EXIT_NONZERO for audit-log stability,
+    but the underlying signal is `tool_execution_status`. `capability_denied`
+    triggers the same failure — a denied call produced no evidence, so citing
+    it is structurally equivalent to citing an exit_code!=0 subprocess."""
+    for ev_ref in finding.evidence:
+        rec = ctx.evidence.get(ev_ref.tool_call_id)
+        if rec is None:
             continue  # R_01 handles
-        if rr.exit_code != 0:
-            return RuleFailure(rule_id="R_09", code="EVIDENCE_TOOL_EXIT_NONZERO",
-                               detail=f"evidence cites tool_call_id={ev.tool_call_id!r} with exit_code={rr.exit_code}")
+        if rec.tool_execution_status != "ok":
+            return RuleFailure(
+                rule_id="R_09", code="EVIDENCE_TOOL_EXIT_NONZERO",
+                detail=f"evidence cites tool_call_id={ev_ref.tool_call_id!r} "
+                       f"with tool_execution_status={rec.tool_execution_status}",
+            )
     return None
 
 
 def R_10(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
-    """Was any cited evidence flagged by the injection scanner? ESCALATE on any fire.
-    RawResult.injection_flagged defaults to False until Slice 5 scanner ships."""
-    for ev in finding.evidence:
-        rr = ctx.tool_calls.get(ev.tool_call_id)
-        if rr is None:
-            continue
-        if getattr(rr, "injection_flagged", False):
-            return RuleFailure(rule_id="R_10", code="INJECTION_FLAGGED_EVIDENCE",
-                               detail=f"evidence tool_call_id={ev.tool_call_id!r} was flagged by the injection scanner")
+    """Was any cited evidence flagged by the injection scanner? ESCALATE on
+    any warn/quarantine-severity flag; info-severity does not fire R_10
+    (info is logged for audit but does not gate the finding).
+
+    Slice 5: checks the EvidenceRecord.injection_flags list (from Step 5's
+    scanner). A `quarantine` severity SHOULD already have prevented the
+    structured_fields from reaching the model — Step 8 will wire the upstream
+    filter in `_build_interpret_bundle`. Until then, R_10 is the late-gate:
+    if the model somehow cited a quarantined record, escalate.
+    """
+    for ev_ref in finding.evidence:
+        rec = ctx.evidence.get(ev_ref.tool_call_id)
+        if rec is None:
+            continue  # R_01 handles
+        firing = [f for f in rec.injection_flags if f.severity in ("warn", "quarantine")]
+        if firing:
+            pids = [f.pattern_id for f in firing]
+            return RuleFailure(
+                rule_id="R_10", code="INJECTION_FLAGGED_EVIDENCE",
+                detail=f"evidence tool_call_id={ev_ref.tool_call_id!r} carries "
+                       f"injection flag(s) {pids} at severity(ies) "
+                       f"{sorted({f.severity for f in firing})}",
+            )
     return None
 
 
@@ -250,16 +345,26 @@ def R_12(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     if every tool in the run completed cleanly. Additive over R_06 — R_06 checks
     the category-required tool set; R_12 checks the whole run.
 
-    Slice 5 target: check `tool_execution_status == "ok"` via structured metadata
-    (see docs/runbooks/slice-5-runbook.md). Pre-Slice-5 proxy: exit_code != 0."""
+    Slice 5 (post-7c): `tool_execution_status != "ok"` is the trustworthy
+    failure signal — includes `capability_denied`, `timeout`,
+    `permission_denied`, and `parse_error`. `empty` counts as ok for this
+    rule (a tool ran cleanly and legitimately returned nothing; that IS
+    substantiating evidence of absence)."""
     if finding.category != "NOT_FOUND" or finding.confidence != "high":
         return None
-    failed = [r for r in ctx.tool_calls.values() if r.exit_code != 0]
+    failed = [
+        (tcid, rec) for tcid, rec in ctx.evidence.items()
+        if rec.tool_execution_status not in ("ok", "empty")
+    ]
     if not failed:
         return None
-    failed_summary = [(r.tool, r.tool_call_id, r.exit_code) for r in failed[:5]]
+    failed_summary = [
+        (ctx.tool_for(tcid) or "unknown", tcid, rec.tool_execution_status)
+        for tcid, rec in failed[:5]
+    ]
     return RuleFailure(rule_id="R_12", code="ABSENCE_UNSUBSTANTIATED",
-                       detail=f"NOT_FOUND at high confidence but {len(failed)} tool call(s) failed in this run: {failed_summary}")
+                       detail=f"NOT_FOUND at high confidence but {len(failed)} tool call(s) "
+                              f"did not return ok-status in this run: {failed_summary}")
 
 
 def R_13(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
@@ -326,10 +431,10 @@ def total_roundtrip_limit(plan: ToolPlan) -> int:
 # message. R_05 / R_10 / R_13 have no templates; they force severity=escalate.
 
 def _ni_R_01(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
-    valid = list(ctx.tool_calls.keys())
+    valid = list(ctx.evidence.keys())
     sample = valid[:8]
     tail = '' if len(valid) <= 8 else f' (and {len(valid) - 8} more)'
-    return (f"Finding {idx} cites a tool_call_id that does not exist in this run's raw_results. "
+    return (f"Finding {idx} cites a tool_call_id that does not exist in this run's evidence. "
             f"Re-produce this finding using only tool_call_ids present in: {sample}{tail}.")
 
 
@@ -342,8 +447,10 @@ def _ni_R_02(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: in
 
 def _ni_R_03(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
     required = sorted(CATEGORY_REQUIRED_TOOLS.get(finding.category, set()))
-    cited = sorted({ctx.tool_calls[ev.tool_call_id].tool
-                    for ev in finding.evidence if ev.tool_call_id in ctx.tool_calls})
+    cited = sorted({
+        t for ev in finding.evidence
+        if (t := ctx.tool_for(ev.tool_call_id)) is not None
+    })
     return (f"Category={finding.category} requires evidence from one of {required} but the plan only ran "
             f"{cited}. Extend the plan to include the missing tool(s) against the canonical path for this category.")
 
@@ -356,7 +463,11 @@ def _ni_R_04(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: in
 
 def _ni_R_06(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
     union = set().union(*CATEGORY_REQUIRED_TOOLS.values())
-    ran_ok = {r.tool for r in ctx.tool_calls.values() if r.exit_code == 0}
+    ran_ok = {
+        ctx.tool_for(tcid)
+        for tcid, rec in ctx.evidence.items()
+        if rec.tool_execution_status == "ok" and ctx.tool_for(tcid) is not None
+    }
     missing = sorted(union - ran_ok)
     return (f"Claim of NOT_FOUND at high confidence is not supported: tools {missing} have no successful "
             f"calls in this run. Re-plan to run {missing} against their canonical paths, or downgrade "
@@ -376,11 +487,15 @@ def _ni_R_08(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: in
 
 
 def _ni_R_09(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
-    failed_tcids = [ev.tool_call_id for ev in finding.evidence
-                    if ev.tool_call_id in ctx.tool_calls and ctx.tool_calls[ev.tool_call_id].exit_code != 0]
-    return (f"Finding {idx} cites tool calls with exit_code != 0: {failed_tcids}. Failed tool output is not "
-            f"evidence. Re-produce the finding using only exit_code=0 calls, or remove if no successful "
-            f"evidence exists.")
+    failed_pairs = [
+        (ev.tool_call_id, ctx.evidence[ev.tool_call_id].tool_execution_status)
+        for ev in finding.evidence
+        if ev.tool_call_id in ctx.evidence
+        and ctx.evidence[ev.tool_call_id].tool_execution_status != "ok"
+    ]
+    return (f"Finding {idx} cites tool calls whose tool_execution_status is not 'ok': "
+            f"{failed_pairs}. A non-ok call produced no trustworthy evidence. Re-produce "
+            f"the finding using only ok-status calls, or remove if no successful evidence exists.")
 
 
 def _ni_R_11(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
@@ -395,12 +510,15 @@ def _ni_R_11(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: in
 
 
 def _ni_R_12(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
-    failed = [(r.tool, r.tool_call_id, r.exit_code)
-              for r in ctx.tool_calls.values() if r.exit_code != 0]
+    failed = [
+        (ctx.tool_for(tcid) or "unknown", tcid, rec.tool_execution_status)
+        for tcid, rec in ctx.evidence.items()
+        if rec.tool_execution_status not in ("ok", "empty")
+    ]
     return (f"Finding {idx} claims NOT_FOUND at high confidence, but {len(failed)} tool call(s) "
-            f"in this run failed: {failed}. An evidence-of-absence claim requires every tool in "
-            f"the run to have completed successfully. Re-plan to re-run the failed tools against "
-            f"their canonical paths, or downgrade the claim's confidence to medium.")
+            f"in this run did not return ok-status: {failed}. An evidence-of-absence claim requires "
+            f"every tool in the run to have completed successfully. Re-plan to re-run the failed "
+            f"tools against their canonical paths, or downgrade the claim's confidence to medium.")
 
 
 NEW_INSTRUCTION_TEMPLATES: dict[str, callable] = {
@@ -474,6 +592,54 @@ def critic_edge(state) -> str:
     return "re_interpret" if iteration == 0 else "re_plan"
 
 
+# ---- Resolution builder (moved from notebook C13 at Slice 5 Step 7c) ----
+
+def build_resolution(
+    critique: CritiqueResult, finding: Finding, ctx: CriticContext,
+) -> dict:
+    """Assemble the `resolution` payload that the audit-log JSONL entry carries
+    alongside every Critic disagreement. Three shapes:
+
+      - `pass`      → {"action": "commit", "strategy": None, "new_instruction": None}
+      - `escalate`  → {"action": "escalate", "strategy": "human_review", "new_instruction": None}
+      - `retry`     → {"action": "retry", "strategy": "re_interpret|re_plan",
+                       "new_instruction": <combined correction text>}
+
+    `strategy` for retries uses the per-rule `RETRY_BRANCH` table: if any of
+    the retryable failures prefers `re_plan` (missing scope / tool), that wins
+    over `re_interpret`. `new_instruction` is the join of `build_new_instruction`
+    calls for every retryable rule failure — the LLM sees them all in one pass,
+    matching the C13 contract.
+    """
+    if critique.severity == "pass":
+        return {"action": "commit", "strategy": None, "new_instruction": None}
+    if critique.severity == "escalate":
+        return {
+            "action": "escalate", "strategy": "human_review",
+            "new_instruction": None,
+        }
+    # retry — combine corrections across all retryable failures
+    retryable = [rf for rf in critique.rules_failed if rf.code not in ESCALATE_CODES]
+    if not retryable:
+        return {
+            "action": "escalate", "strategy": "human_review",
+            "new_instruction": None,
+        }
+    instructions = [
+        build_new_instruction(rf, finding, ctx, critique.finding_index)
+        for rf in retryable
+    ]
+    strategy = (
+        "re_plan"
+        if any(RETRY_BRANCH.get(rf.code) == "re_plan" for rf in retryable)
+        else "re_interpret"
+    )
+    return {
+        "action": "retry", "strategy": strategy,
+        "new_instruction": "\n\n".join(instructions),
+    }
+
+
 __all__ = [
     # Context + helpers
     "CriticContext",
@@ -490,4 +656,6 @@ __all__ = [
     # Retry router
     "NEW_INSTRUCTION_TEMPLATES", "RETRY_BRANCH",
     "build_new_instruction", "critic_edge",
+    # Resolution builder (moved from C13 at Step 7c)
+    "build_resolution",
 ]
