@@ -44,7 +44,7 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 
 | Status | Host | Role (inferred) | File | Notes |
 |---|---|---|---|---|
-| [~] | base-dc | Domain Controller | `base-dc-cdrive.E01` | Raw partition written, SHA-256 genesis hash in progress 2026-04-23 |
+| [x] | base-dc | Domain Controller | `base-dc-cdrive.E01` | ✅ `derived/base-dc.ntfs.dd` 36.11 GB sha256: `58973a4dcf74c3001dc3a769e88cd81609a94b5c529d6ac44e188e7a335f8410` |
 | [~] | base-file | File Server | `base-file-cdrive.E01` | Download/extraction in progress 2026-04-23 |
 | [ ] | base-rd-01 | Remote Desktop / RDS | `base-rd-01-cdrive.E01` | |
 | [~] | base-rd-02 | Remote Desktop / RDS | `base-rd-02-cdrive.E01` | On disk, conversion queued after base-file 2026-04-23 |
@@ -99,19 +99,41 @@ Path: `d:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/`
 
 | File / folder | Size | Role |
 |---|---|---|
-| `base-wkstn-05-cdrive.E01` | 14.8 GB | Current target disk |
-| `base-wkstn-05-memory/` | — | Current target memory (extracted) |
-| `dmz-ftp-cdrive.E01` | 12.8 GB | Perimeter FTP — initial foothold candidate |
-| `base-mail-memory.7z` + `base-mail-memory/` | 2.85 GB (+ extracted) | Mail server memory — phishing evidence candidate |
+| `base-wkstn-05-cdrive.E01` | 14.8 GB | Slice 2/2.5 target disk — pipeline-ready |
+| `base-wkstn-05-memory/` | — | Slice 2/2.5 target memory (extracted) |
+| `dmz-ftp-cdrive.E01` | 12.8 GB | FTP foothold — conversion queued |
+| `base-mail-memory/` | — | Mail server memory (extracted; .7z archive not on disk) |
+| `base-dc-cdrive.E01` | ~36 GB | Domain controller disk — ✅ `derived/base-dc.ntfs.dd` (36.11 GB, sha256 `58973a4dcf...f8410`) |
+| `base-dc-memory.7z` | 808 MB | Domain controller memory — on disk |
+| `base-file-cdrive.E01` | ~40 GB | File server disk — raw extraction in progress 2026-04-23 |
+| `base-file-memory.7z` | 303 MB | File server memory — on disk |
+| `base-rd-02-cdrive.E01` | — | RDS disk — conversion queued after base-file |
+| `dfirmadness-desktop/` | — | DFIR Madness Case 001 — Slice 2.5 second validation case |
+| `derived/` | — | Derived artifacts (raw partitions, hashes) |
+| `Compromised Windows Server 2022 (OpenUni22)/` | — | **Unknown — not yet catalogued** |
+| `Hadi3 Windows8.1-Challenge3.001` | — | **Unknown — not yet catalogued** |
 
 ---
 
 ## What to download next
 
-Hold off on more downloads until `base-wkstn-05` gives us an IOC that names another host. Reasoning (from prior discussion): real DFIR pivots are driven by findings, not pre-guessed lists. The current three staged files already cover the two most likely initial-access front doors (FTP exploit, phishing email).
+**Updated 2026-04-23 — Slice 6 Reference Dataset staging in progress.**
 
-When we do need more, likely next candidates:
+Already on disk or converting: `base-dc` (disk+memory), `base-file` (disk+memory), `base-rd-02` (disk), `base-wkstn-05` (disk+memory), `dmz-ftp` (disk), `base-mail` (memory).
 
-- **`base-dc-cdrive.E01` + `base-dc-memory.7z`** — if wkstn-05 shows credential theft or lateral movement patterns.
-- **`base-file-cdrive.E01`** — if we see data-staging / exfil artifacts pointing at file server shares.
-- **An RDS host (`base-rd-*`)** — if lateral movement over RDP is observed.
+**Needs downloading (priority order):**
+
+1. `base-wkstn-01-cdrive.E01` — second workstation for comparison with `base-wkstn-05`
+2. `base-rd-01-cdrive.E01` — completes the RDS pair
+3. `base-rd-02-memory.7z` (932 MB) — pairs with `base-rd-02` disk already on disk
+4. `base-wkstn-01-memory.7z` (984 MB) — pairs with #1 above
+
+**SRL-2015 — download for breadth (different case, older OS mix):**
+5. `win2008R2-controller-10.3.58.4.zip`
+6. `win7-64-nfury-10.3.58.6.zip`
+7. `win7-32-nromanoff-10.3.58.5.zip`
+8. `xp-tdungan-10.3.58.7.zip`
+
+**Unknown datasets on disk — investigate before downloading more:**
+- `Compromised Windows Server 2022 (OpenUni22)/` — catalogue this first
+- `Hadi3 Windows8.1-Challenge3.001` — catalogue this first
