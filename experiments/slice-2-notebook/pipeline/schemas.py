@@ -141,10 +141,11 @@ FailureCode = Literal[
     'EVID_UNRESOLVED', 'PATH_INCONSISTENCY', 'TOOL_MISMATCH',
     'INVALID_REG_PATH', 'EXCERPT_HALLUCINATION', 'SCOPE_INCOMPLETE',
     'EMPTY_FINDING_DATA', 'CONF_OVERSTATED', 'EVIDENCE_TOOL_EXIT_NONZERO',
-    'INJECTION_FLAGGED_EVIDENCE',
-    'CLASSIFICATION_MISSING',  # R_11 — finding missing required classification field or rationale
-    'ABSENCE_UNSUBSTANTIATED', # R_12 — any tool in the run failed + claim is NOT_FOUND@high
-    'TEMPORAL_INCONSISTENT',   # R_13 — claimed timestamp not grounded in cited stdout (stub pre-Slice-5)
+    'INJECTION_FLAGGED_EVIDENCE',  # warn-severity injection flag on cited evidence
+    'INJECTION_QUARANTINE',        # quarantine-severity flag → mandatory escalate (Step 8)
+    'CLASSIFICATION_MISSING',      # R_11 — finding missing required classification field or rationale
+    'ABSENCE_UNSUBSTANTIATED',     # R_12 — any tool in the run failed + claim is NOT_FOUND@high
+    'TEMPORAL_INCONSISTENT',       # R_13 — claimed timestamp not grounded in cited stdout (stub pre-Slice-5)
 ]
 
 class RuleFailure(BaseModel):

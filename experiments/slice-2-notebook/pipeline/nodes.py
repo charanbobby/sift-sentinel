@@ -591,7 +591,11 @@ async def execute_node(state: "PipelineState") -> dict:
         session_id=state.run_id,
         user_id=case_id,
         tags=["phase:execute"],
-        metadata={"phase": "execute", "n_steps_planned": len(state.tool_plan.steps)},
+        metadata={
+            "phase": "execute",
+            "n_steps_planned": len(state.tool_plan.steps),
+            "capability_token_id": state.capability_token.token_id,  # Step 8
+        },
     ):
         with langfuse.start_as_current_observation(name="execute", as_type="span") as exec_span:
             async with streamablehttp_client(mcp_url, headers=mcp_headers) as (read, write, _sid):
@@ -821,6 +825,11 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
             sf = ev.structured_fields
         else:
             sf = None  # navigation/staging artifact; stripped for INTERPRET
+        # Step 8: quarantine filter — if any injection flag has severity=="quarantine",
+        # strip structured_fields regardless of tool type. Quarantined data stays in
+        # state.evidence for the Critic's audit trail but must not enter the LLM context.
+        if sf is not None and any(f.severity == "quarantine" for f in ev.injection_flags):
+            sf = None
         bundle_steps.append({
             "step_id": plan_step.step_id,
             "tool_call_id": ev.tool_call_id,
@@ -1059,6 +1068,41 @@ def critic_node(state: "PipelineState") -> dict:
     corrective_bits: list[str] = []
     audit_path = OUT_DIR / "critic_disagreements.jsonl"
     plan_digest = state.plan_digest or "sha256:unknown"
+
+    # Step 8: quarantine pre-check — if any EvidenceRecord carries a quarantine-
+    # severity injection flag, escalate all results unconditionally and write a
+    # dedicated audit entry. Quarantined evidence must never produce committed
+    # findings; human review is mandatory regardless of per-finding Critic outcomes.
+    quarantined_evs = [
+        ev for ev in state.evidence
+        if any(f.severity == "quarantine" for f in ev.injection_flags)
+    ]
+    if quarantined_evs:
+        token_id = state.capability_token.token_id if state.capability_token else "no-token"
+        q_flags = [
+            f for ev in quarantined_evs
+            for f in ev.injection_flags if f.severity == "quarantine"
+        ]
+        print(
+            f"  [critic] INJECTION_QUARANTINE: {len(quarantined_evs)} quarantined "
+            f"record(s) — forcing escalate. token_id={token_id[:8]}… "
+            f"pattern_ids={[f.pattern_id for f in q_flags]}"
+        )
+        quarantine_entry = {
+            "event": "INJECTION_QUARANTINE",
+            "token_id": token_id,
+            "plan_digest": plan_digest,
+            "iteration": state.iteration,
+            "quarantined_tool_call_ids": [ev.tool_call_id for ev in quarantined_evs],
+            "flags": [
+                {"pattern_id": f.pattern_id, "excerpt": f.excerpt, "field_path": f.field_path}
+                for f in q_flags
+            ],
+        }
+        with open(audit_path, "a") as _qfh:
+            _qfh.write(json.dumps(quarantine_entry) + "\n")
+        for r in results:
+            r.severity = "escalate"
     for r in results:
         if r.severity == "pass":
             continue

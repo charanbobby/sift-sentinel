@@ -297,28 +297,35 @@ def R_09(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 
 
 def R_10(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
-    """Was any cited evidence flagged by the injection scanner? ESCALATE on
-    any warn/quarantine-severity flag; info-severity does not fire R_10
-    (info is logged for audit but does not gate the finding).
+    """Was any cited evidence flagged by the injection scanner?
 
-    Slice 5: checks the EvidenceRecord.injection_flags list (from Step 5's
-    scanner). A `quarantine` severity SHOULD already have prevented the
-    structured_fields from reaching the model — Step 8 will wire the upstream
-    filter in `_build_interpret_bundle`. Until then, R_10 is the late-gate:
-    if the model somehow cited a quarantined record, escalate.
+    - quarantine-severity → INJECTION_QUARANTINE (mandatory escalate; Step 8
+      upstream filter in _build_interpret_bundle means the model should never
+      cite quarantined evidence, but R_10 is the late-gate if it somehow does)
+    - warn-severity → INJECTION_FLAGGED_EVIDENCE (escalate; lower-confidence
+      flag that may indicate adversarial content but is not a hard quarantine)
+    - info-severity → no-op (logged in EvidenceRecord; not actionable here)
     """
     for ev_ref in finding.evidence:
         rec = ctx.evidence.get(ev_ref.tool_call_id)
         if rec is None:
             continue  # R_01 handles
-        firing = [f for f in rec.injection_flags if f.severity in ("warn", "quarantine")]
-        if firing:
-            pids = [f.pattern_id for f in firing]
+        quarantine_flags = [f for f in rec.injection_flags if f.severity == "quarantine"]
+        if quarantine_flags:
+            pids = [f.pattern_id for f in quarantine_flags]
+            return RuleFailure(
+                rule_id="R_10", code="INJECTION_QUARANTINE",
+                detail=f"evidence tool_call_id={ev_ref.tool_call_id!r} carries "
+                       f"quarantine-severity injection flag(s) {pids} — "
+                       f"structured_fields should have been stripped upstream (Step 8)",
+            )
+        warn_flags = [f for f in rec.injection_flags if f.severity == "warn"]
+        if warn_flags:
+            pids = [f.pattern_id for f in warn_flags]
             return RuleFailure(
                 rule_id="R_10", code="INJECTION_FLAGGED_EVIDENCE",
                 detail=f"evidence tool_call_id={ev_ref.tool_call_id!r} carries "
-                       f"injection flag(s) {pids} at severity(ies) "
-                       f"{sorted({f.severity for f in firing})}",
+                       f"warn-severity injection flag(s) {pids}",
             )
     return None
 
@@ -383,7 +390,12 @@ def R_13(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 
 # Rule registry + escalate-only failure codes
 CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13]
-ESCALATE_CODES = {"EXCERPT_HALLUCINATION", "INJECTION_FLAGGED_EVIDENCE", "TEMPORAL_INCONSISTENT"}
+ESCALATE_CODES = {
+    "EXCERPT_HALLUCINATION",
+    "INJECTION_FLAGGED_EVIDENCE",
+    "INJECTION_QUARANTINE",      # Step 8: quarantine-severity injection flag
+    "TEMPORAL_INCONSISTENT",
+}
 
 
 # ---- Orchestrator (from C11) ----
