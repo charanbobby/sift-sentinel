@@ -1,7 +1,7 @@
 # Architecture — Find Evil Hackathon (Detailed Reference)
 
 **Last updated:** 2026-04-20
-**Companion to:** [architecture.md](architecture.md) (tight submission view), [vision.md](vision.md) (philosophy), [PLAN.md](PLAN.md) (slices + status)
+**Companion to:** [architecture.md](architecture.md) (tight submission view), [PLAN.md](PLAN.md) (slices + status)
 **Audience:** maintainers and reviewers who need full implementation-level detail.
 
 > This is the maintainer-facing long form. For the judge-facing at-a-glance view, see [architecture.md](architecture.md) and the HTML diagram at [architecture.html](architecture.html).
@@ -363,6 +363,5 @@ The climb is a transfer of control from human to agent **only** as compensating 
 ## 10. Where this diagram lives and how to keep it current
 
 - **Single source of truth:** this file.
-- **vision.md** carries a simplified pipeline sketch with a pointer back here for detail.
 - **PLAN.md** carries slice-by-slice status; cross-reference this document when a slice changes the architecture (new node, new tool, new rule, new boundary).
-- **If this architecture changes, edit this file first** — then update vision.md, PLAN.md, and runbooks. The diagram is upstream of the slice plan.
+- **If this architecture changes, edit this file first** — then update architecture.md, PLAN.md, and runbooks. The diagram is upstream of the slice plan.

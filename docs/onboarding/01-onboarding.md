@@ -63,7 +63,7 @@ Legend: ✅ shipped • 🟡 in progress • ⬜ defined, not built
 
 **What you can verify for yourself right now:** open [`slice2.ipynb`](../../experiments/slice-2-notebook/slice2.ipynb), look at C4 (the LangGraph topology), C10/C11 (the Critic rules), and `out/runs/<case>/scorecard.json`. That's the live artifact. It's a notebook because we're still in Phase 3 of our [SKILL.md](../../SKILL.md) workflow — the module extraction into `pipeline/*.py` happens as part of Slice 5 (scoped decision, not oversight).
 
-**Scope honesty.** The pipeline is **Windows + NTFS + Registry only** by deliberate choice. Memory forensics (Volatility), network (PCAP), event-log parsing (`.evtx`), non-Windows filesystems, and cloud logs are all **out of scope for submission** and documented as extension points in [vision.md](../planning/vision.md). This is a positioning decision — narrow and deep beats broad and shallow against the ~2000-team field.
+**Scope honesty.** The pipeline is **Windows + NTFS + Registry only** by deliberate choice. Memory forensics (Volatility), network (PCAP), event-log parsing (`.evtx`), non-Windows filesystems, and cloud logs are all **out of scope for submission** and documented as extension points in [architecture-detailed.md §9](../planning/architecture-detailed.md#9-whats-deliberately-not-in-this-architecture). This is a positioning decision — narrow and deep beats broad and shallow against the ~2000-team field.
 
 ---
 
@@ -212,8 +212,7 @@ If you've instrumented SOAR playbook effectiveness before, the design here shoul
 
 **Day 1 (must read):**
 
-1. [`docs/planning/vision.md`](../planning/vision.md) — one page, the submission pitch + differentiation axes + what we will NOT do. If a decision can't be justified against this page, revisit the decision.
-2. [`docs/planning/architecture.md`](../planning/architecture.md) — judge-facing architecture reference. Mermaid of the pipeline, trust boundaries, autonomy-climb mapping.
+1. [`docs/planning/architecture.md`](../planning/architecture.md) — judge-facing architecture reference. Mermaid of the pipeline, trust boundaries, autonomy-climb mapping. The differentiation axes and what-we-will-NOT-do list live here too.
 3. **This file**, in full.
 
 **Day 2 (should read):**
@@ -295,4 +294,4 @@ These are live; not-yet-decided. No pressure to answer on day 1 — flag whichev
 
 ---
 
-**Welcome aboard.** Start with [vision.md](../planning/vision.md) and [architecture.md](../planning/architecture.md), then poke around the notebook. Questions / gaps in this onboarding doc — flag them; this file should be the first thing we fix when a new teammate trips on something.
+**Welcome aboard.** Start with [architecture.md](../planning/architecture.md) and [PLAN.md](../planning/PLAN.md), then poke around the notebook. Questions / gaps in this onboarding doc — flag them; this file should be the first thing we fix when a new teammate trips on something.

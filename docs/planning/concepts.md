@@ -119,7 +119,7 @@ Evidence bytes stay on D: — `sift-mcp` reads them through a read-only bind mou
 - **Before MCP:** you'd copy-paste `fsstat` output into Claude's chat and ask "what do you see?"
 - **With MCP:** Claude itself runs `fsstat`, reads the output, decides it also needs `fls`, runs that, and produces a structured finding — autonomously.
 
-**Protocol SIFT** wires SIFT tools up as MCP tools so Claude Code can call them — that's the Slice 1 setup. From Slice 2 onward we run **our own** MCP server with typed contracts, path allowlists, and per-call audit logging; see [what-we-are-building.md](what-we-are-building.md) for why those are the portfolio-relevant pieces.
+**Protocol SIFT** wires SIFT tools up as MCP tools so Claude Code can call them — that's the Slice 1 setup. From Slice 2 onward we run **our own** MCP server with typed contracts, path allowlists, and per-call audit logging; see [`docs/onboarding/01-onboarding.md`](../onboarding/01-onboarding.md) for why those are the portfolio-relevant pieces.
 
 ---
 

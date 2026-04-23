@@ -107,7 +107,7 @@ WORKDIR /workspace
 - [x] `docker/.env` created with all four keys (template at `docker/.env.example`)
 - [x] `docker/notebook/Dockerfile` written — **pinned to `python:3.12-slim-bookworm`**; trixie's `docker.io` package no longer ships the `docker` client binary we need for the MCP bridge
 - [x] `docker-compose.yaml` updated with `notebook` service
-- [x] `docker compose up -d --build` brings both containers up (commands in [docker-commands.md](../reference/docker-commands.md))
+- [x] `docker compose up -d --build` brings both containers up
 - [x] Jupyter Lab reachable at `http://localhost:8888` (wait ~60s for first-time `uv sync`)
 - [x] From inside notebook container: `docker exec --user sansforensics sift fsstat -V` prints Sleuth Kit 4.11.1 via the bridge
 
@@ -188,7 +188,7 @@ The server is a single Python file. We bind-mount it into the sift container at 
 
 - [x] `mcp_server/server.py` implements all 4 tools (`fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run`) with all 7 disciplines
 - [x] Bind-mount added in `docker-compose.yaml` → `/opt/mcp:ro`
-- [x] **Extended sift image** — `docker/sift/Dockerfile` bakes `uv` + `mcp` + `pydantic` into the image (no runtime pip bootstrap) **and patches `/usr/local/bin/rip.pl` line 75** to fix an upstream Perl syntax error in digitalsleuth/sift-docker:jammy (see the Dockerfile comment for details). Compose switched from `image:` to `build: ./sift`. **Rebuild required after the 2026-04-19 change** — run the commands in [docker-commands.md](../reference/docker-commands.md)
+- [x] **Extended sift image** — `docker/sift/Dockerfile` bakes `uv` + `mcp` + `pydantic` into the image (no runtime pip bootstrap) **and patches `/usr/local/bin/rip.pl` line 75** to fix an upstream Perl syntax error in digitalsleuth/sift-docker:jammy (see the Dockerfile comment for details). Compose switched from `image:` to `build: ./sift`. **Rebuild required after the 2026-04-19 change** — `docker compose -f docker/docker-compose.yaml build sift && docker compose -f docker/docker-compose.yaml up -d sift`
 - [x] `docker compose up -d sift` re-applied so the new bind mount is live
 - [x] Notebook cell C3 runs end-to-end (verified 2026-04-19 against live E01): 4 tools listed, `fsstat_e01` / `fls_list` / `icat_extract` / `regripper_run` all return `exit_code: 0`, SOFTWARE hive (~80 MB) written under `analysis/extracted/`, `rip.pl -p run` returns real `Microsoft\Windows\CurrentVersion\Run` entries
 - [ ] Path allowlist rejection: calling `fsstat_e01("/etc/passwd")` fails fast with a ValueError (verified when we add a dedicated cell)
@@ -505,7 +505,7 @@ The target image is known-evil. Any of the following in `findings.json` counts a
 | Cost blows up | Plan step (Sonnet) called per cell rerun without caching | Verify OpenRouter cache headers fire on repeat runs; system prompt must be first message and unchanged |
 | Findings validation fails with weird strings | Model didn't follow schema | Use `response_format={"type": "json_object"}` + embed the schema inline in the prompt + validate with `Model.model_validate_json(raw)`. Raises `pydantic.ValidationError` on mismatch. Portable across Gemini / Claude / GPT |
 | OpenRouter → Gemini returns 400 *"schema at properties.X.items requires unspecified property 'Y'"* | OpenAI SDK's `.beta.parse(response_format=<PydanticModel>)` emits schemas with `$defs`/`$ref` that Google's validator can't resolve | Swap to `.chat.completions.create(response_format={"type":"json_object"})` + inline the schema into the system prompt + validate with Pydantic on receive. See C5 EXTRACT implementation |
-| `regripper_run` raises `syntax error at /usr/local/bin/rip.pl line 75, near ":"` | Upstream bug in digitalsleuth/sift-docker:jammy: line 75 is the `:` branch of a ternary whose `?` branch is commented out. Perl refuses to compile on any invocation | Rebuild the sift image — `docker/sift/Dockerfile` includes a `sed` patch that comments the orphan line. One-liner in [docker-commands.md](../reference/docker-commands.md) |
+| `regripper_run` raises `syntax error at /usr/local/bin/rip.pl line 75, near ":"` | Upstream bug in digitalsleuth/sift-docker:jammy: line 75 is the `:` branch of a ternary whose `?` branch is commented out. Perl refuses to compile on any invocation | Rebuild the sift image — `docker/sift/Dockerfile` includes a `sed` patch that comments the orphan line. Run `docker compose -f docker/docker-compose.yaml build sift && docker compose -f docker/docker-compose.yaml up -d sift` |
 | `regripper_run` returns `ValueError: hive path <x> must be under /home/sansforensics/cases/<case>/analysis/extracted/` | Model tried to run rip.pl on a path that wasn't extracted via `icat_extract` first | This is the server enforcing icat-before-regripper ordering. Fix the PLAN: add an `icat_extract` step upstream and point `hive_path` at its `dest_path` |
 | PLAN returns `regripper_run` with a plugin not in the allowlist (e.g. `user_run`, `appinit`) | Names in earlier drafts of this runbook didn't match the actual filenames in `/usr/share/regripper/plugins` on SIFT jammy | Use the allowlisted names: `run`, `runonceex`, `services`, `schedagent`, `appinitdlls`, `imagefile`, `winlogon_tln` |
 

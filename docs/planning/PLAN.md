@@ -81,7 +81,7 @@ Each slice ships something demoable. If we stop at any slice, it's still a portf
 
 ## Learning the Domain
 
-- **New here? Start with [what-we-are-building.md](what-we-are-building.md)** — plain-English overview + ASCII timeline of where our agent fits in a cyberattack lifecycle.
+- **New here? Start with [`docs/onboarding/01-onboarding.md`](../onboarding/01-onboarding.md)** — plain-English overview + honest status table + where our agent fits in a cyberattack lifecycle.
 - Then [concepts.md](concepts.md) — primer on host vs. SIFT container vs. E01 evidence file, the MCP piece, and key file formats.
 - [learning-resources.md](../learning/learning-resources.md) — external DFIR courses and references.
 - **[slice-1-docker-runbook.md](../runbooks/slice-1-docker-runbook.md)** — Slice 1 runbook (✅ complete).
@@ -134,9 +134,9 @@ Each slice ships something demoable. If we stop at any slice, it's still a portf
 
 ## External Critique Intake — 2026-04-20
 
-Three external LLMs reviewed the vision + plan. **Round 1 (NotebookLM)** validated positioning and surfaced the R_06 Negative-Result-Metadata idea. **Round 2** (grounded in the public SANS brief + MCP spec + NIST guidance) raised the "three cases" inflation, legal-overclaim, chain-of-custody novelty, and L4-in-the-headline issues — four language fixes landed in `vision.md` + this file the same day. Items 5–8 below came from round 2. **Round 3** (grounded in LangGraph/MCP/NIST research) materially advanced the analysis — five new engineering issues the first two rounds missed. Items 9–13 below are the round-3 additions that are **committed to the plan**; items 14–15 are **flagged for decision, not committed** (they change scope/effort substantially and need explicit sign-off).
+Three external LLMs reviewed the plan + architecture. **Round 1 (NotebookLM)** validated positioning and surfaced the R_06 Negative-Result-Metadata idea. **Round 2** (grounded in the public SANS brief + MCP spec + NIST guidance) raised the "three cases" inflation, legal-overclaim, chain-of-custody novelty, and L4-in-the-headline issues — four language fixes landed in the planning docs the same day. Items 5–8 below came from round 2. **Round 3** (grounded in LangGraph/MCP/NIST research) materially advanced the analysis — five new engineering issues the first two rounds missed. Items 9–13 below are the round-3 additions that are **committed to the plan**; items 14–15 are **flagged for decision, not committed** (they change scope/effort substantially and need explicit sign-off).
 
-The `vision.md` changes from round 3 (same-day, already landed): Slice 5 rewrite to the dual-channel design; novelty-axis reframe (dual-channel as the adversarial defense, tokens as least-privilege routing); Slice 6 update to linear-hash-chained ledger; Hadi3 named in the pitch as a negative-case stress test; added success criterion #6 for negative-case discipline.
+Round-3 changes (same-day, already landed in architecture.md + this file): Slice 5 rewrite to the dual-channel design; novelty-axis reframe (dual-channel as the adversarial defense, tokens as least-privilege routing); Slice 6 update to linear-hash-chained ledger; Hadi3 named in the pitch as a negative-case stress test; added success criterion #6 for negative-case discipline.
 
 ### Carried item 5 — Autonomy metrics in the scorecard *(Slice 6 scope)*
 
@@ -284,9 +284,9 @@ Moving to HTTP MCP over an internal bridge makes the tokens **load-bearing**. Wi
 
 ### Round-3 language/emphasis changes (same-day, landed above)
 
-Not carried items — these were language and positioning fixes that went into `vision.md` and this file immediately:
+Not carried items — these were language and positioning fixes that went into the planning docs immediately:
 
-1. **Capability-token messaging reframed** — tokens = application-layer least-privilege routing in our stdio transport, **not** a cryptographic boundary against adversarial-prompt-injection bypass. Dual-channel handler is the adversarial defense. Updated in `vision.md` Slice 5 block + differentiation-axes table. See also the new Key Decisions row below.
+1. **Capability-token messaging reframed** — tokens = application-layer least-privilege routing in our stdio transport, **not** a cryptographic boundary against adversarial-prompt-injection bypass. Dual-channel handler is the adversarial defense. Reflected in the architecture docs' trust-boundary table and differentiation-axes framing. See also the new Key Decisions row below.
 2. **Hadi3 promoted from stretch third case → named validation case.** Pitch now mentions it explicitly; success criterion #6 is the negative-case discipline test. The value of the negative case: it's the empirical proof the Critic isn't rubber-stamping LLM positive-finding bias.
 3. **Ablation emphasis reordered** — lead with dual-channel (expected dramatic delta), de-emphasize the classification-field validator (may ablate to zero if Sonnet 4.6 faithfully complies with the Pydantic schema anyway, which would turn a heavily-advertised control into a measured no-op). Updated ablation framing in item 6 above.
 
