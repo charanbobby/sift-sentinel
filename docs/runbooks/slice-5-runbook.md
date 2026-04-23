@@ -545,24 +545,24 @@ Pulls C6's PLAN body, C8's EXECUTE body, and C9's INTERPRET body out of notebook
 
 ### 7a — Node bodies → `pipeline/nodes.py`
 
-- [ ] `plan_node(state: PipelineState) -> dict` — the C6 body. Build PLAN prompt (with `state.corrective_instruction` as the retry hook from Phase C), call Sonnet, run structural invariants, return `{"tool_plan": ..., "plan_digest": ...}`
-- [ ] `execute_node(state: PipelineState) -> dict` — the C8 body. For each step in `state.tool_plan`, invoke the MCP tool with `state.capability_token`; collect `EvidenceRecord`s (channel B only surfaces to the LLM; channel A goes to the integrity stub); return `{"evidence": [...]}`
-- [ ] `interpret_node(state: PipelineState) -> dict` — the C9 body. Build INTERPRET prompt from `state.evidence` **structured fields only** (channel B), call Sonnet, parse into `Finding[]`, return `{"findings": [...]}`
-- [ ] `critic_node(state: PipelineState) -> dict` — consumes `state.findings` + `state.evidence`, runs `CRITIC_RULES`, returns `{"critique_results": [...], "failed_plan_hashes": [...]}`. Moves from today's inline C4 position.
-- [ ] `debounce_before_plan`, `debounce_before_interpret` — move as-is from Phase C C-3 surgery (observability-only in Slice 5; Slice 5's structured-fields removal is what finally makes them do real state-trimming)
-- [ ] `human_review_node(state: PipelineState) -> dict` — sink for `escalate` edges. Writes an audit entry and halts the graph.
+- [x] `plan_node(state: PipelineState) -> dict` — the C6 body. Build PLAN prompt (with `state.corrective_instruction` as the retry hook from Phase C), call Sonnet, run structural invariants, return `{"tool_plan": ..., "plan_digest": ...}`
+- [x] `execute_node(state: PipelineState) -> dict` — the C8 body. For each step in `state.tool_plan`, invoke the MCP tool with `state.capability_token`; collect `EvidenceRecord`s (channel B only surfaces to the LLM; channel A goes to the integrity stub); return `{"evidence": [...]}`
+- [x] `interpret_node(state: PipelineState) -> dict` — the C9 body. Build INTERPRET prompt from `state.evidence` **structured fields only** (channel B), call Sonnet, parse into `Finding[]`, return `{"findings": [...]}`
+- [x] `critic_node(state: PipelineState) -> dict` — consumes `state.findings` + `state.evidence`, runs `CRITIC_RULES`, returns `{"critique_results": [...], "failed_plan_hashes": [...]}`. Moves from today's inline C4 position.
+- [x] `debounce_before_plan`, `debounce_before_interpret` — move as-is from Phase C C-3 surgery (observability-only in Slice 5; Slice 5's structured-fields removal is what finally makes them do real state-trimming)
+- [x] `human_review_node(state: PipelineState) -> dict` — sink for `escalate` edges. Writes an audit entry and halts the graph.
 
 ### 7b — Graph build → `pipeline/graph.py`
 
-- [ ] `build_graph(*, checkpointer=None) -> CompiledGraph` — constructs the `StateGraph`, wires all node functions, applies conditional edges via `critic_edge`, compiles with `MemorySaver`
-- [ ] `_compute_thread_id(case_id: str, run_uuid: str) -> str` — re-exported from Phase C C-4
-- [ ] `PipelineState` Pydantic dataclass moves here (from today's C4) — every node's input/output contract is against this class
+- [x] `build_graph(*, checkpointer=None) -> CompiledGraph` — constructs the `StateGraph`, wires all node functions, applies conditional edges via `critic_edge`, compiles with `MemorySaver`
+- [x] `_compute_thread_id(case_id: str, run_uuid: str) -> str` — re-exported from Phase C C-4
+- [x] `PipelineState` Pydantic dataclass moves here (from today's C4) — every node's input/output contract is against this class
 
 ### 7c — Fail-fast probe
 
-- [ ] `d:/tmp/probe_node_lift.py` — call each `*_node` function directly with a synthetic `PipelineState`; assert the returned dict keys match what the graph's conditional edges expect
-- [ ] Re-run the byte-identical regression gate from Step 1d **against the post-Slice-5 server API** (now returning `EvidenceRecord`). `findings.json` should still match the post-extraction-pre-Slice-5 baseline on the 2.5 cases — equivalence under structural change (server returns structured fields, but the final findings shape is unchanged)
-- [ ] `d:/tmp/probe_graph_topology.py` — build the graph; assert every conditional edge reaches a terminal; `critic_edge` returns one of `{"commit","re_interpret","re_plan","escalate"}`; no orphan nodes
+- [x] `d:/tmp/probe_node_lift.py` — call each `*_node` function directly with a synthetic `PipelineState`; assert the returned dict keys match what the graph's conditional edges expect
+- [x] Re-run the byte-identical regression gate from Step 1d **against the post-Slice-5 server API** (now returning `EvidenceRecord`). `findings.json` should still match the post-extraction-pre-Slice-5 baseline on the 2.5 cases — equivalence under structural change (server returns structured fields, but the final findings shape is unchanged). **Regression gate passed 2026-04-23**: bundle trim confirmed (fls_list + icat_extract structured_fields stripped; regripper_run + fsstat_e01 kept); TP signals `perfmonsvc64`/`tbbd05`/`PerfMon` present in bundle; 11,822 tokens (pre-fix ~120,000). Baseline findings unchanged.
+- [x] `d:/tmp/probe_graph_topology.py` — build the graph; assert every conditional edge reaches a terminal; `critic_edge` returns one of `{"commit","re_interpret","re_plan","escalate"}`; no orphan nodes
 
 ---
 
