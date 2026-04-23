@@ -626,16 +626,27 @@ STEP 9 DEMO: adversarial evidence → quarantine → escalate → human_review �
 
 Prototyping the scorecard extension — does NOT ship full Slice 6 scorecard, just enough to prove the Slice 5 controls have measurable value.
 
-- [ ] Extend `score.py` with a `scorecard_v2.json` output that adds:
-  - `injection_quarantine_count: int` (expected = 0 on clean runs; =N on adversarial E01 with N seeded strings)
-  - `injection_false_positives: int` (clean strings flagged as injection)
-  - `capability_bypass_denials: int` (expected = 0 on clean runs; >0 if the agent tries something out-of-scope)
-- [ ] **Ablation rows, ordered by expected-delta magnitude (per round-3 reframe):**
-  1. *(no Slice 5)* baseline — the 2.5 pipeline, unchanged
-  2. *(dual-channel only)* — structured-field extraction, no tokens yet; this is where the big precision/recall delta lives on the adversarial E01
-  3. *(dual-channel + capability tokens)* — full Slice 5
-  4. *(full Slice 5, then classification field removed)* — tests whether the C9 `classification` validator still moves the needle once dual-channel + Critic R_11 are doing the work. Round-3 prediction: this row may ablate to ~0 delta — if so, de-emphasize classification-field in the submission narrative; the field stays in the schema but is no longer advertised as a headline control
-- [ ] Acceptance gate: ablation rows show **no precision/recall regression** on the 2.5 cases and **100% quarantine rate** on the adversarial E01. Classification-field ablation result is reported as-is, regardless of direction.
+- [x] Extended [`score.py`](../../experiments/slice-2-notebook/score.py) with `compute_slice5_metrics()` and a new `scorecard_v2.json` output alongside the legacy `scorecard.json`. `scorecard_v2.json` adds a `slice_5_metrics` block:
+  - `injection_quarantine_count: int` — EvidenceRecords in the run with ≥1 flag at severity `quarantine` (Step 8 quarantine-path count; expected = 0 on clean runs; =N on adversarial runs with N seeded strings).
+  - `injection_false_positives: int` — `warn`/`info` severity flags summed across records. On clean 2.5 cases these are scanner FPs; on adversarial runs with ground-truth flag labels, this number should be adjusted by subtracting seeded TPs — flag-label ground truth is Slice 6 scope.
+  - `capability_bypass_denials: int` — records with `tool_execution_status == "capability_denied"` (MCP server refused the call; expected = 0 on clean runs).
+  - `evidence_records: int` / `evidence_jsonl_path: str` — denominator + provenance.
+- [x] Graceful degradation: pre-Slice-5 runs (with `raw_results.jsonl` only, no `evidence.jsonl`) get `slice_5_metrics` with all fields set to `null` and a "no evidence.jsonl — pre-Slice-5 artifacts (N/A)" line in the terminal scorecard. No regression on 2.5 tooling.
+- [x] Fail-fast probe `d:/tmp/probe_step10_scorecard_v2.py` — three tests: (a) real Slice-5 evidence.jsonl from the Step 7c run → 0 quarantine / 0 denials (clean run); (b) synthetic 5-record adversarial → 2 quarantine / 1 FP / 1 denial; (c) missing file → N/A. **All green 2026-04-23.**
+- [x] Scorer end-to-end on both 2.5 baseline cases: `srl-2018-wkstn-05` P=1.00 R=1.00 and `dfirmadness-001-desktop` P=1.00 R=1.00 — **no 2.5 regression from Slice 5 scoring wiring.** Both cases report `[slice5] no evidence.jsonl — pre-Slice-5 artifacts (N/A)` as expected (ablation requires Slice-5 pipeline re-runs, which is Slice 6 scope).
+
+### 10a — Ablation structure (deferred to Slice 6)
+
+The 4-row ablation requires running the pipeline under four configurations across the 2.5 cases + adversarial demo — ~8 full LLM-driven pipeline runs, naturally bundled with Slice 6's Reference Dataset + Accuracy Report scope. Structure committed here; data lands in [`docs/submission/accuracy-report.md`](../submission/accuracy-report.md) as part of Slice 6.
+
+| #   | Config                                   | srl-2018-wkstn-05 P/R | dfirmadness P/R | Adversarial Quarantine% |
+|-----|------------------------------------------|-----------------------|-----------------|-------------------------|
+| 1   | no Slice 5 (2.5 pipeline baseline)       | ✅ 1.00 / 1.00 shipped | ✅ 1.00 / 1.00 shipped | N/A (no scanner)        |
+| 2   | dual-channel only (no capability tokens) | ⬜ Slice 6             | ⬜ Slice 6       | ⬜ Slice 6 — big delta   |
+| 3   | dual-channel + capability tokens         | ⬜ Slice 6             | ⬜ Slice 6       | ⬜ Slice 6 — 100% target |
+| 4   | full Slice 5, classification removed     | ⬜ Slice 6             | ⬜ Slice 6       | ⬜ Slice 6 — headline    |
+
+**Acceptance gate** (enforced at Slice 6 exit): rows show **no precision/recall regression** on the 2.5 cases and **100% quarantine rate** on the adversarial demo. Row 4's classification-field ablation result reported as-is, regardless of direction — if ~0 delta, the field stays in the schema but is de-emphasized in the submission narrative.
 
 ---
 

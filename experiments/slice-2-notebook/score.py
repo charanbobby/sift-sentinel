@@ -1,4 +1,5 @@
-"""Slice 2.5 scorer: findings.json + ground_truth.json → precision / recall / hallucinations.
+"""Slice 2.5 + 5 scorer: findings.json + ground_truth.json → precision / recall
+/ hallucinations, plus Slice-5 `scorecard_v2` with injection + capability metrics.
 
 Run from the project root:
 
@@ -13,10 +14,65 @@ import json
 from pathlib import Path
 
 RUNS_DIR = Path(__file__).parent / "out" / "runs"
+ROOT_OUT_DIR = Path(__file__).parent / "out"  # Slice 5 writes evidence.jsonl here
 
 
 def load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+# ---- Slice 5 Step 10: scorecard_v2 metrics -----------------------------------
+
+_NA = {
+    "evidence_records": None,
+    "injection_quarantine_count": None,
+    "injection_false_positives": None,
+    "capability_bypass_denials": None,
+    "evidence_jsonl_path": None,
+}
+
+
+def compute_slice5_metrics(evidence_jsonl: Path) -> dict:
+    """Slice-5-specific metrics derived from `evidence.jsonl` (EvidenceRecord
+    per line). Returns N/A (None) values when the file doesn't exist, so the
+    scorecard degrades gracefully on pre-Slice-5 runs.
+
+    Definitions:
+      - `injection_quarantine_count`: EvidenceRecords with ≥1 flag at severity
+        `quarantine` (Step 8 quarantine-path count).
+      - `injection_false_positives`: `warn`/`info` severity flags summed across
+        records. On clean 2.5 cases these are scanner FPs; on adversarial runs
+        with ground-truth flag labels, this number should be adjusted by
+        subtracting seeded TPs (Slice 6 scope — we don't yet label seeds).
+      - `capability_bypass_denials`: records with `tool_execution_status ==
+        "capability_denied"` (MCP server refused the call).
+    """
+    if not evidence_jsonl.exists():
+        return dict(_NA)
+    records = load_jsonl(evidence_jsonl)
+    quarantine = sum(
+        1 for r in records
+        if any(f.get("severity") == "quarantine" for f in r.get("injection_flags") or [])
+    )
+    fp_flags = sum(
+        sum(1 for f in (r.get("injection_flags") or []) if f.get("severity") in ("warn", "info"))
+        for r in records
+    )
+    denials = sum(1 for r in records if r.get("tool_execution_status") == "capability_denied")
+    return {
+        "evidence_records": len(records),
+        "injection_quarantine_count": quarantine,
+        "injection_false_positives": fp_flags,
+        "capability_bypass_denials": denials,
+        "evidence_jsonl_path": str(evidence_jsonl),
+    }
+
+
+def _locate_evidence_jsonl(case_dir: Path) -> Path:
+    """Per-case evidence.jsonl (Slice-5 canonical location). No root fallback:
+    the root `out/evidence.jsonl` is a dev artifact whose case_id is ambiguous,
+    and showing it under a case whose data it doesn't describe is misleading."""
+    return case_dir / "evidence.jsonl"
 
 
 def score_case(case_dir: Path) -> dict:
@@ -70,6 +126,8 @@ def score_case(case_dir: Path) -> dict:
     precision = tp / (tp + fp) if (tp + fp) > 0 else None
     recall = tp / (tp + fn) if (tp + fn) > 0 else None
 
+    slice5 = compute_slice5_metrics(_locate_evidence_jsonl(case_dir))
+
     return {
         "case_id": ground_truth["case_id"],
         "counts": {"TP": tp, "FP": fp, "FN": fn, "UNCLEAR": unclear},
@@ -78,11 +136,16 @@ def score_case(case_dir: Path) -> dict:
         "hallucination_count": len(hallucinations),
         "hallucinations": hallucinations,
         "verdicts": verdict_rows,
+        "slice_5_metrics": slice5,
     }
 
 
 def fmt(val: float | None) -> str:
     return f"{val:.2f}" if val is not None else "  — "
+
+
+def _fmt_int(v: int | None) -> str:
+    return str(v) if v is not None else "N/A"
 
 
 def print_scorecard(card: dict) -> None:
@@ -95,6 +158,16 @@ def print_scorecard(card: dict) -> None:
     if card["hallucinations"]:
         for h in card["hallucinations"]:
             print(f"    ! finding {h['finding_index']} evidence[{h['evidence_index']}]: {h['reason']}")
+    s5 = card.get("slice_5_metrics", {})
+    if s5.get("evidence_records") is not None:
+        print(
+            f"  [slice5] records={_fmt_int(s5['evidence_records'])}  "
+            f"quarantine={_fmt_int(s5['injection_quarantine_count'])}  "
+            f"injection_FP={_fmt_int(s5['injection_false_positives'])}  "
+            f"capability_denials={_fmt_int(s5['capability_bypass_denials'])}"
+        )
+    else:
+        print(f"  [slice5] no evidence.jsonl — pre-Slice-5 artifacts (N/A)")
 
 
 def print_summary(cards: list[dict]) -> None:
@@ -131,7 +204,12 @@ def main() -> None:
         cards.append(card)
         print_scorecard(card)
         if not args.no_write:
-            (case_dir / "scorecard.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
+            # Legacy scorecard.json: 2.5 shape (no slice_5_metrics block) —
+            # preserved for backwards-compat with the Slice 2.5 tooling.
+            legacy = {k: v for k, v in card.items() if k != "slice_5_metrics"}
+            (case_dir / "scorecard.json").write_text(json.dumps(legacy, indent=2), encoding="utf-8")
+            # scorecard_v2.json: Slice 5 shape — includes the slice_5_metrics block.
+            (case_dir / "scorecard_v2.json").write_text(json.dumps(card, indent=2), encoding="utf-8")
 
     if len(cards) > 1:
         print_summary(cards)
