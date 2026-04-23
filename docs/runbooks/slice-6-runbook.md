@@ -31,19 +31,19 @@
 
 ---
 
-## Step 0 — Draft + scope alignment (no code)
+## Step 0 — Scope alignment ✅ 2026-04-23
 
-- [ ] Read this runbook top-to-bottom; flag anything that smells over-scoped for 7 weeks against Slice 5's observed velocity
-- [ ] Pick the third full-GT case from the staged Reference Dataset (first two: `base-wkstn-05`, `dfirmadness-001-desktop`)
-- [ ] Decide integrity-ledger scope: linear hash-chain real impl (Slice 6) vs stub + `verify_chain_of_custody.py` skeleton (Slice 6.5)
-- [ ] Decide ablation scope: run all 4 rows (rows 2+4 expensive) vs rows 1+3 only (baseline + full Slice 5) — per Step 10a Slice-5-runbook, rows 2+4 predict biggest delta on adversarial runs
-- [ ] Agree on sampled-audit sampling rate (findings per case × N cases; how many get human review)
+Cost calibration run measured — INTERPRET cost per call is **~$0.09** (21,998 input tok / 1,730 output tok on Sonnet 4.6 against the real `out/evidence.jsonl` from Step 7c). Full-pipeline run ≈ **$0.15 typical, $0.25 worst-case with Critic retry**. That's ~30× lower than the pre-Step-7 incident. Whole-Slice-6 budget revised to **~$5–8**, not the $40–60 I first quoted off the stale figure. Dollar constraint on ablation scope is effectively gone.
 
-**Decisions to record in [PLAN.md](../planning/PLAN.md) Key Decisions:**
-- Third GT-annotated case: __________
-- Integrity-ledger scope: __________
-- Ablation scope: __________
-- Sampled-audit rate: __________
+**Decisions locked:**
+
+- [x] **Third GT-annotated case**: `base-dc` (Windows domain controller) — gives the most different persistence profile from the two already-annotated workstations, exercises hive paths that wkstn-05 doesn't hit (NETLOGON, AD-related artifacts)
+- [x] **Integrity-ledger scope**: linear hash-chain real impl (Slice 6 Step 4). At ~$5 for the whole slice the dollar pressure that would have pushed to a stub is gone; submission narrative is stronger with a real ledger + `verify_chain_of_custody.py` replay tool
+- [x] **Ablation scope**: run all 4 rows on **all staged cases**. Rows 2+4 on all 7 cases ≈ $2.80; not worth cutting for pennies. Accuracy Report gets a full 4-row × 7-case matrix + the adversarial demo quarantine% column
+- [x] **Sampled-audit rate**: 3 findings per non-GT case (all findings if the case produced ≤3) + 2 random evidence records per case. Cheap in reviewer-time, catches the dominant FP / hallucination class
+- [x] **Integrity-ledger storage location**: `/var/lib/find-evil/ledger.jsonl` on `sift-sentinel` via a new named Docker volume — survives container restart, lives outside case folders per NIST, not mounted into `sift-mcp` (write-only from the orchestrator)
+
+All five decisions carried into [PLAN.md](../planning/PLAN.md) Key Decisions table.
 
 ---
 
@@ -127,7 +127,7 @@ Per carried item 9 in PLAN.md: **linear hash-chained** ledger, not plain append-
 - [ ] Record per-case: total LLM cost, wall-clock, token usage, tool-call count (for the Accuracy Report)
 - [ ] Any case that crashes → investigate root cause; do not paper over
 
-**Cost envelope:** ~$2.70/run (post-Step-7 bundle trim) × 7 cases = ~$19 baseline run. Plus ablation rows 2 + 4 if we run them. Budget: ~$60 total for Slice 6 runs.
+**Cost envelope (measured 2026-04-23):** full pipeline run ≈ **$0.15 typical / $0.25 worst-case with retry** (INTERPRET $0.09 + PLAN $0.05 + EXTRACT Gemini-flash-lite ~$0.001). For 7 cases: **~$1.40** baseline run. Ablation rows 2+4 on all 7 cases: **~$2.80**. Contingency: ~$2. **Whole-Slice-6 LLM budget: ~$5–8.** (Pre-Step-7 incident cost was $2.70/run — we're 30× down, not 10×, because the bundle trim also killed retry-loop triggers.)
 
 ---
 
