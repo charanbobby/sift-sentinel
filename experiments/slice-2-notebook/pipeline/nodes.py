@@ -36,7 +36,10 @@ from typing import TYPE_CHECKING, Optional
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
+from langfuse import observe, propagate_attributes
+
 from pipeline.schemas import (
+    Candidates,
     CriticDisagreement,
     EvidenceRecord,
     Finding,
@@ -52,12 +55,13 @@ if TYPE_CHECKING:
 # ============================================================================
 # Module-level runtime configuration
 # ============================================================================
-# Set by the notebook's C1 before calling graph.invoke(). Probes must set them
-# explicitly too. Stays None here so an accidental early import doesn't pull
-# a stale reference from a previous kernel.
+# Set by run_case.py (or the notebook C1) before calling graph.invoke().
+# Probes must set them explicitly too. Stays None here so an accidental early
+# import doesn't pull a stale reference from a previous kernel.
 
 LLM_CLIENT = None
 LANGFUSE = None
+EXTRACT_MODEL: Optional[str] = None
 PLAN_MODEL: Optional[str] = None
 INTERPRET_MODEL: Optional[str] = None
 CASE_ID: Optional[str] = None
@@ -360,16 +364,60 @@ def plan_node(state: "PipelineState") -> dict:
 
 
 # ============================================================================
-# EXTRACT — stub (real implementation stays in notebook C5 for now; lifts with
-# Step 12 notebook slim-down since it doesn't touch the Slice-5 MCP API)
+# EXTRACT — real implementation (lifted from notebook C5, Slice 6)
 # ============================================================================
 
+_EXTRACT_SCHEMA = json.dumps(Candidates.model_json_schema(), indent=2)
+
+_EXTRACT_SYSTEM_PROMPT = f"""You are listing the candidate artifact locations that could contain persistence
+evidence on a Windows host. You are NOT analyzing evidence yet — just enumerating where to look.
+
+Return a single JSON object matching exactly this schema (no prose, no markdown fences):
+
+{_EXTRACT_SCHEMA}
+
+Rules:
+- Windows typically has 8-15 persistence-relevant artifact locations worth checking.
+  Do not exceed 15. If you are tempted to list more, prioritize.
+- Do not invent paths. Use canonical Windows paths only.
+- Each candidate MUST have a non-empty `reason`."""
+
+
+@observe(name="extract")
 def extract_node(state: "PipelineState") -> dict:
-    """Stub. Real C5 body stays in the notebook through Step 7; Step 12 lifts
-    it alongside the final notebook slim-down. Until then, the notebook's C5
-    cell populates `state.candidates` before the graph is invoked, so this
-    stub is a no-op pass-through."""
-    return {}
+    if state.candidates is not None:
+        print("  [extract]   skipped — candidates already populated")
+        return {}
+    client  = _require("LLM_CLIENT", LLM_CLIENT)
+    langfuse = _require("LANGFUSE", LANGFUSE)
+    model   = _require("EXTRACT_MODEL", EXTRACT_MODEL)
+    case_id = _require("CASE_ID", CASE_ID)
+    with propagate_attributes(
+        session_id=state.run_id,
+        user_id=case_id,
+        tags=["phase:extract"],
+        metadata={"phase": "extract"},
+    ):
+        messages = [
+            {"role": "system", "content": _EXTRACT_SYSTEM_PROMPT},
+            {"role": "user",   "content": f"Question: {state.question}"},
+        ]
+        _llm_cost_pre("extract", model, messages)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
+        _llm_cost_post("extract", model, resp.usage)
+        candidates = Candidates.model_validate_json(resp.choices[0].message.content)
+        out_path = OUT_DIR / "candidates.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(candidates.model_dump_json(indent=2), encoding="utf-8")
+        langfuse.update_current_span(
+            output=candidates.model_dump(),
+            metadata={"n_candidates": len(candidates.candidates)},
+        )
+        return {"candidates": candidates}
 
 
 # ============================================================================
