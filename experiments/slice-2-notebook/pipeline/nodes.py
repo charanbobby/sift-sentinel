@@ -79,6 +79,43 @@ def _require(name: str, value):
 # Shared helpers
 # ============================================================================
 
+# OpenRouter pricing (USD per 1M tokens). Verify at https://openrouter.ai/models
+# when adding new models. These are the provider pass-through rates OpenRouter
+# charges — no additional markup for the models we use.
+_OR_RATES: dict[str, tuple[float, float]] = {
+    "anthropic/claude-sonnet-4.6":          (3.00, 15.00),
+    "google/gemini-3.1-flash-lite-preview": (0.075, 0.30),
+}
+
+
+def _llm_cost_pre(phase: str, model: str, messages: list) -> None:
+    """Print an estimated cost BEFORE the OpenRouter call (input-side only)."""
+    text = json.dumps(messages)
+    est_tokens = len(text) // 4
+    in_rate, _ = _OR_RATES.get(model, (None, None))
+    cost_str = f"~${est_tokens / 1e6 * in_rate:.5f}" if in_rate else "rate unknown"
+    print(f"  [{phase}] PRE  model={model}  est_input≈{est_tokens:,} tok  est_cost={cost_str}")
+
+
+def _llm_cost_post(phase: str, model: str, usage) -> None:
+    """Print actual cost AFTER the OpenRouter call from response.usage."""
+    pt = getattr(usage, "prompt_tokens", 0) or 0
+    ct = getattr(usage, "completion_tokens", 0) or 0
+    in_rate, out_rate = _OR_RATES.get(model, (None, None))
+    if in_rate:
+        in_cost  = pt / 1e6 * in_rate
+        out_cost = ct / 1e6 * out_rate
+        total    = in_cost + out_cost
+        print(
+            f"  [{phase}] POST model={model}\n"
+            f"           input={pt:,} tok (${in_cost:.5f})  "
+            f"output={ct:,} tok (${out_cost:.5f})  "
+            f"total=${total:.5f}"
+        )
+    else:
+        print(f"  [{phase}] POST model={model}  input={pt:,}  output={ct:,}  (rate unknown)")
+
+
 def _parse_json_response(raw: str, model_cls):
     """Strip optional ```json markdown fences from LLM output, then Pydantic-validate.
 
@@ -283,11 +320,13 @@ def plan_node(state: "PipelineState") -> dict:
             })
         messages.append({"role": "user", "content": user_input})
 
+        _llm_cost_pre("plan", model, messages)
         resp = client.chat.completions.create(
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
         )
+        _llm_cost_post("plan", model, resp.usage)
         tool_plan = _parse_json_response(resp.choices[0].message.content, ToolPlan)
 
         out_path = OUT_DIR / "tool_plan.json"
@@ -762,6 +801,14 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
 
     case_id = _require("CASE_ID", CASE_ID)
     plan_steps = state.tool_plan.steps
+
+    # Tools whose structured_fields are forensic evidence for INTERPRET.
+    # fls_list and icat_extract are executor/navigation artifacts — their
+    # directory tables and extraction confirmations served _resolve_args during
+    # EXECUTE and must NOT enter the analysis LLM context. Sending them whole
+    # was the source of ~120k token bloat per run (2026-04-23 incident).
+    _INTERPRET_EVIDENCE_TOOLS = {"regripper_run", "scheduled_tasks_parse", "fsstat_e01"}
+
     bundle_steps = []
     for i, ev in enumerate(state.evidence):
         if i >= len(plan_steps):
@@ -770,15 +817,18 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
                 f"tool_plan.steps has {len(plan_steps)} — positional correlation broken"
             )
         plan_step = plan_steps[i]
+        if plan_step.tool in _INTERPRET_EVIDENCE_TOOLS:
+            sf = ev.structured_fields
+        else:
+            sf = None  # navigation/staging artifact; stripped for INTERPRET
         bundle_steps.append({
             "step_id": plan_step.step_id,
             "tool_call_id": ev.tool_call_id,
             "tool": plan_step.tool,
             "purpose": plan_step.purpose,
-            "args": plan_step.args,
             "tool_execution_status": ev.tool_execution_status,
             "expected_paths_covered": ev.expected_paths_covered,
-            "structured_fields": ev.structured_fields,
+            "structured_fields": sf,
         })
 
     return {
@@ -831,12 +881,14 @@ def interpret_node(state: "PipelineState") -> dict:
                 })
             messages.append({"role": "user", "content": json.dumps(bundle, indent=2)})
 
+            _llm_cost_pre("interpret", model, messages)
             resp = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 response_format={"type": "json_object"},
                 max_tokens=8000,
             )
+            _llm_cost_post("interpret", model, resp.usage)
             raw = resp.choices[0].message.content
             s = raw.strip()
             if s.startswith("```"):
