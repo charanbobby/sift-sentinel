@@ -47,26 +47,42 @@ All five decisions carried into [PLAN.md](../planning/PLAN.md) Key Decisions tab
 
 ---
 
-## Step 1 — Stage ~4 additional Reference Dataset E01s
+## Step 1 — Preprocess staged E01s to raw NTFS partitions
 
-Already staged / analyzed: `base-wkstn-05`, `dfirmadness-001-desktop`, `dmz-ftp-cdrive` (3 cases).
+**Driver:** [`experiments/slice-2-notebook/preprocess_e01.py`](../../experiments/slice-2-notebook/preprocess_e01.py) — per case: `ewfmount` → `mmls` (pick largest NTFS) → `dd` extract → `fsstat` verify → sha256. Parser unit-tested 2026-04-23 against dual-NTFS, single-NTFS, and GPT-no-NTFS mmls samples.
 
-To add (target ~5–7 total):
+Needs a **privileged sift container** (FUSE required for `ewfmount`); the persistent `sift-mcp` container is non-privileged by design. Spin an ad-hoc one per session:
 
-- [ ] `base-dc` — Windows domain controller E01
-- [ ] `base-file` — Windows file server E01
-- [ ] `base-rd-01` / `base-rd-02` — Remote desktop servers
-- [ ] `base-wkstn-01` — Second workstation (different persistence profile than wkstn-05)
+```bash
+docker run --rm -it --privileged --device /dev/fuse \
+  -v "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026:/mnt/hackathon:ro" \
+  -v "D:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/derived:/mnt/derived:rw" \
+  -v "D:/Python Applications/Find Evil - Hackathon/experiments/slice-2-notebook:/work:ro" \
+  find-evil/sift:slice5 bash
+# inside:
+python3 /work/preprocess_e01.py --case base-dc
+python3 /work/preprocess_e01.py --case base-file
+python3 /work/preprocess_e01.py --case base-rd-02
+python3 /work/preprocess_e01.py --case dmz-ftp
+```
 
-For each:
-- [ ] Download E01 (+ any multi-segment parts) into `HACKATHON-2026/<case>/`
-- [ ] Preprocess per `slice-2-runbook.md` recipe: `ewfmount` → raw NTFS partition → `/mnt/derived/<case>/<case>.dd`
-- [ ] Verify `fsstat_e01` returns valid NTFS metadata against the `.dd` via the sift-mcp server
-- [ ] Document preprocessing quirks per-case (GPT vs MBR, partition offset, multi-segment assembly)
+Each pass writes `/mnt/derived/<case>.ntfs.dd` + prints size + sha256 (captured now for Step-4 ledger seeding). ~5–15 min wall-clock per case.
+
+Already preprocessed + Slice-2.5 baseline (2 cases): `base-wkstn-05`, `dfirmadness-001-desktop`.
+
+To preprocess (4 cases — E01s already staged on D: drive):
+
+- [ ] `base-dc` — Windows domain controller (12 GB E01) — **3rd full-GT case per Step 0**
+- [ ] `base-file` — Windows file server (16 GB E01)
+- [ ] `base-rd-02` — Remote desktop server (17 GB E01)
+- [ ] `dmz-ftp` — DMZ FTP server (12 GB E01)
+
+Not downloaded (not blocking — 6 cases satisfies the ≥5 gate): `base-rd-01`, `base-wkstn-01`.
 
 ### 1a — Dataset manifest update
 
 - [ ] Update [`docs/reference/hackathon/dataset_manifest.md`](../reference/hackathon/dataset_manifest.md) with status rows for each staged case: `[staged / preprocessed / pipeline-runs-clean / GT-annotated / sampled-audit-done]`
+- [ ] Record each `.ntfs.dd` sha256 (captured at preprocess time) as baseline identity for Step-4 ledger genesis
 - [ ] Persistence-profile notes per case: expected Windows roles → expected persistence mechanisms to watch for
 
 ---

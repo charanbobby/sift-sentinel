@@ -44,10 +44,10 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 
 | Status | Host | Role (inferred) | File | Notes |
 |---|---|---|---|---|
-| [ ] | base-dc | Domain Controller | `base-dc-cdrive.E01` | |
-| [ ] | base-file | File Server | `base-file-cdrive.E01` | |
+| [~] | base-dc | Domain Controller | `base-dc-cdrive.E01` | Raw partition written, SHA-256 genesis hash in progress 2026-04-23 |
+| [~] | base-file | File Server | `base-file-cdrive.E01` | Download/extraction in progress 2026-04-23 |
 | [ ] | base-rd-01 | Remote Desktop / RDS | `base-rd-01-cdrive.E01` | |
-| [ ] | base-rd-02 | Remote Desktop / RDS | `base-rd-02-cdrive.E01` | |
+| [~] | base-rd-02 | Remote Desktop / RDS | `base-rd-02-cdrive.E01` | On disk, conversion queued after base-file 2026-04-23 |
 | [ ] | base-wkstn-01 | Workstation | `base-wkstn-01-c-drive.E01` | |
 | [x] | base-wkstn-05 | Workstation | `base-wkstn-05-cdrive.E01` | **Current target** — Slice 2 pipeline runs against this |
 | [x] | dmz-ftp | DMZ FTP server | `dmz-ftp-cdrive.E01` | External-facing — likely initial foothold |
@@ -59,12 +59,12 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 |---|---|---|---|---|
 | [ ] | base-admin | 1.0 GB | `base-admin-memory.7z` | Admin workstation |
 | [ ] | base-av | 2.1 GB | `base-av-memory.7z` | Antivirus server |
-| [ ] | base-dc | 808.2 MB | `base-dc-memory.7z` | Domain controller (pairs with disk) |
+| [x] | base-dc | 808.2 MB | `base-dc-memory.7z` | Domain controller (pairs with disk) |
 | [ ] | base-elf | 672.8 MB | `base-elf-memory.7z` | Linux host? (ELF binaries?) |
-| [ ] | base-file | 303.5 MB | `base-file-memory.7z` | File server (pairs with disk) |
+| [x] | base-file | 303.5 MB | `base-file-memory.7z` | File server (pairs with disk) |
 | [ ] | base-file | 774.9 MB | `base-file-snapshot5.7z` | File server later snapshot |
 | [ ] | base-hunt | 1.1 GB | `base-hunt-memory.7z` | Threat hunting host? |
-| [x] | base-mail | 2.7 GB | `base-mail-memory.7z` | Mail server — phishing landing likely. Extracted to `HACKATHON-2026/base-mail-memory/` |
+| [x] | base-mail | 2.7 GB | `base-mail-memory.7z` | Mail server — phishing landing likely. Extracted to `HACKATHON-2026/base-mail-memory/` (archive not on disk — extracted only) |
 | [ ] | base-rd01 | 837.6 MB | `base-rd01-memory.7z` | RDS (naming differs from disk `base-rd-01`) |
 | [ ] | base-rd-02 | 931.9 MB | `base-rd-02-memory.7z` | RDS (pairs with disk) |
 | [ ] | base-rd-03 | 932.8 MB | `base-rd-03-memory.7z` | RDS (no disk) |

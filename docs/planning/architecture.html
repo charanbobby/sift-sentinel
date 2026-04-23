@@ -1245,6 +1245,326 @@
     font-weight: 700;
   }
 
+  /* ── Integrity ledger deep-dive ─────────── */
+  .ledger-section { margin-top: 28px; }
+
+  /* Two-hash splash — artifact fingerprint vs ledger chain */
+  .hash-split {
+    display: flex;
+    gap: 14px;
+    margin: 10px 0 22px;
+    flex-wrap: wrap;
+  }
+  .hash-split .hash-card {
+    flex: 1 1 340px;
+    min-width: 300px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1.5px solid #e5e7eb;
+    background: #fff;
+  }
+  .hash-split .hash-card.frozen { border-color: #a7f3d0; background: #f0fdf4; }
+  .hash-split .hash-card.chain  { border-color: #c7d2fe; background: #eef2ff; }
+  .hash-split .hash-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .hash-split .hash-card.frozen .hash-tag { background: #d1fae5; color: #065f46; }
+  .hash-split .hash-card.chain  .hash-tag { background: #e0e7ff; color: #3730a3; }
+  .hash-split .hash-card h4 { font-size: 13px; margin-bottom: 8px; color: #1a1a2e; }
+  .hash-split .hash-card p  { font-size: 11.5px; color: #334155; line-height: 1.55; margin-bottom: 8px; }
+  .hash-split .hash-card p:last-of-type { margin-bottom: 0; }
+  .hash-split .hash-card code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    background: rgba(255,255,255,0.7);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* ── Chain diagram — horizontal flow of entry blocks ── */
+  .chain-wrap {
+    margin: 14px 0 20px;
+    padding: 16px 14px 14px;
+    background: #0f172a;
+    border-radius: 10px;
+    overflow-x: auto;
+  }
+  .chain-wrap .chain-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+    padding-left: 2px;
+  }
+  .chain-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    min-width: max-content;
+  }
+  .chain-block {
+    flex: 0 0 168px;
+    padding: 10px 10px 9px;
+    background: #1e293b;
+    border: 1.5px solid #334155;
+    border-radius: 7px;
+    color: #e2e8f0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    line-height: 1.45;
+    position: relative;
+  }
+  .chain-block.genesis { background: #334155; border-color: #64748b; color: #cbd5e1; }
+  .chain-block.broken  {
+    background: #450a0a;
+    border-color: #ef4444;
+    box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
+  }
+  .chain-block .seq {
+    font-size: 9px;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 3px;
+  }
+  .chain-block .event {
+    color: #fde68a;
+    font-weight: 600;
+    font-size: 10.5px;
+    margin-bottom: 6px;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .chain-block.broken .event { color: #fecaca; }
+  .chain-block .field {
+    display: block;
+    color: #cbd5e1;
+    font-size: 9.5px;
+    margin-bottom: 2px;
+  }
+  .chain-block .field .k { color: #7dd3fc; }
+  .chain-block .field .v { color: #e2e8f0; }
+  .chain-block.broken .field .v { color: #fca5a5; text-decoration: line-through; }
+  .chain-arrow {
+    flex: 0 0 18px;
+    align-self: center;
+    color: #64748b;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    text-align: center;
+  }
+  .chain-arrow.broken { color: #ef4444; font-weight: 700; }
+  .chain-wrap .chain-caption {
+    margin-top: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    color: #94a3b8;
+    line-height: 1.5;
+  }
+  .chain-wrap .chain-caption b { color: #e2e8f0; }
+
+  /* ── Events-recorded table ── */
+  .ledger-events {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 18px;
+    font-size: 11px;
+  }
+  .ledger-events th {
+    text-align: left;
+    padding: 8px 10px;
+    background: #f1f5f9;
+    border-bottom: 2px solid #cbd5e1;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+  }
+  .ledger-events td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+    color: #334155;
+  }
+  .ledger-events td.ev {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #0f172a;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .ledger-events td code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    background: #f8fafc;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #1e293b;
+  }
+
+  /* ── Tamper scenarios grid ── */
+  .tamper-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 12px;
+    margin: 10px 0 18px;
+  }
+  .tamper-card {
+    padding: 12px 14px 10px;
+    border-radius: 10px;
+    border: 1.5px solid #e5e7eb;
+    background: #fff;
+    position: relative;
+  }
+  .tamper-card .t-num {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: #6b7280;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .tamper-card h4 {
+    font-size: 12.5px;
+    margin-bottom: 6px;
+    color: #1a1a2e;
+    line-height: 1.35;
+  }
+  .tamper-card p {
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.5;
+    margin-bottom: 6px;
+  }
+  .tamper-card p b { color: #334155; }
+  .tamper-card p:last-of-type { margin-bottom: 0; }
+  .tamper-card .verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 4px 9px;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .tamper-card .verdict.caught    { background: #d1fae5; color: #065f46; }
+  .tamper-card .verdict.partial   { background: #fef3c7; color: #92400e; }
+  .tamper-card .verdict.not-caught{ background: #fee2e2; color: #991b1b; }
+  .tamper-card .verdict::before {
+    content: "●";
+    font-size: 10px;
+    line-height: 1;
+  }
+  .tamper-card code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #1e293b;
+  }
+
+  /* ── Storage separation diagram ── */
+  .storage-split {
+    display: flex;
+    gap: 14px;
+    margin: 10px 0 18px;
+    flex-wrap: wrap;
+  }
+  .storage-card {
+    flex: 1 1 300px;
+    min-width: 280px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1.5px dashed #cbd5e1;
+    background: #f8fafc;
+  }
+  .storage-card.evidence { border-color: #60a5fa; background: #eff6ff; }
+  .storage-card.ledger   { border-color: #a78bfa; background: #f5f3ff; }
+  .storage-card .s-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .storage-card.evidence .s-tag { background: #dbeafe; color: #1e40af; }
+  .storage-card.ledger .s-tag   { background: #ede9fe; color: #5b21b6; }
+  .storage-card h4 { font-size: 12.5px; margin-bottom: 6px; color: #1a1a2e; }
+  .storage-card .path {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: #0f172a;
+    background: rgba(255,255,255,0.8);
+    padding: 5px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 6px;
+  }
+  .storage-card ul {
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.55;
+    margin-left: 16px;
+    margin-top: 4px;
+  }
+  .storage-card ul li { margin-bottom: 2px; }
+  .storage-caveat {
+    padding: 10px 14px;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 6px 6px 0;
+    font-size: 11px;
+    color: #334155;
+    line-height: 1.55;
+  }
+  .storage-caveat b { color: #92400e; font-family: 'IBM Plex Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-right: 5px; }
+
+  /* ── Limits / honest-scope box ── */
+  .limits-box {
+    padding: 12px 16px;
+    margin: 10px 0 4px;
+    background: #fef2f2;
+    border-left: 3px solid #dc2626;
+    border-radius: 0 6px 6px 0;
+  }
+  .limits-box h4 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: #991b1b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+  .limits-box ul {
+    font-size: 11px;
+    color: #334155;
+    line-height: 1.55;
+    margin-left: 18px;
+  }
+  .limits-box ul li { margin-bottom: 6px; }
+  .limits-box ul li b { color: #1a1a2e; }
+  .limits-box ul li:last-child { margin-bottom: 0; }
+
 </style>
 </head>
 <body>
@@ -1292,9 +1612,11 @@
   <span class="sep">·</span>
   <a href="#sec-critic"><span class="num">03</span>critic deep-dive</a>
   <span class="sep">·</span>
-  <a href="#sec-deployment"><span class="num">04</span>deployment</a>
+  <a href="#sec-ledger"><span class="num">04</span>integrity ledger</a>
   <span class="sep">·</span>
-  <a href="#sec-failure"><span class="num">05</span>failure handling</a>
+  <a href="#sec-deployment"><span class="num">05</span>deployment</a>
+  <span class="sep">·</span>
+  <a href="#sec-failure"><span class="num">06</span>failure handling</a>
 </div>
 
 <!-- ── HERO PIPELINE ────────────────────── -->
@@ -1720,6 +2042,280 @@
         <td class="rule-status">🟡 in progress</td>
       </tr>
     </table>
+  </div>
+
+</div>
+
+<!-- ── INTEGRITY LEDGER DEEP-DIVE ───────── -->
+<a id="sec-ledger"></a>
+<div class="ledger-section collapsible">
+  <div class="rsec-head">
+    <h2>Integrity ledger — how the hash chain catches tampering</h2>
+    <span class="subtitle">two hashes doing different jobs · hash-chained JSONL · separate from case folders · <span class="mono">verify_chain_of_custody.py</span> replays from genesis</span>
+  </div>
+
+  <div class="plain-english">
+    <p>The investigative question: <i>"how do you prove the evidence — or the agent's record of examining it — wasn't tampered with later?"</i></p>
+    <p>Forensic reports are only as trustworthy as their chain of custody. A log file that says "I saw X at timestamp Y" is worthless if anyone with write access could have edited the log after the fact. The ledger turns an append-only log into a <b>tamper-evident</b> record by chaining SHA-256 hashes across entries: flipping one byte anywhere in history breaks every hash downstream. A companion script walks the chain from genesis to the current tip and fails loudly on the first mismatch.</p>
+  </div>
+
+  <!-- Two-hash splash: artifact fingerprint vs ledger chain -->
+  <div class="hash-split">
+    <div class="hash-card frozen">
+      <span class="hash-tag">Hash A · artifact fingerprint</span>
+      <h4>SHA-256 over the raw <code>.ntfs.dd</code> — computed once, frozen</h4>
+      <p>Written the moment Step 1 finishes extracting the partition. Nothing in the pipeline ever writes to it again; every future check recomputes and compares. Its only job: prove the evidence blob itself hasn't changed since ingest.</p>
+      <p><b>Where it lives:</b> quoted in the ledger's <code>case_ingest</code> entry as the starting baseline.</p>
+    </div>
+    <div class="hash-card chain">
+      <span class="hash-tag">Hash B · ledger chain</span>
+      <h4>Growing record · one SHA-256 per entry · each entry references the previous</h4>
+      <p>Every plan approval, tool call, finding commit, critic decision, and human review writes one line to <code>ledger.jsonl</code>. Each line carries its own hash <i>plus the hash of the previous line</i>. Tampering anywhere in history breaks the chain at that point.</p>
+      <p><b>Where it lives:</b> <code>/var/lib/find-evil/ledger.jsonl</code> — outside every case folder.</p>
+    </div>
+  </div>
+
+  <!-- Chain diagram — clean version -->
+  <div class="chain-wrap">
+    <div class="chain-title">ledger.jsonl — clean chain (no tampering)</div>
+    <div class="chain-row">
+      <div class="chain-block genesis">
+        <div class="seq">entry 0</div>
+        <div class="event">GENESIS</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">000…000</span></span>
+        <span class="field"><span class="k">payload:</span> <span class="v">"genesis"</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(g)</span></span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 1</div>
+        <div class="event">case_ingest</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">H(g)</span></span>
+        <span class="field"><span class="k">case:</span> <span class="v">base-dc</span></span>
+        <span class="field"><span class="k">artifact:</span> <span class="v">sha256:a7f…</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(H(g)+p1)</span></span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 2</div>
+        <div class="event">plan_approved</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">H(…+p1)</span></span>
+        <span class="field"><span class="k">plan_digest:</span> <span class="v">sha256:b42…</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(H(…p1)+p2)</span></span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 3</div>
+        <div class="event">tool_call</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">H(…+p2)</span></span>
+        <span class="field"><span class="k">tool:</span> <span class="v">reg_run_value</span></span>
+        <span class="field"><span class="k">out_sha:</span> <span class="v">sha256:c3d…</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(H(…p2)+p3)</span></span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 4</div>
+        <div class="event">finding_committed</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">H(…+p3)</span></span>
+        <span class="field"><span class="k">cites:</span> <span class="v">ev[0,2]</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(H(…p3)+p4)</span></span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry n</div>
+        <div class="event">session_close</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">H(…+p[n-1])</span></span>
+        <span class="field"><span class="k">run_id:</span> <span class="v">r_2026…</span></span>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(…)</span></span>
+      </div>
+    </div>
+    <div class="chain-caption">
+      <b>construction:</b> <code>my_hash = sha256(prev_hash ‖ payload)</code> · each entry's hash depends on every byte of every entry before it · <b>verify:</b> <code>verify_chain_of_custody.py</code> recomputes from genesis, fails on first mismatch
+    </div>
+  </div>
+
+  <!-- Chain diagram — tampered version -->
+  <div class="chain-wrap">
+    <div class="chain-title">same chain — attacker edits entry 3's output sha</div>
+    <div class="chain-row">
+      <div class="chain-block genesis">
+        <div class="seq">entry 0</div>
+        <div class="event">GENESIS</div>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(g)</span> ✓</span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 1</div>
+        <div class="event">case_ingest</div>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(H(g)+p1)</span> ✓</span>
+      </div>
+      <div class="chain-arrow">→</div>
+      <div class="chain-block">
+        <div class="seq">entry 2</div>
+        <div class="event">plan_approved</div>
+        <span class="field"><span class="k">my_hash:</span> <span class="v">H(…+p2)</span> ✓</span>
+      </div>
+      <div class="chain-arrow broken">✗</div>
+      <div class="chain-block broken">
+        <div class="seq">entry 3 · TAMPERED</div>
+        <div class="event">tool_call</div>
+        <span class="field"><span class="k">out_sha:</span> <span class="v">sha256:fake…</span></span>
+        <span class="field"><span class="k">stored my_hash:</span> <span class="v">H(…+p3)</span></span>
+        <span class="field"><span class="k">recomputed:</span> <span class="v">H(…+p3')</span> ✗</span>
+      </div>
+      <div class="chain-arrow broken">✗</div>
+      <div class="chain-block broken">
+        <div class="seq">entry 4 · ORPHANED</div>
+        <div class="event">finding_committed</div>
+        <span class="field"><span class="k">prev_hash:</span> <span class="v">points to old p3</span></span>
+        <span class="field"><span class="k">chain break:</span> <span class="v">prev ≠ actual</span></span>
+      </div>
+      <div class="chain-arrow broken">✗</div>
+      <div class="chain-block broken">
+        <div class="seq">entry n · ORPHANED</div>
+        <div class="event">session_close</div>
+        <span class="field"><span class="k">all downstream:</span> <span class="v">invalid</span></span>
+      </div>
+    </div>
+    <div class="chain-caption">
+      <b>effect:</b> one tampered byte at entry 3 invalidates entry 3's own hash AND every entry after it · <b>verify output:</b> <code>CHAIN_BROKEN at seq=3 expected=H(…) got=H(…)</code> — the script tells you exactly where
+    </div>
+  </div>
+
+  <!-- What gets written to the ledger -->
+  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">What the orchestrator writes to the ledger</h3>
+  <p style="font-size:11.5px; color:#475569; margin-bottom:8px; line-height:1.55;">
+    Every state-changing event in a run lands in <code style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:#f1f5f9;padding:1px 5px;border-radius:3px;">ledger.jsonl</code> as one JSON line. Read-only events (screen redraws, cached lookups) don't — the ledger captures <i>decisions and observations</i>, not UI state.
+  </p>
+  <table class="ledger-events">
+    <tr>
+      <th style="width:22%;">event</th>
+      <th>payload fields (on top of prev_hash / my_hash)</th>
+    </tr>
+    <tr>
+      <td class="ev">case_ingest</td>
+      <td><code>case_id</code>, path to <code>.ntfs.dd</code>, <code>artifact_sha256</code> (Hash A), examiner_id, ingest timestamp</td>
+    </tr>
+    <tr>
+      <td class="ev">plan_approved</td>
+      <td><code>plan_digest</code> (SHA-256 of canonicalised tool plan), approver_id, rationale</td>
+    </tr>
+    <tr>
+      <td class="ev">tool_call</td>
+      <td>tool name, args, <code>capability_token_sha256</code>, <code>input_sha256</code>, <code>output_sha256</code>, exec_status, wall_time_ms</td>
+    </tr>
+    <tr>
+      <td class="ev">evidence_record</td>
+      <td><code>tool_call_id</code>, sha256 of extracted <code>structured_fields</code>, quarantine_flag</td>
+    </tr>
+    <tr>
+      <td class="ev">finding_committed</td>
+      <td>finding JSON, <code>cites_evidence[]</code> (list of evidence hashes), classification, confidence</td>
+    </tr>
+    <tr>
+      <td class="ev">critic_verdict</td>
+      <td>rule_id, pass/fail, finding_ref, corrective_instruction (if fail)</td>
+    </tr>
+    <tr>
+      <td class="ev">human_review</td>
+      <td>reviewer_id, finding_ref, decision, notes</td>
+    </tr>
+    <tr>
+      <td class="ev">session_close</td>
+      <td>run_id, finding_count, total_cost, wall_time, <code>final_tip_hash</code></td>
+    </tr>
+  </table>
+
+  <!-- Tamper scenarios -->
+  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">Attack scenarios — what the chain catches</h3>
+  <div class="tamper-grid">
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 1</span>
+      <h4>Evidence tamper after ingest</h4>
+      <p>Attacker with write access to <code>/mnt/derived/</code> modifies <code>base-dc.ntfs.dd</code> — wipes a registry hive to remove a persistence indicator.</p>
+      <p><b>Detection:</b> recomputing Hash A produces a different sha256. The ledger's <code>case_ingest</code> entry still pins the original. Verifier reports mismatch on first check.</p>
+      <span class="verdict caught">caught — strong</span>
+    </div>
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 2</span>
+      <h4>Forged tool output</h4>
+      <p>Attacker intercepts a <code>reg_run_value</code> call and replaces the output with empty JSON, pretending no Run key entries exist.</p>
+      <p><b>Detection:</b> the <code>tool_call</code> entry logged the real output's sha256 at execution time. Verifier replays the tool call, sha256 the new output, compares.</p>
+      <span class="verdict caught">caught — strong</span>
+    </div>
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 3</span>
+      <h4>Finding injection</h4>
+      <p>Attacker writes a fake "no persistence found" finding into <code>findings.json</code> to hide the real ones.</p>
+      <p><b>Detection:</b> no <code>finding_committed</code> entry in the ledger matches the injected finding. Verifier cross-references and flags the orphan.</p>
+      <span class="verdict caught">caught — strong</span>
+    </div>
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 4</span>
+      <h4>Ledger entry edit</h4>
+      <p>Attacker changes a <code>critic_verdict</code> from "fail" to "pass" to hide a hallucination the Critic caught.</p>
+      <p><b>Detection:</b> that entry's own <code>my_hash</code> no longer matches recomputation, AND every entry after it has a <code>prev_hash</code> pointing to a value that no longer exists. Chain breaks at the edit.</p>
+      <span class="verdict caught">caught — strong</span>
+    </div>
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 5</span>
+      <h4>Selective ledger deletion</h4>
+      <p>Attacker deletes entries 7–9 to remove a tool call that produced an inconvenient result.</p>
+      <p><b>Detection:</b> entry 10's <code>prev_hash</code> no longer matches entry 6 (its new predecessor). Chain breaks at the cut.</p>
+      <span class="verdict caught">caught — strong</span>
+    </div>
+
+    <div class="tamper-card">
+      <span class="t-num">Scenario 6</span>
+      <h4>Full ledger replacement</h4>
+      <p>Attacker rewrites the entire ledger from scratch with internally consistent entries — but different history.</p>
+      <p><b>Detection:</b> only as strong as the out-of-band publication of the tip hash. Our scope: Git tag on submission pins <code>final_tip_hash</code>. Post-submission replacement is detectable against the tag.</p>
+      <span class="verdict partial">caught — with out-of-band anchor</span>
+    </div>
+
+  </div>
+
+  <!-- Storage separation -->
+  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">Why the ledger lives outside the case folder</h3>
+  <div class="storage-split">
+    <div class="storage-card evidence">
+      <span class="s-tag">case folder · evidence</span>
+      <h4>Per-case evidence location</h4>
+      <span class="path">/mnt/derived/&lt;case&gt;.ntfs.dd</span>
+      <ul>
+        <li>raw NTFS partition + per-run outputs</li>
+        <li>mounted rw into <code>sift-mcp</code></li>
+        <li>anyone running forensic tools needs read access</li>
+      </ul>
+    </div>
+    <div class="storage-card ledger">
+      <span class="s-tag">separate volume · attestation</span>
+      <h4>Ledger location</h4>
+      <span class="path">/var/lib/find-evil/ledger.jsonl</span>
+      <ul>
+        <li>named Docker volume on <code>sift-sentinel</code></li>
+        <li><b>not</b> mounted into <code>sift-mcp</code> — write-only from orchestrator</li>
+        <li>survives container restart; different access path than evidence</li>
+      </ul>
+    </div>
+  </div>
+  <div class="storage-caveat">
+    <b>why</b> if <code style="font-family:'IBM Plex Mono',monospace;font-size:10px;background:rgba(255,255,255,0.6);padding:1px 4px;border-radius:3px;">ledger.jsonl</code> lived inside the case folder, anyone who compromises the case folder gets both the evidence AND the attestation of the evidence — they could rewrite both consistently with no mismatch to detect. NIST SP 800-86 is explicit on this: <i>keep the record of integrity separate from the thing whose integrity it attests.</i>
+  </div>
+
+  <!-- Honest scope -->
+  <div class="limits-box">
+    <h4>What the chain does NOT protect against — honest scope</h4>
+    <ul>
+      <li><b>Compromised orchestrator during a live run.</b> An attacker with code execution on <code>sift-sentinel</code> controls what gets written and can produce an internally-consistent malicious chain. Real defense: hardware-attested signing (TPM / HSM). Not in hackathon scope.</li>
+      <li><b>Tampering before ingest.</b> If the source E01 was modified on the examiner's workstation before <code>ewfmount</code> ran, our chain starts from a poisoned baseline. We assert "unchanged since we ingested it," not "faithful to the source disk." That's where acquisition-time chain-of-custody (dates, examiner signatures, write-blocker logs) is supposed to cover the gap.</li>
+      <li><b>Confidentiality.</b> The ledger is integrity-only. It doesn't prevent someone <i>reading</i> evidence they shouldn't — that's a separate access-control problem.</li>
+    </ul>
   </div>
 
 </div>
