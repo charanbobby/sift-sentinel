@@ -65,7 +65,13 @@ class Candidates(BaseModel):
 # ---- Phase 2 — PLAN output ----
 class PlannedStep(BaseModel):
     step_id: int
-    tool: Literal["fsstat_e01", "fls_list", "icat_extract", "regripper_run"]
+    # `scheduled_tasks_parse` added Slice 5 Step 6 as the 5th MCP tool —
+    # chains icat + XML parse internally so PLAN can advertise T1053.005
+    # coverage in one step without orchestrator-side chaining.
+    tool: Literal[
+        "fsstat_e01", "fls_list", "icat_extract",
+        "regripper_run", "scheduled_tasks_parse",
+    ]
     args: dict
     purpose: str
     depends_on: list[int]
@@ -200,7 +206,15 @@ class InjectionFlag(BaseModel):
 
 
 # ---- Evidence record (Slice 5 Step 6) ----
-ToolExecutionStatus = Literal["ok", "timeout", "permission_denied", "parse_error", "empty"]
+# `capability_denied` added Slice 5 Step 6 — a denied call never runs the
+# subprocess, so the existing subprocess-level statuses (timeout /
+# permission_denied / parse_error) would be semantically wrong. The denial
+# EvidenceRecord carries the full reason under structured_fields so Critic
+# can see WHY without ambiguity.
+ToolExecutionStatus = Literal[
+    "ok", "timeout", "permission_denied", "parse_error", "empty",
+    "capability_denied",
+]
 
 
 class EvidenceRecord(BaseModel):

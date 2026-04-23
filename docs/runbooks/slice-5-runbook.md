@@ -504,28 +504,38 @@ A small, deterministic pattern library + one heuristic. Runs in the MCP server o
 
 Modify the server's subprocess runner so every tool call emits both channels.
 
-- [ ] `_run_and_record` now writes the raw stdout to `out/runs/<case>/raw/<tool_call_id>.raw` (channel A) and computes `sha256`
-- [ ] A per-tool parser fn (`_parse_fls`, `_parse_regripper`, etc.) converts stdout → typed structured-field model
-- [ ] Injection scanner runs on raw + on free-text portions of structured fields
-- [ ] Returns `EvidenceRecord` instead of `ToolResult` (new shape — Slice 5 breaking change on the server API)
-- [ ] `ToolResult.stdout_excerpt` is **removed** from the agent-visible output; Pipeline state holds the full `EvidenceRecord`, but `INTERPRET`'s bundle only includes `structured_fields`
+- [x] Split the old `_run_and_record` into two: `_run_subprocess` (runs argv, persists `<raw>/<tool_call_id>.raw`, appends a `tool_calls.jsonl` entry, returns bytes + metadata) and `_emit_evidence` (parses, scans, integrity-stubs, builds the final `EvidenceRecord`). One subprocess boundary, one record-emission boundary — each tool function composes them explicitly. Path is `<case>/analysis/raw/<tool_call_id>.raw` (not `out/runs/...` as the runbook originally sketched; same shape, kept with the existing case-directory layout).
+- [x] Per-tool parser fns live in `pipeline/mcp/parsers.py` (module-level, shared with orchestrator for testing). See Step 6a.
+- [x] Injection scanner runs on raw + free-text fields inside `_emit_evidence`. One call to `scan_evidence(raw_bytes=..., text_fields=free_text_fn(result))` per tool.
+- [x] Returns `EvidenceRecord` instead of `ToolResult` — the `ToolResult` class is **deleted** from `mcp_server/server.py`. Capability-denied calls now also return `EvidenceRecord` (with `tool_execution_status="capability_denied"` and the structured denial reason under `structured_fields`), which required adding `"capability_denied"` to the `ToolExecutionStatus` literal in `schemas.py`.
+- [x] `stdout_excerpt` is **gone from the agent-visible output**. The full raw bytes live on disk at `raw_path` + their `raw_sha256` lives in every `EvidenceRecord` for ledger replay, but the LLM only ever sees `structured_fields`.
 
-### 6a — Parsers per tool
-- [ ] `_parse_fsstat(stdout) -> FsstatResult` — regex over known fsstat output shape; also surfaces `install_time` for R_13 temporal consistency
-- [ ] `_parse_fls(stdout) -> list[FlsEntry]` — already-structured bodyfile format; derive `expected_paths_covered` from the enumerated directory
-- [ ] `_parse_icat(stdout, dest_path) -> IcatResult`
-- [ ] `_parse_regripper(stdout) -> RegripperResult` — per-plugin output shape; may need a small dispatch table; **per-plugin table also defines the checklist used for `expected_paths_covered`** (e.g., `services` plugin → `["CurrentControlSet\\Services"]`, `run` → `["Software\\Microsoft\\Windows\\CurrentVersion\\Run", "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"]`)
-- [ ] **`_parse_scheduled_tasks(xml_bytes) -> ScheduledTasksResult`** — `xml.etree.ElementTree` over the Task XML schema; emits one `ScheduledTaskEntry` per task; `expected_paths_covered` records which Task XML files were examined (by inode + filename)
-- [ ] Every parser also populates `tool_execution_status` based on subprocess return (ok / timeout / permission_denied / parse_error / empty) — this is the R_12 Evidence-of-Absence hook
+### 6a — Parsers per tool (all in `pipeline/mcp/parsers.py`)
+- [x] `parse_fsstat(stdout) -> (FsstatResult, status)` — regex over `File System Type:` / `Cluster Size:` / `First Cluster of MFT:` / `Volume Serial Number:`. install_time hook kept as None for NTFS (Extfs would surface it); R_13 can still find the field when it's populated.
+- [x] `parse_fls(stdout) -> (FlsResult, status)` — mactime bodyfile format (`MD5|path|inode|mode|UID|GID|size|atime|mtime|ctime|crtime`). Epoch timestamps decoded to UTC datetimes; NTFS inode `meta-attr-id` format normalized to the meta_addr integer. Non-printables in filenames replaced with `<NON_PRINTABLE>` sentinel (preserves inode + size so PLAN can still chain downstream calls).
+- [x] `parse_icat(...) -> (IcatResult, status)` — metadata only (icat writes binary to the dest file; bytes also read back for hash + scan). `magic_bytes` is the first 16 bytes hex-encoded.
+- [x] `parse_regripper(stdout, plugin) -> (RegripperResult, status)` — key-path + indented value parser tolerant of both `-` and `:` separators. Attaches LastWrite datetime to every entry under the most recent key. `"has no values" / "has no subkeys" / "not found"` is treated as **`ok` with zero entries** (R_12 Evidence-of-Absence signal "we looked and it wasn't there"), not parse_error.
+- [x] `REGRIPPER_EXPECTED_PATHS` dispatch table defines the canonical registry-key checklist per plugin (4 paths for `run`, 1 for `services`, etc.) — fed to R_06 Negative-Result-Metadata.
+- [x] `parse_scheduled_tasks(xml_bytes) -> (ScheduledTasksResult, status)` — Windows Task XML via `xml.etree.ElementTree`. Auto-detects UTF-16 LE / UTF-16 BE / UTF-8-BOM / UTF-8 (real Task XML is UTF-16 LE with BOM). Strips the `<?xml ... encoding="..."?>` declaration before parsing to sidestep ET's declared-vs-actual-encoding check. Extracts Author / Description / trigger type (`LogonTrigger` / `TimeTrigger` / `BootTrigger` / etc.) / action Command + Arguments.
+- [x] Every parser populates `tool_execution_status` from subprocess + parse outcome via `_derive_status(returncode, stderr, parser_status)` — signal-kill → `timeout`; non-zero exit + `Permission denied` in stderr → `permission_denied`; else parser status wins.
 
 ### 6b — Chain-of-custody hook (stub for the Slice 6 hash-chain ledger, carried item 9)
-- [ ] `_append_integrity_entry(tool_call_id, raw_sha256, token_id, prev_entry_hash)` writes to `out/runs/<case>/integrity_stub.jsonl`. The stub **already records the `prev_entry_hash` field** so Slice 6 just replaces the writer implementation — the shape is stable. Each entry's own hash is `sha256(plan_digest ‖ raw_sha256 ‖ critic_decision ‖ prev_entry_hash)`; in Slice 5 the `critic_decision` slot is a placeholder `"pending"` and gets backfilled at finding-commit time in Slice 6.
-- [ ] The stub-writer in Slice 5 does **not** need to be tamper-evident; it just needs to produce the right shape so `verify_chain_of_custody.py` (Slice 6) reads a contiguous chain when the real writer replaces the stub.
+- [x] `_append_integrity_entry(case_id, tool_call_id, raw_sha256, token_id, plan_digest)` writes to `<case>/analysis/integrity_stub.jsonl` (same directory as `tool_calls.jsonl`, not the notebook-scoped `out/runs/<case>/` — kept with the case directory so the server doesn't need to reason about notebook paths). Shape is final; Slice 6 replaces the writer with tamper-evident variant.
+- [x] Each entry: `tool_call_id`, `raw_sha256`, `token_id`, `plan_digest`, `critic_decision="pending"` (Slice 6 backfill), `prev_entry_hash` (`""` on first entry, else last entry's `entry_hash`), `entry_hash=sha256(plan_digest|raw_sha256|critic_decision|prev_entry_hash)`, `timestamp_utc`.
+- [x] Slice 5 writer is NOT tamper-evident — it just produces the right shape so Slice 6's `verify_chain_of_custody.py` reads a contiguous chain when the real writer replaces it. Probe confirmed the chain (5 entries, each entry's `prev_entry_hash` matches predecessor's `entry_hash`).
 
-### 6c — Fail-fast probe
-- [ ] Run the full 5-tool flow against `base-wkstn-05` (including `scheduled_tasks_parse` on Task XML inodes surfaced by `fls_list`); assert each tool returns an `EvidenceRecord` with non-empty `structured_fields`, a `raw_sha256` that matches the on-disk `.raw` file's hash, `tool_execution_status == "ok"`, and a populated `expected_paths_covered`
-- [ ] Assert `INTERPRET`'s bundle contains no free-form stdout — only structured fields
-- [ ] Assert the 2.5 scorecard is **unchanged** (no precision/recall regression from the structural switch). If `scheduled_tasks_parse` surfaces a T1053.005 finding on a 2.5 case that wasn't annotated before, that's a ground-truth expansion on one case — document it, don't treat as a regression
+### 6c — Fail-fast probe (two-pass)
+- [x] **Parser probe** (`d:/tmp/probe_step6_parsers.py`, 7 groups green): each parser runs against REAL captured subprocess stdout from `base-wkstn-05-cdrive.E01` — fsstat NTFS + block_size 4096 + mft_offset 786432 + volume_serial correct; fls 60 entries + datetime round-trip; icat metadata envelope; regripper `run` (3 entries, hive=Software, last_write populated) and `appinitdlls` (4 entries); regripper empty-but-complete → `ok` + 0 entries (R_12 signal preserved); scheduled_tasks from synthetic Task XML → 1 task parsed.
+- [x] **End-to-end HTTP probe** (`d:/tmp/probe_step6_e2e.py`) against live sift-mcp → sift-sentinel, full 5-tool flow:
+  - fsstat_e01 → FsstatResult{fs_type=NTFS, block_size=4096, mft_offset=786432}
+  - fls_list → FlsResult with 60 entries, first inode=21562
+  - icat_extract SOFTWARE hive → IcatResult bytes_written=81_788_928, magic=`regf...` (72656766)
+  - regripper_run plugin=run on extracted SOFTWARE → RegripperResult, expected_paths_covered=[4 canonical paths]
+  - scheduled_tasks_parse on Adobe Acrobat Update Task XML (inode 26623) → ScheduledTasksResult, 1 task, trigger=LogonTrigger
+  - Denial path: wrong e01_path → EvidenceRecord{tool_execution_status=capability_denied, structured_fields.denial=True, reason=path_not_allowed:/etc/shadow}
+- [x] **Hash-integrity assertion**: all 5 `raw_sha256` values in the integrity stub match the actual sha256 of the on-disk `raw_path` files when recomputed by an independent script. End-to-end disk-hash-stub equivalence confirmed.
+- [x] **No-stdout-excerpt assertion**: every returned EvidenceRecord fails `"stdout_excerpt" in rec` — legacy free-text excerpt channel fully removed.
+- [ ] **Scorecard regression gate**: deferred — re-running the 2.5 scorecard requires the notebook C8 to speak the new EvidenceRecord shape. Scorecard check lands in Step 7c's byte-identical gate once node-lift adopts the new server API.
 
 ---
 

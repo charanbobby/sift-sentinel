@@ -63,8 +63,10 @@ import uvicorn
 # of the wire contract, no duplication.
 sys.path.insert(0, "/opt")
 
-from pipeline.schemas import CapabilityToken  # noqa: E402
+from pipeline.schemas import CapabilityToken, EvidenceRecord  # noqa: E402
 from pipeline.mcp.tokens import CapabilityDenied, verify_token  # noqa: E402
+from pipeline.mcp.injection_scanner import scan_evidence  # noqa: E402
+from pipeline.mcp import parsers as P  # noqa: E402
 
 
 # Read-path allowlist. `/mnt/hackathon` is :ro raw evidence (E01s, memory dumps).
@@ -106,6 +108,7 @@ class CasePaths(NamedTuple):
     raw_out: Path
     extracted: Path
     tool_calls_log: Path
+    integrity_stub: Path  # Slice 5 Step 6b — stub for Slice 6 hash-chain ledger
 
 
 def _log(msg: str) -> None:
@@ -137,6 +140,7 @@ def _case_paths(case_id: str) -> CasePaths:
         raw_out=analysis / "raw",
         extracted=analysis / "extracted",
         tool_calls_log=analysis / "tool_calls.jsonl",
+        integrity_stub=analysis / "integrity_stub.jsonl",
     )
     paths.analysis.mkdir(parents=True, exist_ok=True)
     paths.raw_out.mkdir(parents=True, exist_ok=True)
@@ -175,90 +179,55 @@ def _check_dest_filename(case_id: str, name: str) -> Path:
     return (_case_paths(case_id).extracted / name).resolve()
 
 
-class ToolResult(BaseModel):
+class _SubprocessOutput(NamedTuple):
     tool_call_id: str
-    tool: str
-    args: dict
-    exit_code: int
+    returncode: int
+    raw_bytes: bytes                 # always populated — for binary tools we read back from disk
+    raw_path: Path
     duration_ms: int
-    stdout_excerpt: str = Field(
-        description=f"stdout truncated to {STDOUT_CAP_BYTES} bytes"
-    )
-    stdout_hash: str
-    stdout_path: str
-    truncated: bool
+    raw_stderr: bytes
 
 
-def _run_and_record(
+def _run_subprocess(
     case_id: str,
     tool: str,
     argv: list[str],
     call_args: dict,
     *,
     stdout_target: Optional[Path] = None,
-) -> ToolResult:
-    """Run `argv`, record the call in the per-case audit trail, return a ToolResult.
+) -> _SubprocessOutput:
+    """Execute `argv`, persist raw stdout to disk, append a tool_calls.jsonl
+    audit entry, return the bytes + subprocess metadata. No parsing, no scanning,
+    no EvidenceRecord construction — those live in `_emit_evidence` so this is
+    the single subprocess-boundary we can reason about.
 
-    Default (stdout_target=None): capture stdout into memory, write to
-    <raw>/<tool_call_id>.stdout, return a UTF-8 excerpt. Right for text tools like
-    fsstat / fls / rip.pl.
-
-    With stdout_target: stream stdout straight to that file (used by icat_extract
-    for binary hive bytes that would be multi-MB and meaningless as a text excerpt).
-    The excerpt is synthesized from size + sha256 so the LLM still sees a short,
-    informative summary.
+    stdout_target=None (default): capture stdout in memory, persist to
+        <raw>/<tool_call_id>.raw, return the bytes.
+    stdout_target=<Path>: stream straight to that file (icat_extract binary path).
+        We then read the bytes back from disk so the channel-A hash computation
+        and injection-scan have the same input either way.
     """
     paths = _case_paths(case_id)
     tool_call_id = str(uuid.uuid4())
     t0 = time.monotonic()
+
     if stdout_target is not None:
         stdout_target.parent.mkdir(parents=True, exist_ok=True)
         with stdout_target.open("wb") as sink:
-            completed = subprocess.run(
-                argv, stdout=sink, stderr=subprocess.PIPE, check=False,
-            )
+            completed = subprocess.run(argv, stdout=sink, stderr=subprocess.PIPE, check=False)
+        raw_path = stdout_target
+        raw_bytes = stdout_target.read_bytes()
     else:
         completed = subprocess.run(argv, capture_output=True, check=False)
+        raw_bytes = completed.stdout or b""
+        raw_path = paths.raw_out / f"{tool_call_id}.raw"
+        raw_path.write_bytes(raw_bytes)
+
     duration_ms = int((time.monotonic() - t0) * 1000)
-
     raw_stderr = completed.stderr or b""
-
-    if stdout_target is not None:
-        stdout_size = stdout_target.stat().st_size
-        h = hashlib.sha256()
-        with stdout_target.open("rb") as f:
-            for chunk in iter(lambda: f.read(1 << 20), b""):
-                h.update(chunk)
-        stdout_hash = h.hexdigest()
-        stdout_path = stdout_target
-        excerpt = (
-            f"<binary: {stdout_size} bytes written to {stdout_target} "
-            f"sha256={stdout_hash}>"
-        )
-        truncated = True  # we never return the full bytes in the excerpt
-    else:
-        raw_stdout = completed.stdout or b""
-        stdout_size = len(raw_stdout)
-        stdout_hash = hashlib.sha256(raw_stdout).hexdigest()
-        stdout_path = paths.raw_out / f"{tool_call_id}.stdout"
-        stdout_path.write_bytes(raw_stdout)
-        truncated = stdout_size > STDOUT_CAP_BYTES
-        excerpt = raw_stdout[:STDOUT_CAP_BYTES].decode("utf-8", errors="replace")
 
     if raw_stderr:
         (paths.raw_out / f"{tool_call_id}.stderr").write_bytes(raw_stderr)
-
-    result = ToolResult(
-        tool_call_id=tool_call_id,
-        tool=tool,
-        args=call_args,
-        exit_code=completed.returncode,
-        duration_ms=duration_ms,
-        stdout_excerpt=excerpt,
-        stdout_hash=stdout_hash,
-        stdout_path=str(stdout_path),
-        truncated=truncated,
-    )
 
     entry = {
         "tool_call_id": tool_call_id,
@@ -268,10 +237,9 @@ def _run_and_record(
         "argv": argv,
         "exit_code": completed.returncode,
         "duration_ms": duration_ms,
-        "stdout_hash": stdout_hash,
-        "stdout_path": str(stdout_path),
+        "raw_path": str(raw_path),
+        "raw_bytes_len": len(raw_bytes),
         "stderr_bytes": len(raw_stderr),
-        "truncated": truncated,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
     with paths.tool_calls_log.open("a", encoding="utf-8") as f:
@@ -279,9 +247,123 @@ def _run_and_record(
 
     _log(
         f"{tool} case={case_id} exit={completed.returncode} dur={duration_ms}ms "
-        f"out={stdout_size}B id={tool_call_id}"
+        f"out={len(raw_bytes)}B id={tool_call_id}"
     )
-    return result
+    return _SubprocessOutput(
+        tool_call_id=tool_call_id,
+        returncode=completed.returncode,
+        raw_bytes=raw_bytes,
+        raw_path=raw_path,
+        duration_ms=duration_ms,
+        raw_stderr=raw_stderr,
+    )
+
+
+def _derive_status(returncode: int, raw_stderr: bytes, parser_status: str) -> str:
+    """Map subprocess exit + parser status to a single ToolExecutionStatus.
+    Parser's status wins on 0-exit; non-zero exit maps to timeout/
+    permission_denied/parse_error based on the signal or stderr shape.
+    """
+    if returncode < 0:
+        # Killed by signal (SIGKILL / SIGTERM etc.) — most common cause in our
+        # docker setup is an OOM kill or a subprocess-timeout sentinel we don't
+        # currently implement. Treat as timeout until we have a real timer.
+        return "timeout"
+    if returncode != 0:
+        low = raw_stderr.lower()
+        if b"permission denied" in low or b"eacces" in low:
+            return "permission_denied"
+        # Non-zero exit with non-permission stderr: let the parser's view win
+        # when it has one, else fall back to parse_error.
+        return parser_status if parser_status in {"ok", "empty"} else "parse_error"
+    return parser_status
+
+
+def _append_integrity_entry(
+    case_id: str,
+    tool_call_id: str,
+    raw_sha256: str,
+    token_id: str,
+    plan_digest: str,
+) -> str:
+    """Slice 5 Step 6b — stub-writer for the Slice 6 hash-chain integrity
+    ledger. Shape is final; the writer gets replaced in Slice 6 with the
+    tamper-evident implementation. `critic_decision` is `"pending"` at
+    write time and gets backfilled at finding-commit time.
+
+    Entry hash: sha256(plan_digest || raw_sha256 || critic_decision || prev_entry_hash).
+    prev_entry_hash is read from the last line of the case's integrity_stub.jsonl,
+    or "" on first entry.
+
+    Returns the newly-computed entry_hash so callers can put it on the
+    EvidenceRecord for end-to-end tracing if they want.
+    """
+    paths = _case_paths(case_id)
+    prev_entry_hash = ""
+    if paths.integrity_stub.exists():
+        try:
+            with paths.integrity_stub.open("rb") as f:
+                # Cheap tail-read: for Slice 5 the file is small enough that
+                # reading the whole thing is fine; Slice 6's real implementation
+                # will maintain an in-memory cursor.
+                lines = f.read().decode("utf-8", errors="replace").splitlines()
+                if lines:
+                    prev_entry_hash = json.loads(lines[-1]).get("entry_hash", "")
+        except Exception as e:  # noqa: BLE001 — never fail the tool call on ledger error
+            _log(f"integrity-stub-read-error case={case_id}: {e}")
+
+    critic_decision = "pending"
+    hash_input = f"{plan_digest}|{raw_sha256}|{critic_decision}|{prev_entry_hash}".encode("utf-8")
+    entry_hash = hashlib.sha256(hash_input).hexdigest()
+
+    entry = {
+        "tool_call_id": tool_call_id,
+        "raw_sha256": raw_sha256,
+        "token_id": token_id,
+        "plan_digest": plan_digest,
+        "critic_decision": critic_decision,
+        "prev_entry_hash": prev_entry_hash,
+        "entry_hash": entry_hash,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        with paths.integrity_stub.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:  # noqa: BLE001
+        _log(f"integrity-stub-write-error case={case_id}: {e}")
+    return entry_hash
+
+
+def _emit_evidence(
+    *,
+    tool: str,
+    sub: _SubprocessOutput,
+    structured_model: BaseModel,
+    parser_status: str,
+    free_text_fields: list[tuple[str, str]],
+    expected_paths: list[str],
+    token_id: str,
+    plan_digest: str,
+    case_id: str,
+) -> EvidenceRecord:
+    """Turn a parsed subprocess result into an EvidenceRecord — runs the
+    injection scanner on raw+channel-B, derives the final status, writes the
+    integrity-stub entry, and returns the record. Called by every tool function."""
+    raw_sha256 = hashlib.sha256(sub.raw_bytes).hexdigest()
+    status = _derive_status(sub.returncode, sub.raw_stderr, parser_status)
+    flags = scan_evidence(raw_bytes=sub.raw_bytes, text_fields=free_text_fields)
+    _append_integrity_entry(case_id, sub.tool_call_id, raw_sha256, token_id, plan_digest)
+    return EvidenceRecord(
+        tool_call_id=sub.tool_call_id,
+        raw_sha256=raw_sha256,
+        raw_path=str(sub.raw_path),
+        structured_fields=structured_model.model_dump(mode="json"),
+        injection_flags=flags,
+        expected_paths_covered=expected_paths,
+        tool_execution_status=status,
+        issued_at=datetime.now(timezone.utc),
+        token_id=token_id,
+    )
 
 
 # --- Slice 5 Step 4: capability-token enforcement ----------------------------
@@ -319,19 +401,33 @@ def _record_denial(
         _log(f"denial-log-error tool={tool} case={case_id}: {e}")
 
 
-def _denial_result(
+_EMPTY_BYTES_SHA256 = hashlib.sha256(b"").hexdigest()
+
+
+def _denial_record(
     tool: str, reason: str, case_id: str, path: str, token_id: str | None = None,
-) -> ToolResult:
-    return ToolResult(
+) -> EvidenceRecord:
+    """EvidenceRecord sentinel for a denied call. No subprocess ran, so
+    raw_sha256 is sha256(b"") and raw_path is empty. tool_execution_status =
+    'capability_denied'; structured_fields carries the structured reason so
+    Critic can distinguish denial types without parsing free text."""
+    return EvidenceRecord(
         tool_call_id=str(uuid.uuid4()),
-        tool=tool,
-        args={"case_id": case_id, "path": path, "token_id": token_id},
-        exit_code=-1,
-        duration_ms=0,
-        stdout_excerpt=f"capability_denied:{reason}",
-        stdout_hash="",
-        stdout_path="",
-        truncated=False,
+        raw_sha256=_EMPTY_BYTES_SHA256,
+        raw_path="",
+        structured_fields={
+            "denial": True,
+            "tool": tool,
+            "reason": reason,
+            "case_id": case_id,
+            "path": path,
+            "token_id": token_id,
+        },
+        injection_flags=[],
+        expected_paths_covered=[],
+        tool_execution_status="capability_denied",
+        issued_at=datetime.now(timezone.utc),
+        token_id=token_id or "",
     )
 
 
@@ -342,8 +438,10 @@ def _enforce_capability(
     *,
     case_id: str,
     path: str,
-) -> ToolResult | None:
-    """Return None when the call is in the token's scope, else a denial ToolResult.
+) -> tuple[CapabilityToken | None, EvidenceRecord | None]:
+    """Return (token, None) on success, (None, denial_record) on any denial.
+    Tool functions use the parsed token for token_id / downstream bookkeeping
+    so we don't re-parse.
 
     Order of checks — each short-circuits so callers get one deterministic reason:
       1. case_id validation (stops malformed case_ids reaching _case_paths)
@@ -354,25 +452,25 @@ def _enforce_capability(
         _validate_case_id(case_id)
     except ValueError as e:
         _record_denial(tool, case_id, f"case_id_invalid:{e}", path, None)
-        return _denial_result(tool, "case_id_invalid", case_id, path)
+        return None, _denial_record(tool, "case_id_invalid", case_id, path)
 
     try:
         token = CapabilityToken.model_validate_json(capability_token)
     except ValidationError as e:
         etype = e.errors()[0]["type"] if e.errors() else "unknown"
         _record_denial(tool, case_id, f"token_parse_error:{etype}", path, None)
-        return _denial_result(tool, f"token_parse_error:{etype}", case_id, path)
+        return None, _denial_record(tool, f"token_parse_error:{etype}", case_id, path)
     except Exception as e:  # noqa: BLE001 — JSON decode / unexpected pre-validation failure
         _record_denial(tool, case_id, f"token_parse_error:{type(e).__name__}", path, None)
-        return _denial_result(tool, f"token_parse_error:{type(e).__name__}", case_id, path)
+        return None, _denial_record(tool, f"token_parse_error:{type(e).__name__}", case_id, path)
 
     try:
         verify_token(token, tool=tool, path=path, case_id=case_id, plan_digest=plan_digest)
     except CapabilityDenied as e:
         _record_denial(tool, case_id, e.reason, path, token.token_id)
-        return _denial_result(tool, e.reason, case_id, path, token_id=token.token_id)
+        return None, _denial_record(tool, e.reason, case_id, path, token_id=token.token_id)
 
-    return None
+    return token, None
 
 
 mcp = FastMCP(
@@ -395,7 +493,7 @@ def fsstat_e01(
     plan_digest: str,
     case_id: str,
     e01_path: str,
-) -> ToolResult:
+) -> EvidenceRecord:
     """Run `fsstat` on an E01 image. Returns filesystem metadata (type, block size, MFT offset for NTFS).
 
     Args:
@@ -404,18 +502,25 @@ def fsstat_e01(
         case_id: the case this call belongs to; audit trail + extracted hives scope to <case>/analysis/
         e01_path: absolute path to the E01 under /mnt/hackathon/
     """
-    denial = _enforce_capability(
+    token, denial = _enforce_capability(
         capability_token, plan_digest, "fsstat_e01",
         case_id=case_id, path=e01_path,
     )
     if denial is not None:
         return denial
     evidence = _check_read_path(e01_path)
-    return _run_and_record(
-        case_id=case_id,
-        tool="fsstat_e01",
+    sub = _run_subprocess(
+        case_id=case_id, tool="fsstat_e01",
         argv=["fsstat", str(evidence)],
         call_args={"e01_path": str(evidence)},
+    )
+    result, parser_status = P.parse_fsstat(sub.raw_bytes)
+    return _emit_evidence(
+        tool="fsstat_e01", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.fsstat_free_text_fields(result),
+        expected_paths=[str(evidence)],
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
     )
 
 
@@ -427,7 +532,7 @@ def fls_list(
     e01_path: str,
     parent_inode: Optional[int] = None,
     recurse: bool = False,
-) -> ToolResult:
+) -> EvidenceRecord:
     """Run `fls` on an E01 image — list directory entries including deleted ones.
 
     Args:
@@ -438,7 +543,7 @@ def fls_list(
         parent_inode: list children of this inode; None lists the root
         recurse: if True, recurse into subdirectories
     """
-    denial = _enforce_capability(
+    token, denial = _enforce_capability(
         capability_token, plan_digest, "fls_list",
         case_id=case_id, path=e01_path,
     )
@@ -451,15 +556,27 @@ def fls_list(
     argv.append(str(evidence))
     if parent_inode is not None:
         argv.append(str(parent_inode))
-    return _run_and_record(
-        case_id=case_id,
-        tool="fls_list",
-        argv=argv,
+    sub = _run_subprocess(
+        case_id=case_id, tool="fls_list", argv=argv,
         call_args={
             "e01_path": str(evidence),
             "parent_inode": parent_inode,
             "recurse": recurse,
         },
+    )
+    result, parser_status = P.parse_fls(sub.raw_bytes)
+    # expected_paths_covered records the directory enumeration surface: the
+    # E01 root if parent_inode is None, else the specific inode. R_06 reads
+    # this to verify a "nothing here" finding actually looked somewhere.
+    covered = [str(evidence)]
+    if parent_inode is not None:
+        covered.append(f"inode_{parent_inode}")
+    return _emit_evidence(
+        tool="fls_list", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.fls_free_text_fields(result),
+        expected_paths=covered,
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
     )
 
 
@@ -471,7 +588,7 @@ def icat_extract(
     e01_path: str,
     inode: int,
     dest_filename: str,
-) -> ToolResult:
+) -> EvidenceRecord:
     """Run `icat` to extract a file's bytes by inode out of an E01 image into
     the case's extracted/ directory. Use this to pull registry hive files
     (SOFTWARE, SYSTEM, NTUSER.DAT) off the disk before calling `regripper_run`.
@@ -486,7 +603,7 @@ def icat_extract(
             The file lands at <case>/analysis/extracted/<dest_filename>, which
             is the only location `regripper_run` will accept as a hive path.
     """
-    denial = _enforce_capability(
+    token, denial = _enforce_capability(
         capability_token, plan_digest, "icat_extract",
         case_id=case_id, path=e01_path,
     )
@@ -494,9 +611,8 @@ def icat_extract(
         return denial
     evidence = _check_read_path(e01_path)
     dest_path = _check_dest_filename(case_id, dest_filename)
-    return _run_and_record(
-        case_id=case_id,
-        tool="icat_extract",
+    sub = _run_subprocess(
+        case_id=case_id, tool="icat_extract",
         argv=["icat", str(evidence), str(inode)],
         call_args={
             "e01_path": str(evidence),
@@ -505,6 +621,22 @@ def icat_extract(
             "dest_path": str(dest_path),
         },
         stdout_target=dest_path,
+    )
+    # icat's parser takes metadata, not stdout bytes — extracted file lives
+    # at dest_path, bytes are also in sub.raw_bytes for hash + scan.
+    extracted_sha256 = hashlib.sha256(sub.raw_bytes).hexdigest()
+    result, parser_status = P.parse_icat(
+        bytes_written=len(sub.raw_bytes),
+        sha256=extracted_sha256,
+        dest_path=str(dest_path),
+        magic_peek=sub.raw_bytes[:16],
+    )
+    return _emit_evidence(
+        tool="icat_extract", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.icat_free_text_fields(result),
+        expected_paths=[str(dest_path)],
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
     )
 
 
@@ -515,7 +647,7 @@ def regripper_run(
     case_id: str,
     hive_path: str,
     plugin: str,
-) -> ToolResult:
+) -> EvidenceRecord:
     """Run a named RegRipper plugin against a Windows Registry hive to extract
     persistence-relevant keys (Run, Services, IFEO, etc.). The hive MUST have
     been produced by a prior `icat_extract` call — only files under the case's
@@ -536,7 +668,7 @@ def regripper_run(
               - imagefile     (Software) Image File Execution Options / debuggers
               - winlogon_tln  (Software) Winlogon Userinit / Shell / Notify
     """
-    denial = _enforce_capability(
+    token, denial = _enforce_capability(
         capability_token, plan_digest, "regripper_run",
         case_id=case_id, path=hive_path,
     )
@@ -548,11 +680,75 @@ def regripper_run(
             f"plugin {plugin!r} not in allowlist; "
             f"allowed: {sorted(REGRIPPER_PLUGIN_ALLOWLIST)}"
         )
-    return _run_and_record(
-        case_id=case_id,
-        tool="regripper_run",
+    sub = _run_subprocess(
+        case_id=case_id, tool="regripper_run",
         argv=["rip.pl", "-r", str(hive), "-p", plugin],
         call_args={"hive_path": str(hive), "plugin": plugin},
+    )
+    result, parser_status = P.parse_regripper(sub.raw_bytes, plugin=plugin)
+    return _emit_evidence(
+        tool="regripper_run", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.regripper_free_text_fields(result),
+        expected_paths=P.regripper_expected_paths(plugin),
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
+    )
+
+
+@mcp.tool()
+def scheduled_tasks_parse(
+    capability_token: str,
+    plan_digest: str,
+    case_id: str,
+    e01_path: str,
+    task_xml_inode: int,
+    dest_filename: str,
+) -> EvidenceRecord:
+    """Extract a Windows Task XML file by inode and parse it server-side.
+
+    Chains `icat` (extract XML bytes) + `xml.etree.ElementTree` (parse) in one
+    MCP call so the PLAN prompt can advertise T1053.005 (Scheduled Task)
+    coverage without the orchestrator having to chain two calls. The extracted
+    file lands at <case>/analysis/extracted/<dest_filename> and is available
+    for later re-inspection; the structured result carries one
+    ScheduledTaskEntry per <Task> element found.
+
+    Args:
+        capability_token: JSON-serialized CapabilityToken; scopes this call.
+        plan_digest: sha256 of the approved ToolPlan.
+        case_id: the case this call belongs to
+        e01_path: absolute path to the E01 under /mnt/hackathon/
+        task_xml_inode: inode number from a prior `fls_list` call that
+            enumerated C:\\Windows\\System32\\Tasks\\
+        dest_filename: a plain filename (no path separators); the extracted
+            XML lands at <case>/analysis/extracted/<dest_filename>
+    """
+    token, denial = _enforce_capability(
+        capability_token, plan_digest, "scheduled_tasks_parse",
+        case_id=case_id, path=e01_path,
+    )
+    if denial is not None:
+        return denial
+    evidence = _check_read_path(e01_path)
+    dest_path = _check_dest_filename(case_id, dest_filename)
+    sub = _run_subprocess(
+        case_id=case_id, tool="scheduled_tasks_parse",
+        argv=["icat", str(evidence), str(task_xml_inode)],
+        call_args={
+            "e01_path": str(evidence),
+            "task_xml_inode": task_xml_inode,
+            "dest_filename": dest_filename,
+            "dest_path": str(dest_path),
+        },
+        stdout_target=dest_path,
+    )
+    result, parser_status = P.parse_scheduled_tasks(sub.raw_bytes)
+    return _emit_evidence(
+        tool="scheduled_tasks_parse", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.scheduled_tasks_free_text_fields(result),
+        expected_paths=[str(dest_path), f"inode_{task_xml_inode}"],
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
     )
 
 
