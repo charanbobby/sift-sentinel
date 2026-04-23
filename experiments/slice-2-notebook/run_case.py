@@ -17,6 +17,7 @@ The --e01 value is the disk image path the MCP server tools receive.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import shutil
 import sys
 import uuid
@@ -134,10 +135,10 @@ def run(case_id: str, e01_path: str) -> int:
     print("--- EXECUTE → INTERPRET → CRITIC ---")
     # Feed the pre-built state into the graph. Extract and plan nodes will skip
     # (idempotency guards: candidates and tool_plan are already set).
-    final = graph.invoke(
+    final = asyncio.run(graph.ainvoke(
         state_with_token.model_dump(mode="json"),
         config={"configurable": {"thread_id": thread_id}},
-    )
+    ))
     print()
 
     # Persist findings
