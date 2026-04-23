@@ -200,15 +200,46 @@ def icat_free_text_fields(r: IcatResult) -> list[tuple[str, str]]:
 # --- regripper per-plugin dispatch ---------------------------------------
 #
 # rip.pl outputs a "Launching <plugin>" banner + the plugin's body. Bodies
-# vary: most persistence plugins emit key-path lines + indented value lines
-# with either " - " or " : " between name and data; a "LastWrite Time" line
-# per key. This parser tolerates both separators and attaches the most recent
-# LastWrite to each entry under that key.
+# fall into two shapes:
+#
+#   (a) Generic key-value (most plugins: run, runonceex, imagefile,
+#       appinitdlls, winlogon_tln, schedagent, ntuser-scoped Run):
+#           Software\Microsoft\Windows\CurrentVersion\Run
+#           LastWrite Time 2018-05-11 19:17:16Z
+#             VMware User Process - "C:\Program Files\VMware\..."
+#             AppInit_DLLs : {blank}
+#             OldName      = 37L4247E29-32
+#       Separator between name + value is one of `-`, `:`, or `=` with
+#       whitespace on both sides. The generic parser handles all three.
+#
+#   (b) services plugin — irregular block format. Each service is a
+#       timestamp-delimited block of 6 named fields using `=` separator:
+#           Fri Sep  7 03:05:11 2018 Z
+#             Name      = BITS
+#             Display   = @%SystemRoot%\system32\qmgr.dll,-1000
+#             ImagePath = %SystemRoot%\System32\svchost.exe -k netsvcs
+#             Type      = Share_Process
+#             Start     = Auto Start
+#             Group     = <blank>
+#       The generic parser would produce ~6 scattered field-entries per
+#       service without any way for the LLM to correlate them. The
+#       services-specific path flattens each block into ONE RegripperEntry
+#       per service, keyed by service Name, with Display / ImagePath /
+#       Type / Start / Group packed into value_data_safe. last_write is
+#       the block's timestamp.
 
 _RIP_HIVE_FROM_HEADER = re.compile(r"\((Software|System|NTUSER\.DAT)[^)]*\)", re.IGNORECASE)
 _RIP_LASTWRITE = re.compile(r"^LastWrite Time\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})Z?\s*$")
-_RIP_INDENTED_VAL = re.compile(r"^\s+([^\s].*?)\s+[-:]\s+(.*)$")
+# `-`, `:`, and `=` are all accepted as name/value separators. `=` was added
+# at Slice 5 post-7c after the services + schedagent plugins were found to
+# drop nearly all entries — those plugins emit `Name = value`, not `Name - value`.
+# Leading whitespace is optional (`\s*` not `\s+`) because schedagent emits
+# field lines at column 0 while run / appinitdlls emit them indented. Key-path
+# ambiguity is avoided by the separate key_path branch (requires a backslash
+# in the name, which value-names never have).
+_RIP_INDENTED_VAL = re.compile(r"^\s*([^\s].*?)\s+[-:=]\s+(.*)$")
 _RIP_KEY_PATH = re.compile(r"^([A-Z][A-Za-z0-9_]*\\[^\s].*)$")  # starts with capital + contains \
+_DAYS = frozenset({"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"})
 
 
 def _rip_parse_lastwrite(s: str) -> datetime | None:
@@ -216,6 +247,81 @@ def _rip_parse_lastwrite(s: str) -> datetime | None:
         return datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _parse_services_timestamp(line: str) -> datetime | None:
+    """Parse a regripper services-plugin block header like
+    'Fri Sep  7 03:05:11 2018 Z' into a UTC datetime. Returns None on any
+    shape mismatch (the caller uses None to signal 'this isn't a timestamp
+    line')."""
+    parts = line.strip().split()
+    # Expected: [Day, Mon, DD, HH:MM:SS, YYYY, Z]  (6 tokens)
+    if len(parts) != 6 or parts[0] not in _DAYS or parts[5] != "Z":
+        return None
+    try:
+        return datetime.strptime(
+            f"{parts[1]} {parts[2]} {parts[3]} {parts[4]}",
+            "%b %d %H:%M:%S %Y",
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+# Services-plugin field line: `  Name      = value` (any whitespace before name,
+# whitespace around `=`, value may be empty/whitespace). `=` is the ONLY
+# separator regripper uses for services; see plugin output format.
+_RIP_SERVICES_FIELD = re.compile(r"^\s+([A-Z][A-Za-z0-9_]*)\s*=\s*(.*)$")
+
+# Field order packed into value_data_safe for each service. Name is the entry's
+# value_name so it's lifted out; the rest are packed stably.
+_SERVICES_PACK_ORDER = ("Display", "ImagePath", "Type", "Start", "Group")
+
+
+def _parse_services_plugin(text: str) -> list[RegripperEntry]:
+    """Custom parser for the regripper `services` plugin. One RegripperEntry
+    per service block; fields packed into value_data_safe so the LLM sees
+    all forensically-relevant columns for a service in one place (Name +
+    ImagePath are what flag attacker services like tbbd05 or a masquerading
+    PerfMon)."""
+    entries: list[RegripperEntry] = []
+    current_block: dict[str, str] = {}
+    current_ts: datetime | None = None
+
+    def _flush() -> None:
+        name = current_block.get("Name", "").strip()
+        if not name:
+            return
+        parts = []
+        for field in _SERVICES_PACK_ORDER:
+            v = current_block.get(field, "")
+            if v:  # skip empty Display / Group
+                parts.append(f"{field}={v}")
+        packed = " | ".join(parts)
+        entries.append(RegripperEntry(
+            key_path=f"ControlSet001\\Services\\{_safe_filename(name)}",
+            value_name=_safe_filename(name),
+            value_type="unknown",
+            value_data_safe=_safe_filename(packed),
+            last_write=current_ts,
+        ))
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            continue
+        # Block header (timestamp)?
+        ts = _parse_services_timestamp(raw_line)
+        if ts is not None:
+            _flush()
+            current_block = {}
+            current_ts = ts
+            continue
+        # Field line inside a block?
+        m = _RIP_SERVICES_FIELD.match(raw_line)
+        if m:
+            current_block[m.group(1)] = m.group(2).strip()
+
+    _flush()  # final block
+    return entries
 
 
 def parse_regripper(stdout: bytes, plugin: str) -> tuple[RegripperResult, str]:
@@ -226,6 +332,16 @@ def parse_regripper(stdout: bytes, plugin: str) -> tuple[RegripperResult, str]:
     hive_match = _RIP_HIVE_FROM_HEADER.search(text)
     hive_type = hive_match.group(1) if hive_match else "unknown"
 
+    # services plugin — use the block-format parser (see header comment).
+    if plugin == "services":
+        entries = _parse_services_plugin(text)
+        if not entries:
+            if re.search(r"has no (values|subkeys)|not found", text):
+                return RegripperResult(plugin_name=plugin, hive_type=hive_type, entries=[]), "ok"
+            return RegripperResult(plugin_name=plugin, hive_type=hive_type, entries=[]), "parse_error"
+        return RegripperResult(plugin_name=plugin, hive_type=hive_type, entries=entries), "ok"
+
+    # Generic key-value parser for every other plugin.
     entries: list[RegripperEntry] = []
     current_key: str | None = None
     current_lastwrite: datetime | None = None
@@ -247,7 +363,7 @@ def parse_regripper(stdout: bytes, plugin: str) -> tuple[RegripperResult, str]:
                 continue
             current_key = line.strip()
             continue
-        # Indented name-value pair
+        # Indented name-value pair (`-`, `:`, or `=` separator)
         val = _RIP_INDENTED_VAL.match(raw_line)
         if val and current_key:
             name = val.group(1).strip()
@@ -260,14 +376,11 @@ def parse_regripper(stdout: bytes, plugin: str) -> tuple[RegripperResult, str]:
                 last_write=current_lastwrite,
             ))
 
-    # Some plugins emit data without values — e.g. `services` plugin enumerates
-    # entire keys with sub-values. A non-empty stdout that produced zero entries
-    # is a "parse_error" signal ONLY when the plugin is one we expected to yield
-    # structured output. For now: non-empty → at least one entry OR parse_error.
+    # Non-empty stdout with zero structured entries: either the plugin ran
+    # cleanly with nothing to report ("has no values" / "not found") or the
+    # parser genuinely missed the format. The status signal lets Critic's
+    # R_09 distinguish the two.
     if not entries:
-        # Did the plugin finish cleanly with nothing to report? Regripper's
-        # idiom for that is "<key> has no values" or "... not found." — if we
-        # saw key mentions at all, it's a legitimate empty-result, not parse_error.
         if re.search(r"has no (values|subkeys)|not found", text):
             return RegripperResult(plugin_name=plugin, hive_type=hive_type, entries=[]), "ok"
         return RegripperResult(plugin_name=plugin, hive_type=hive_type, entries=[]), "parse_error"
