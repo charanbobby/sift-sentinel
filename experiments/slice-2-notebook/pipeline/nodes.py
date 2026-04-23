@@ -27,11 +27,17 @@ Step 7c fills in `critic_node` and adapts `pipeline.critic` to EvidenceRecord.
 from __future__ import annotations
 
 import json
+import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from pipeline.schemas import ToolPlan
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+from pipeline.schemas import EvidenceRecord, Finding, Findings, ToolPlan
+from pipeline.mcp.tokens import compute_plan_digest
 
 if TYPE_CHECKING:
     from pipeline.graph import PipelineState
@@ -280,15 +286,16 @@ def plan_node(state: "PipelineState") -> dict:
 
         out_path = OUT_DIR / "tool_plan.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        plan_bytes = tool_plan.model_dump_json(indent=2).encode("utf-8")
-        out_path.write_bytes(plan_bytes)
+        out_path.write_bytes(tool_plan.model_dump_json(indent=2).encode("utf-8"))
 
         # plan_digest locks the approved plan to every downstream MCP call via
-        # the capability-token binding. sha256 of the pretty-printed JSON
-        # matches what C9 used to compute inline — preserves regression-gate
-        # parity against pre-Slice-5 findings.json digests.
-        import hashlib
-        plan_digest = hashlib.sha256(plan_bytes).hexdigest()
+        # the capability-token binding. Canonical form (sort_keys + tight
+        # separators) — same function used by `issue_token` and by the server-
+        # side verifier, so the three plan_digest uses (token.plan_digest,
+        # call-arg plan_digest, failed_plan_hashes dedup) all live in one hash
+        # space. File at out/tool_plan.json stays pretty-printed for human
+        # review; digest is NOT computed from that representation.
+        plan_digest = compute_plan_digest(tool_plan)
 
         n_regripper = sum(1 for s in tool_plan.steps if s.tool == "regripper_run")
         n_icat      = sum(1 for s in tool_plan.steps if s.tool == "icat_extract")
@@ -321,32 +328,522 @@ def extract_node(state: "PipelineState") -> dict:
 
 
 # ============================================================================
-# EXECUTE — stub until Step 7b
+# EXECUTE — real implementation (lifted from notebook C8, rewritten for the
+# Slice-5 MCP API: EvidenceRecord return shape, capability_token + plan_digest
+# on every call, placeholder resolver reads `structured_fields` instead of
+# raw stdout bodyfile).
 # ============================================================================
 
-def execute_node(state: "PipelineState") -> dict:
-    """Stub pending Step 7b. Real body consumes the approved tool_plan +
-    capability_token, runs every step via streamable-HTTP MCP, collects
-    EvidenceRecord instances, and returns `{"evidence": [...]}`.
+# Default URL for the streamable-HTTP MCP endpoint. Overridable via the
+# `MCP_URL` env var if a probe points at a different endpoint (e.g. ephemeral
+# test server). The Slice-5 compose network makes `sift-mcp` the canonical
+# hostname inside the `findevil-internal` bridge.
+MCP_URL_DEFAULT = "http://sift-mcp:8000/mcp"
+
+# Single-brace DSL — same shape the PLAN prompt teaches: "{step:N.EXTRACTOR(PARAM)}"
+# The regex is identical to the one C8 used in stdio days; the resolver below
+# is what changed. Slice-5 resolution pulls structured fields off an upstream
+# `EvidenceRecord`, no longer parses an `fls -m /` bodyfile from raw stdout.
+_EXEC_PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
+
+
+class ResolverError(RuntimeError):
+    """Raised when a placeholder in step.args can't be resolved against
+    upstream evidence. Caller halts execution and labels the failure in the
+    Langfuse span + evidence.jsonl audit record."""
+
+
+def _resolve_inode_by_name(fls_structured: dict, target_name: str) -> int:
+    """Slice-5 `inode_by_name` extractor — works off an upstream `fls_list`
+    EvidenceRecord.structured_fields (FlsResult shape: `{entries: [...]}`).
+
+    Case-insensitive match on `filename_safe` (adversarial filename bytes are
+    sanitized server-side, so a crafted `ignore previous instructions` filename
+    would appear as `<NON_PRINTABLE>` — it won't match any PLAN-supplied
+    target_name, so the step errors cleanly and the Critic can re_plan).
     """
-    raise NotImplementedError(
-        "execute_node — lands in Slice 5 Step 7b (see slice-5-runbook.md §Step 7a). "
-        "Until then, the notebook's C8 cell runs this phase inline."
-    )
+    target = target_name.strip().lower()
+    hits: set[int] = set()
+    for entry in fls_structured.get("entries", []):
+        name = str(entry.get("filename_safe", "")).lower()
+        if name == target:
+            try:
+                hits.add(int(entry["inode"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    if not hits:
+        raise ResolverError(f"inode_by_name({target_name}) → no match")
+    if len(hits) > 1:
+        raise ResolverError(
+            f"inode_by_name({target_name}) → ambiguous: {sorted(hits)}"
+        )
+    return next(iter(hits))
+
+
+_EXEC_EXTRACTORS = {"inode_by_name": _resolve_inode_by_name}
+
+
+def _resolve_args(args: dict, evidence_by_step_id: dict[int, "EvidenceRecord"]) -> dict:
+    """Walk step.args; resolve any string value matching the placeholder DSL.
+
+    Non-string or non-matching values pass through unchanged (PLAN-emitted
+    ints, bools, nulls). Halts on any upstream step that is absent, that
+    references an unknown extractor, or whose tool_execution_status is not
+    "ok" (dependent tool can't consume a denied/timed-out upstream).
+    """
+    out: dict = {}
+    for k, v in args.items():
+        if isinstance(v, str):
+            m = _EXEC_PLACEHOLDER_RE.match(v.strip())
+            if m:
+                step_n = int(m.group(1))
+                extractor = m.group(2)
+                param = m.group(3)
+                if step_n not in evidence_by_step_id:
+                    raise ResolverError(
+                        f"placeholder refers to step {step_n}, not yet executed"
+                    )
+                if extractor not in _EXEC_EXTRACTORS:
+                    raise ResolverError(
+                        f"unknown extractor `{extractor}` — allowed: "
+                        f"{sorted(_EXEC_EXTRACTORS)}"
+                    )
+                upstream = evidence_by_step_id[step_n]
+                if upstream.tool_execution_status != "ok":
+                    raise ResolverError(
+                        f"upstream step {step_n} status="
+                        f"{upstream.tool_execution_status}; cannot chain"
+                    )
+                out[k] = _EXEC_EXTRACTORS[extractor](upstream.structured_fields, param)
+                continue
+        out[k] = v
+    return out
+
+
+def _unwrap_mcp(result) -> dict:
+    """Normalize a FastMCP `CallToolResult` into a plain dict.
+
+    FastMCP wraps a Pydantic return (our `EvidenceRecord`) as `structuredContent`,
+    sometimes under a single `result` key. If that's missing, fall back to the
+    first text-content block parsed as JSON. Raises on `isError=True` so the
+    caller can surface the server-side exception rather than silently pass an
+    empty record to `EvidenceRecord.model_validate`.
+    """
+    if result.isError:
+        raise RuntimeError(
+            "\n".join(getattr(c, "text", str(c)) for c in result.content)
+        )
+    data = getattr(result, "structuredContent", None)
+    if data is None and result.content:
+        data = json.loads(getattr(result.content[0], "text", "{}"))
+    data = data or {}
+    if set(data.keys()) == {"result"}:
+        data = data["result"]
+    return data
+
+
+async def execute_node(state: "PipelineState") -> dict:
+    """Run every step in the approved tool_plan against the streamable-HTTP
+    MCP endpoint; collect EvidenceRecords; return `{"evidence": [...]}`.
+
+    Slice-5 contract changes vs. C8:
+      - Each call carries `capability_token` (JSON-serialized), `plan_digest`,
+        and `case_id` in addition to the step's planned args. The server
+        `verify_token()`s them all; a denial comes back as an EvidenceRecord
+        with `tool_execution_status="capability_denied"`, not a raised exception.
+      - Returns EvidenceRecord (not RawResult). The LLM never sees raw stdout
+        under the dual-channel boundary — server-parsed `structured_fields` is
+        the agent channel (channel B). Raw bytes live server-side in
+        `<case>/analysis/raw/<tool_call_id>.raw` for Slice-6 ledger replay.
+      - Placeholder resolver iterates the upstream FlsResult instead of
+        parsing an `fls -m /` bodyfile from disk.
+
+    Halt semantics — lifted from C8: any `tool_execution_status != "ok"` stops
+    the loop and raises `RuntimeError`. Step 8 will relax this so
+    `capability_denied` produces a Critic re_plan instead of a raise; for now
+    it halts uniformly to preserve C8-equivalent behavior.
+
+    Requires: `state.tool_plan`, `state.plan_digest`, `state.capability_token`
+    populated upstream. The PipelineState dataclass allows them to be None so
+    the graph can load, but execute_node raises a fail-fast RuntimeError if
+    any is missing at invocation — the notebook's human-checkpoint cell (C7)
+    is the canonical place tokens get minted via `tokens.issue_token`.
+    """
+    if state.tool_plan is None:
+        raise RuntimeError("state.tool_plan is None — run plan_node first")
+    if state.plan_digest is None:
+        raise RuntimeError("state.plan_digest is None — plan_node must populate it")
+    if state.capability_token is None:
+        raise RuntimeError(
+            "state.capability_token is None — issue it via "
+            "pipeline.mcp.tokens.issue_token after human plan approval "
+            "(Slice 5 Step 8 wires this into C7)"
+        )
+
+    case_id = _require("CASE_ID", CASE_ID)
+    langfuse = _require("LANGFUSE", LANGFUSE)
+    from langfuse import propagate_attributes  # local — matches plan_node style
+
+    mcp_url = os.environ.get("MCP_URL", MCP_URL_DEFAULT)
+    bearer = os.environ.get("MCP_TRANSPORT_TOKEN", "")
+    if not bearer:
+        raise RuntimeError(
+            "MCP_TRANSPORT_TOKEN env var not set — the bearer gate is "
+            "pre-capability-token; unset means no connection will even open. "
+            "Pin it in docker/.env + pass through to sift-sentinel."
+        )
+    mcp_headers = {"Authorization": f"Bearer {bearer}"}
+
+    # Topological-order pre-assertion: the PLAN prompt enforces step_id order,
+    # but a malformed plan would break the placeholder resolver downstream —
+    # belt + braces. Raised here so a bad plan never opens an MCP connection.
+    for s in state.tool_plan.steps:
+        if s.depends_on and max(s.depends_on) >= s.step_id:
+            raise ValueError(
+                f"step {s.step_id} depends on {s.depends_on} — not topological"
+            )
+
+    # Serialize the capability token once per invocation — same JSON goes on
+    # every call. (If a re_plan edge invalidates plan_digest, plan_node re-
+    # fires, which updates state.plan_digest; Step 8 will add re-issuance so
+    # capability_token's plan_digest stays in sync.)
+    token_json = state.capability_token.model_dump_json()
+
+    evidence_by_step_id: dict[int, EvidenceRecord] = {}
+    collected: list[EvidenceRecord] = []
+    failed_step: Optional[int] = None
+
+    with propagate_attributes(
+        session_id=state.run_id,
+        user_id=case_id,
+        tags=["phase:execute"],
+        metadata={"phase": "execute", "n_steps_planned": len(state.tool_plan.steps)},
+    ):
+        with langfuse.start_as_current_observation(name="execute", as_type="span") as exec_span:
+            async with streamablehttp_client(mcp_url, headers=mcp_headers) as (read, write, _sid):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    for step in state.tool_plan.steps:
+                        try:
+                            resolved = _resolve_args(step.args, evidence_by_step_id)
+                        except ResolverError as e:
+                            exec_span.update(
+                                level="ERROR",
+                                status_message=f"resolve step {step.step_id}: {e}",
+                            )
+                            failed_step = step.step_id
+                            break
+
+                        call_args = {
+                            **resolved,
+                            "case_id": case_id,
+                            "capability_token": token_json,
+                            "plan_digest": state.plan_digest,
+                        }
+
+                        with langfuse.start_as_current_observation(
+                            name=step.tool,
+                            as_type="tool",
+                            input={"step_id": step.step_id, "args": resolved, "purpose": step.purpose},
+                        ) as tool_span:
+                            data = _unwrap_mcp(await session.call_tool(step.tool, call_args))
+                            ev = EvidenceRecord.model_validate(data)
+                            evidence_by_step_id[step.step_id] = ev
+                            collected.append(ev)
+
+                            tool_span.update(
+                                output={
+                                    "tool_execution_status": ev.tool_execution_status,
+                                    "raw_sha256": ev.raw_sha256,
+                                    "n_injection_flags": len(ev.injection_flags),
+                                    "expected_paths_covered": ev.expected_paths_covered,
+                                },
+                                metadata={
+                                    "tool_call_id": ev.tool_call_id,
+                                    "token_id": ev.token_id,
+                                },
+                            )
+
+                            if ev.tool_execution_status != "ok":
+                                tool_span.update(
+                                    level="ERROR",
+                                    status_message=f"tool_execution_status={ev.tool_execution_status}",
+                                )
+                                exec_span.update(
+                                    level="ERROR",
+                                    status_message=f"step {step.step_id} status={ev.tool_execution_status}",
+                                )
+                                failed_step = step.step_id
+                                break
+
+            exec_span.update(output={
+                "n_steps_executed": len(collected),
+                "n_steps_planned": len(state.tool_plan.steps),
+                "failed_step": failed_step,
+                "all_ok": all(e.tool_execution_status == "ok" for e in collected),
+            })
+
+    langfuse.flush()
+
+    # Persist evidence.jsonl — audit-trail continuity replacement for C8's
+    # raw_results.jsonl. Each line is a full EvidenceRecord (structured_fields
+    # + injection_flags + raw_sha256 pointer to the server-side raw bytes).
+    evidence_path = OUT_DIR / "evidence.jsonl"
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    with evidence_path.open("w", encoding="utf-8") as f:
+        for ev in collected:
+            f.write(ev.model_dump_json() + "\n")
+
+    if failed_step is not None:
+        raise RuntimeError(
+            f"execute halted at step {failed_step} — see {evidence_path}"
+        )
+
+    return {"evidence": collected}
 
 
 # ============================================================================
-# INTERPRET — stub until Step 7b
+# INTERPRET — real implementation (lifted from notebook C9, rewritten for the
+# Slice-5 dual-channel boundary: bundle carries `structured_fields` only — raw
+# stdout is preserved server-side but NEVER surfaces to the LLM).
 # ============================================================================
+
+INTERPRET_SYSTEM_PROMPT = """You are a DFIR (digital forensics and incident response) analyst. You receive the outputs of tool calls run against a Windows E01 disk image (`fsstat`, `fls`, `icat`, `regripper`, `scheduled_tasks_parse`) and the original investigation question. Your job is to produce a Findings JSON.
+
+Under the Slice-5 dual-channel evidence boundary: raw tool stdout is NEVER surfaced to you. Every step's output is delivered as server-parsed `structured_fields` — typed, JSON-safe dicts with known shape per tool. This is the full evidence surface for you. Chain-of-custody raw bytes are preserved on the server side and referenced by `raw_sha256` for post-hoc audit; you do not see them directly.
+
+## Hard rules
+
+1. **Evidence must be real.** Every `Finding.evidence[i]` entry must have:
+   - a `tool_call_id` that appears in the bundle's `steps[*].tool_call_id`
+   - an `output_excerpt` that is a literal substring of that step's `structured_fields` JSON serialization (case-sensitive). Typical useful excerpts include the value of a `value_data_safe`, `action_command_safe`, `filename_safe`, or `key_path` field.
+   NEVER fabricate registry keys, service names, paths, or values. If it isn't in the structured_fields of SOME step, it isn't evidence.
+
+2. **Only report what the tools show.** A Finding means you have structured-field-backed evidence of a persistence mechanism. Do not emit a Finding because "this key usually exists" or "this plugin typically returns X". No evidence → no Finding.
+
+3. **Classify every finding.** Every `Finding` MUST set the `classification` field to one of:
+   - `attacker_persistence`       — confidently malicious; `notes` must explicitly rule out benign alternatives (see Disambiguation below)
+   - `legitimate_responder_tool`  — DFIR/IR tool installed during incident response
+   - `legitimate_vendor_product`  — commercial security or IT product
+   - `legitimate_windows_default` — stock Windows component or driver (also use for `NOT_FOUND` findings)
+   - `requires_disambiguation`    — signals suggest malicious but you cannot rule out benign; emit as MEDIUM confidence with unresolved alternatives in `notes`
+   Findings classified as `legitimate_*` should NOT be emitted unless the caller explicitly asked for an inventory (they are not findings in the investigative sense).
+
+4. **If nothing suspicious is found, emit exactly one Finding with** category="NOT_FOUND", mechanism="none", value="", evidence=[], confidence="high", classification="legitimate_windows_default".
+
+5. **`confidence`** reflects how strongly the evidence implicates persistence:
+   - `high`: clear suspicious path + value + category alignment + benign alternatives ruled out
+   - `medium`: plausible but could be legitimate; worth deeper review
+   - `low`: weak signal; flagging for completeness
+
+6. **Honour `tool_execution_status`.** Each step reports one of: `ok`, `timeout`, `permission_denied`, `parse_error`, `empty`, `capability_denied`. Only `ok` (and sometimes `empty`) carries trustworthy evidence. If a step's status is `capability_denied` you must NOT treat its structured_fields as evidence — the call was refused before the tool ran; the fields carry the denial reason, not tool output.
+
+## Disambiguation requirement (read carefully — Slice 2.5 surfaced this as the dominant failure class)
+
+Before classifying any mechanism as `attacker_persistence`, you MUST rule out benign explanations. A mechanism is NOT attacker persistence if it is:
+
+  **(a) A DFIR / incident-response tool installed by responders.** Ask: does the name, path, or command line match a known forensics product? Examples of DFIR tool signatures (non-exhaustive):
+    - F-Response      (`subject_srv.exe`; connects to `*-hunt.*` or `*-examiner.*` hosts on high non-standard ports)
+    - Mnemosyne       (`Mnemosyne.sys` kernel driver — memory acquisition)
+    - Volatility / `vol.py` (memory analysis)
+    - KAPE            (`kape.exe`; Targets/Modules structure)
+    - Velociraptor    (`velociraptor.exe`; endpoint agent)
+    - Magnet AXIOM, MemProcFS, WinPMEM, DumpIt, FTK Imager, Redline, CyLR, Kansa
+    - Sysmon / SysmonDrv — legitimate by default, but note that attackers occasionally install Sysmon for their own monitoring; flag the unusual case rather than auto-exonerate.
+
+  **(b) A commercial security or IT product.** McAfee (`mfe*`, `McAfeeFramework`, `McShield`, `enterceptAgent`, `HipMgmt`, `HipShieldK`), CrowdStrike, SentinelOne, Symantec, Trend Micro, VMware guest tools (`VMTools`, `VGAuthService`, `VMMemCtl`, `vmware-*`), VirtualBox guest, Microsoft Defender (`WinDefend`, `MpsSvc`, `WdNisSvc`), Windows Update (`wuauserv`), `AdobeARMservice`, GoogleUpdate (`gupdate` / `gupdatem`), `MozillaMaintenance`.
+
+  **(c) A Windows default or a legitimate vendor driver.** Perf* services (`PerfDisk`, `PerfHost`, `PerfNet`, `PerfOS`, `PerfProc`), RPC family (`RpcEptMapper`, `RpcSs`, `DcomLaunch`), TCP/IP stack (`Tcpip`, `NetBT`, `NetBIOS`), kernel drivers for storage / input / USB / virtual hardware (`atapi`, `usbhub`, `i8042prt`, `vmbus`, `storvsc`, etc.), `.NET`/`ASP.NET` service family, clr_optimization_*, `aspnet_state`.
+
+**Masquerading counter-rule:** if a name mimics a Windows built-in but the binary/path is NOT the standard one (e.g., a service named "PerfMon" running `perfmonsvc64.exe` when the legitimate Windows perf services are `PerfDisk`, `PerfHost`, `PerfNet`, `PerfOS`, `PerfProc`), that is **evidence of masquerading** and overrides the "looks like Windows default" heuristic. Classify as `attacker_persistence` with notes explaining the name/path mismatch.
+
+**For every `attacker_persistence` finding at `high` confidence, `notes` MUST contain the benign hypotheses you considered and ruled out** — even briefly. Example: "Ruled out DFIR tools (not a known responder product), vendor products (not in McAfee/VMware/Defender path conventions), Windows defaults (not among Perf*/RPC/TCP-IP service families). Binary path under C:\\windows\\ with non-Microsoft name and C2-like outbound connection pattern."
+
+## Output
+
+Emit exactly:
+
+```json
+{
+  "findings": [
+    {
+      "category": "<PersistenceCategory literal>",
+      "mechanism": "<short human label, e.g. 'HKLM Run key', 'Windows service auto-start'>",
+      "value": "<the suspicious path/command/value string>",
+      "confidence": "low|medium|high",
+      "classification": "attacker_persistence|legitimate_responder_tool|legitimate_vendor_product|legitimate_windows_default|requires_disambiguation",
+      "evidence": [
+        {"tool_call_id": "<from bundle>", "output_excerpt": "<literal substring of that step's structured_fields JSON>"}
+      ],
+      "notes": "<for attacker_persistence: which benign hypotheses you ruled out; for requires_disambiguation: what unresolved alternatives remain>"
+    }
+  ]
+}
+```
+
+`category` must be one of: `registry_run_key`, `service`, `scheduled_task`, `ifeo_debugger`, `appinit_dll`, `logon_script`, `NOT_FOUND`.
+
+`classification` must be one of the five values listed in Hard Rule 3. DO NOT emit `legitimate_responder_tool`, `legitimate_vendor_product`, or `legitimate_windows_default` findings unless you are compiling an inventory — those are suppressed, not reported. The exception is the single `NOT_FOUND` finding (Hard Rule 4) which uses `classification="legitimate_windows_default"`.
+"""
+
+
+def _build_interpret_bundle(state: "PipelineState") -> dict:
+    """Construct the LLM-facing bundle from state. Pure function — no LLM
+    call — so probes can test bundle shape + content without hitting the API.
+
+    Positional correlation between `state.evidence[i]` and
+    `state.tool_plan.steps[i]`: execute_node iterates the plan in topological
+    order and halts on first failure, so state.evidence is a prefix of the
+    plan's step sequence. If the two lengths ever diverged under a future
+    parallel/out-of-order executor, this would need a tool_call_id → step_id
+    side-car; for Slice 5 the linear executor makes the positional shortcut
+    unambiguous.
+    """
+    if state.tool_plan is None:
+        raise RuntimeError("state.tool_plan is None — interpret_node needs an approved plan")
+    if not state.evidence:
+        raise RuntimeError("state.evidence is empty — run execute_node first")
+
+    case_id = _require("CASE_ID", CASE_ID)
+    plan_steps = state.tool_plan.steps
+    bundle_steps = []
+    for i, ev in enumerate(state.evidence):
+        if i >= len(plan_steps):
+            raise RuntimeError(
+                f"state.evidence has {len(state.evidence)} entries but "
+                f"tool_plan.steps has {len(plan_steps)} — positional correlation broken"
+            )
+        plan_step = plan_steps[i]
+        bundle_steps.append({
+            "step_id": plan_step.step_id,
+            "tool_call_id": ev.tool_call_id,
+            "tool": plan_step.tool,
+            "purpose": plan_step.purpose,
+            "args": plan_step.args,
+            "tool_execution_status": ev.tool_execution_status,
+            "expected_paths_covered": ev.expected_paths_covered,
+            "structured_fields": ev.structured_fields,
+        })
+
+    return {
+        "question": state.tool_plan.question,
+        "case_id": case_id,
+        "steps": bundle_steps,
+    }
+
 
 def interpret_node(state: "PipelineState") -> dict:
-    """Stub pending Step 7b. Real body builds the INTERPRET bundle from
-    `state.evidence[*].structured_fields` ONLY (channel B) — raw stdout is
-    never surfaced to the LLM under the Slice-5 dual-channel boundary."""
-    raise NotImplementedError(
-        "interpret_node — lands in Slice 5 Step 7b. Until then, the notebook's "
-        "C9 cell runs this phase inline."
+    """Turn structured_fields into Findings. Writes `out/findings.json` +
+    `out/findings.SUCCESS` for audit-trail continuity.
+
+    Model input under Slice 5: the bundle's `structured_fields` (channel B).
+    Raw stdout is never in the model's context. `plan_digest` is read from
+    state (populated by plan_node) rather than re-hashed from disk as C9 did.
+    """
+    client = _require("LLM_CLIENT", LLM_CLIENT)
+    langfuse = _require("LANGFUSE", LANGFUSE)
+    model = _require("INTERPRET_MODEL", INTERPRET_MODEL)
+    case_id = _require("CASE_ID", CASE_ID)
+    from langfuse import propagate_attributes
+
+    plan_digest = state.plan_digest
+    if plan_digest is None:
+        raise RuntimeError("state.plan_digest is None — plan_node must populate it")
+
+    bundle = _build_interpret_bundle(state)
+    started_at = datetime.now(timezone.utc)
+
+    with propagate_attributes(
+        session_id=state.run_id,
+        user_id=case_id,
+        tags=["phase:interpret"],
+        metadata={"phase": "interpret", "n_steps": len(state.evidence)},
+    ):
+        with langfuse.start_as_current_observation(
+            name="interpret", as_type="span"
+        ) as interpret_span:
+            messages = [
+                {"role": "system", "content": [
+                    {"type": "text", "text": INTERPRET_SYSTEM_PROMPT,
+                     "cache_control": {"type": "ephemeral"}},
+                ]},
+            ]
+            if state.corrective_instruction:
+                messages.append({
+                    "role": "system",
+                    "content": f"CRITIC CORRECTION (retry pass)\n\n{state.corrective_instruction}",
+                })
+            messages.append({"role": "user", "content": json.dumps(bundle, indent=2)})
+
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+                max_tokens=8000,
+            )
+            raw = resp.choices[0].message.content
+            s = raw.strip()
+            if s.startswith("```"):
+                s = re.sub(r"^```(?:json|JSON)?\s*", "", s)
+                s = re.sub(r"\s*```\s*$", "", s)
+            parsed = json.loads(s)
+
+            # Individual Finding validation — a missing `classification` field
+            # is caught here (required post-Step-0). Once Slice 3 Critic R_11
+            # is wired to INTERPRET retries, pre-commit failure softens to a
+            # soft retry; the Pydantic validator still runs but its miss
+            # triggers a re_interpret rather than a hard raise.
+            finding_objs = [
+                Finding.model_validate(f) for f in parsed.get("findings", [])
+            ]
+            finished_at = datetime.now(timezone.utc)
+
+            findings = Findings(
+                case_id=case_id,
+                question=state.tool_plan.question,
+                findings=finding_objs,
+                plan_digest=plan_digest,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+
+            # Soft-warn on dangling tool_call_ids — Critic's R_01 is the real
+            # enforcer; we just surface obvious data issues early.
+            valid_ids = {ev.tool_call_id for ev in state.evidence}
+            dangling = [
+                (i, e.tool_call_id)
+                for i, f in enumerate(findings.findings)
+                for e in f.evidence
+                if e.tool_call_id not in valid_ids
+            ]
+            if dangling:
+                print(
+                    f"WARN: {len(dangling)} evidence entries reference unknown "
+                    f"tool_call_ids — {dangling[:3]}"
+                )
+
+            interpret_span.update(
+                output=findings.model_dump(mode="json"),
+                metadata={
+                    "n_findings": len(findings.findings),
+                    "n_high_confidence": sum(1 for f in findings.findings if f.confidence == "high"),
+                    "n_attacker_persistence": sum(
+                        1 for f in findings.findings if f.classification == "attacker_persistence"
+                    ),
+                    "n_requires_disambiguation": sum(
+                        1 for f in findings.findings if f.classification == "requires_disambiguation"
+                    ),
+                    "plan_digest_short": plan_digest[:16],
+                },
+            )
+
+    (OUT_DIR / "findings.json").write_text(
+        findings.model_dump_json(indent=2), encoding="utf-8"
     )
+    (OUT_DIR / "findings.SUCCESS").touch()
+    langfuse.flush()
+
+    return {"findings": findings}
 
 
 # ============================================================================

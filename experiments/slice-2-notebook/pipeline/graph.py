@@ -17,7 +17,6 @@ Key Slice-5 shape changes vs. the Slice-3 notebook version:
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Optional
 
 from pydantic import BaseModel
@@ -32,6 +31,12 @@ from pipeline.schemas import (
     Findings,
     ToolPlan,
 )
+# `plan_hash` reuses the canonical `compute_plan_digest` so the Critic's
+# failed_plan_hashes dedup, the orchestrator's plan_digest label, and the
+# capability-token's plan_digest binding all live in the same hash space. One
+# definition, one set of equivalence classes — a re-plan that re-emits the
+# exact same plan canonically hashes identically in all three places.
+from pipeline.mcp.tokens import compute_plan_digest as plan_hash
 
 
 # ---- Pipeline state (one object flows through every node) ----
@@ -77,17 +82,8 @@ class PipelineState(BaseModel):
 
 
 # ---- Helpers (moved from notebook C4) ----
-
-def plan_hash(plan) -> str:
-    """Canonical sha256 of a ToolPlan for cycle detection on retries.
-    Accepts a `ToolPlan` (uses `model_dump(mode="json")`) or a plain dict. Keys
-    are sorted so equivalent plans with different dict ordering produce the
-    same hash — this is what makes `failed_plan_hashes` a reliable cycle gate.
-    """
-    if hasattr(plan, "model_dump"):
-        plan = plan.model_dump(mode="json")
-    canonical = json.dumps(plan, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+# `plan_hash` is the `compute_plan_digest` import above. Accepts a `ToolPlan`;
+# the re-export keeps the C4-era call-site name intact across the node-lift.
 
 
 def compute_thread_id(case_id: str, run_uuid: str) -> str:
