@@ -641,9 +641,18 @@ async def execute_node(state: "PipelineState") -> dict:
         for ev in collected:
             f.write(ev.model_dump_json() + "\n")
 
+    # Partial results propagate. A halt on step N (resolver error OR
+    # non-continuable status) leaves us with N-1 usable records; raising
+    # would lose that signal to the caller's PipelineState.evidence. The
+    # Critic + R_06 / R_12 already handle incompleteness; Critic sees a
+    # len(state.evidence) < len(state.tool_plan.steps) delta and emits the
+    # appropriate SCOPE_INCOMPLETE / ABSENCE_UNSUBSTANTIATED failure.
+    # Surface a diagnostic on the print channel only.
     if failed_step is not None:
-        raise RuntimeError(
-            f"execute halted at step {failed_step} — see {evidence_path}"
+        print(
+            f"  [execute]   halted at step {failed_step}; "
+            f"returning {len(collected)}/{len(state.tool_plan.steps)} "
+            f"partial EvidenceRecords — see {evidence_path}"
         )
 
     return {"evidence": collected}
