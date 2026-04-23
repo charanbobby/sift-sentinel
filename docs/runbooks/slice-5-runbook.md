@@ -568,16 +568,16 @@ Pulls C6's PLAN body, C8's EXECUTE body, and C9's INTERPRET body out of notebook
 
 ## Step 8 — LangGraph integration (capability-token + quarantine wiring)
 
-- [ ] `PipelineState` extended with `capability_token: CapabilityToken | None`
-- [ ] C7 (human checkpoint) sets it after plan approval
-- [ ] C8 (execute_node) attaches the token on every MCP call
-- [ ] Quarantine handling: any `EvidenceRecord` with `quarantine`-severity flag is stored in state but not forwarded to INTERPRET's bundle; instead, Critic receives it and emits an automatic `escalate` (new `FailureCode: INJECTION_QUARANTINE`) → `human_review`
-- [ ] `capability_token` is included in the Langfuse span metadata (one more observability wedge for Slice 6)
+- [x] `PipelineState` extended with `capability_token: CapabilityToken | None` (landed alongside Step 7; `graph.py` line ~66)
+- [x] C7 (human checkpoint) sets it after plan approval (calls `issue_token(tool_plan, case_id, allowed_paths, ttl_seconds=1800)` → `pipeline_state.model_copy(update={"capability_token": _token})`)
+- [x] C8 (execute_node) attaches the token on every MCP call (serialized once as `token_json = state.capability_token.model_dump_json()`, passed in `call_args` alongside `case_id` + `plan_digest`)
+- [x] Quarantine handling: `_build_interpret_bundle` strips `structured_fields` from any `EvidenceRecord` carrying a `quarantine`-severity flag (post-Step-8 commit); `critic_node` pre-check forces all results to `escalate` and writes an `INJECTION_QUARANTINE` audit entry (`token_id`, `plan_digest`, `tool_call_ids`, flag excerpts). `FailureCode: INJECTION_QUARANTINE` and `ESCALATE_CODES` updated in `schemas.py` + `critic.py`. R_10 differentiates: quarantine → `INJECTION_QUARANTINE`, warn → `INJECTION_FLAGGED_EVIDENCE`.
+- [x] `capability_token_id` included in the `execute_node` Langfuse `propagate_attributes` metadata (one more observability wedge for Slice 6)
 
-### 8a — Fail-fast probe — end-to-end with a seeded adversarial E01
-- [ ] Prepare a minimal synthetic E01 with one crafted filename containing `INJ_IMPERATIVE_IGNORE`
-- [ ] Run the pipeline; Critic emits `severity: escalate` with `code: INJECTION_QUARANTINE`
-- [ ] Human-review node receives the disagreement; audit log captures the flag, the excerpt, and the token_id
+### 8a — Fail-fast probe — deterministic quarantine wiring (2026-04-23)
+- [x] `d:/tmp/probe_step8_quarantine.py` — 5 deterministic tests (no E01 needed at this step): `INJECTION_QUARANTINE` membership in `FailureCode` + `ESCALATE_CODES`; R_10 severity discrimination; `_build_interpret_bundle` strips quarantined SF regardless of tool type; `critic_node` forces escalate and writes audit entry with `token_id`. **All green.**
+- [x] Step-7c regression gate re-ran clean after Step 8 (bundle still 11,822 tokens; TP signals `perfmonsvc64`/`tbbd05`/`PerfMon` preserved; no regression).
+- [ ] *(Deferred to Step 9)* — end-to-end adversarial E01 with a crafted filename containing `INJ_IMPERATIVE_IGNORE`. Step 9 ships the synthetic E01 builder and the full-pipeline demo; the deterministic probe here is sufficient to gate Step 8 commit.
 
 ---
 
