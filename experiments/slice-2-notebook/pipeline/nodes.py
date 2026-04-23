@@ -352,6 +352,32 @@ MCP_URL_DEFAULT = "http://sift-mcp:8000/mcp"
 # `EvidenceRecord`, no longer parses an `fls -m /` bodyfile from raw stdout.
 _EXEC_PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
 
+# execute_node halt semantics — per ToolExecutionStatus:
+#
+#   CONTINUE                          HALT
+#   --------                          ----
+#   ok            full success        timeout              subprocess killed
+#   empty         legit null finding  permission_denied    subprocess no-access
+#   parse_error   parser degraded     capability_denied    policy refusal
+#                 but exit=0                                (Step 8 will relax)
+#
+# `empty` and `parse_error` produce usable (though degraded) structured_fields
+# and the Critic's R_09 / R_12 / R_06 can reason about them; halting loses
+# independent downstream steps that could succeed. The three HALT statuses
+# represent "tool didn't produce a substantive result" cases where the most
+# likely downstream impact is either a resolver error (if dependents chain
+# through) or more denials of the same kind — halting early surfaces the real
+# problem. Resolver (_resolve_args) keeps a strict "upstream must be ok" rule
+# — chaining semantics are intentionally stricter than halt semantics.
+_CONTINUABLE_STATUSES = frozenset({"ok", "empty", "parse_error"})
+
+
+def _status_is_continuable(status: str) -> bool:
+    """Decide whether execute_node should keep running after a step returned
+    this `tool_execution_status`. Partition enforced by
+    `_CONTINUABLE_STATUSES`. Exposed for unit-test probes."""
+    return status in _CONTINUABLE_STATUSES
+
 
 class ResolverError(RuntimeError):
     """Raised when a placeholder in step.args can't be resolved against
@@ -464,12 +490,13 @@ async def execute_node(state: "PipelineState") -> dict:
       - Placeholder resolver iterates the upstream FlsResult instead of
         parsing an `fls -m /` bodyfile from disk.
 
-    Halt semantics — continues on `ok` AND `empty` (empty ≠ failure: the
-    tool ran cleanly and legitimately returned nothing, which is a real
-    evidence-of-absence signal that R_12 keys off). Halts on anything else
-    (`timeout`, `permission_denied`, `parse_error`, `capability_denied`).
-    Step 8 will further relax this so `capability_denied` produces a Critic
-    re_plan instead of a raise; for now those still raise.
+    Halt semantics — delegated to `_status_is_continuable`. Continues on
+    `ok` / `empty` / `parse_error` (tool produced a substantive-or-degraded
+    result the Critic can reason about); halts on `timeout` /
+    `permission_denied` / `capability_denied` (tool didn't complete). See
+    the table above `_CONTINUABLE_STATUSES` for the full partition + why.
+    Step 8 will relax the `capability_denied` halt via graph edge re-routing
+    so the Critic gets a chance to re_plan.
 
     Requires: `state.tool_plan`, `state.plan_digest`, `state.capability_token`
     populated upstream. The PipelineState dataclass allows them to be None so
@@ -572,15 +599,11 @@ async def execute_node(state: "PipelineState") -> dict:
                                 },
                             )
 
-                            # Continue on ok AND empty. "empty" means the tool
-                            # ran cleanly and legitimately produced no data
-                            # (e.g. regripper winlogon_tln against a hive with
-                            # no Winlogon Userinit/Shell/Notify set); that's a
-                            # real null finding, not a failure. R_12 treats
-                            # {ok, empty} as the pair that substantiates an
-                            # evidence-of-absence claim — execute_node mirrors
-                            # that split.
-                            if ev.tool_execution_status not in ("ok", "empty"):
+                            # Halt-vs-continue decision delegated to the
+                            # module-level helper so the probe can unit-test
+                            # the partition against all 6 ToolExecutionStatus
+                            # values. See `_CONTINUABLE_STATUSES` above.
+                            if not _status_is_continuable(ev.tool_execution_status):
                                 tool_span.update(
                                     level="ERROR",
                                     status_message=f"tool_execution_status={ev.tool_execution_status}",
@@ -592,16 +615,19 @@ async def execute_node(state: "PipelineState") -> dict:
                                 failed_step = step.step_id
                                 break
 
+            non_ok_summary = [
+                (i + 1, e.tool_execution_status)
+                for i, e in enumerate(collected)
+                if e.tool_execution_status != "ok"
+            ]
             exec_span.update(output={
                 "n_steps_executed": len(collected),
                 "n_steps_planned": len(state.tool_plan.steps),
                 "failed_step": failed_step,
-                "all_substantive": all(
-                    e.tool_execution_status in ("ok", "empty") for e in collected
-                ),
-                "n_empty": sum(
-                    1 for e in collected if e.tool_execution_status == "empty"
-                ),
+                "n_ok": sum(1 for e in collected if e.tool_execution_status == "ok"),
+                "n_empty": sum(1 for e in collected if e.tool_execution_status == "empty"),
+                "n_parse_error": sum(1 for e in collected if e.tool_execution_status == "parse_error"),
+                "non_ok_steps": non_ok_summary,
             })
 
     langfuse.flush()
