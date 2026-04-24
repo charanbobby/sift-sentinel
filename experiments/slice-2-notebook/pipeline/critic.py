@@ -336,20 +336,29 @@ def R_10(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     return None
 
 
+_ATTACKER_CLASSIFICATIONS = {
+    "attacker_persistence",
+    "attacker_persistence_ai_assisted",  # Slice 6 Step 3b — same rule-out discipline applies
+}
+
+
 def R_11(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """Did the agent declare what kind of thing this finding is, with rationale?
     Missing classification is caught upstream by Pydantic (classification is required).
-    Here we additionally check: attacker_persistence at high confidence must contain
-    ruled-out-alternatives language in notes."""
+    Here we additionally check: any attacker_persistence* classification at high
+    confidence must contain ruled-out-alternatives language in notes. Applies
+    to `attacker_persistence_ai_assisted` too — benign AI tooling exists
+    (Copilot, enterprise ChatGPT daemons, dev workstations); the rule-out
+    discipline is especially important there."""
     if not finding.classification:
         return RuleFailure(rule_id="R_11", code="CLASSIFICATION_MISSING",
                            detail="classification field is empty")
-    if finding.classification == "attacker_persistence" and finding.confidence == "high":
+    if finding.classification in _ATTACKER_CLASSIFICATIONS and finding.confidence == "high":
         notes_lc = (finding.notes or "").lower()
         # catches 'ruled out', 'ruling out', 'rules out', 'ruled-out'
         if "rul" not in notes_lc:
             return RuleFailure(rule_id="R_11", code="CLASSIFICATION_MISSING",
-                               detail="attacker_persistence at high confidence must explicitly rule out benign alternatives in notes")
+                               detail=f"{finding.classification} at high confidence must explicitly rule out benign alternatives in notes")
     return None
 
 
@@ -394,6 +403,75 @@ def R_13(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     return None
 
 
+# ---- R_16 AI-assisted anchor check (Slice 6 Step 3b) ----
+# Concrete forensic artifacts that indicate AI-assisted attacker activity per
+# 2025-2026 threat intel (PROMPTFLUX, PromptSteal, QuietVault, PromptLock;
+# see docs/research/ai-assisted-threat-landscape-2026.md). Anchor-based
+# rather than stylometric detection to avoid the known high-FPR problem with
+# "was this code LLM-written?" classifiers on legitimate Copilot/Cursor users.
+# Case-sensitive — env-var names + SDK imports appear literally in real
+# artifacts; lowercasing would false-match decorative mentions in narrative text.
+AI_ASSIST_ANCHORS: tuple[str, ...] = (
+    # LLM API endpoints — direct C2 / runtime callout, strongest signal
+    "api.openai.com",
+    "api.anthropic.com",
+    "generativelanguage.googleapis.com",
+    "api-inference.huggingface.co",
+    # SDK imports in scripted persistence / service binaries
+    "import openai", "from openai",
+    "import anthropic", "from anthropic",
+    "import langchain", "from langchain",
+    "import langgraph", "from langgraph",
+    "google.generativeai",
+    "import transformers", "from transformers",
+    "huggingface_hub",
+    "llama_index",
+    "import ollama",
+    # API-key env var names — attacker-planted credentials
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "HUGGINGFACE_HUB_TOKEN",
+    "HF_TOKEN",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+)
+
+
+def _contains_ai_anchor(text: str) -> bool:
+    """Case-sensitive substring check — any AI-assist anchor in `text`."""
+    if not text:
+        return False
+    return any(anchor in text for anchor in AI_ASSIST_ANCHORS)
+
+
+def R_16(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
+    """AI-assisted anchor check (Slice 6 Step 3b).
+
+    When a finding is classified as `attacker_persistence_ai_assisted`, the
+    supporting evidence must contain at least one concrete anchor — an LLM
+    API endpoint URL, an AI-SDK import line, or a known AI API-key env var
+    name. Forces grounding in recoverable forensic artifacts rather than
+    stylometric guessing. Routes to `re_interpret`: the model either finds
+    the anchor in a different excerpt or downgrades classification to plain
+    `attacker_persistence`.
+
+    Scope is narrow by design: the rule is a no-op for every other
+    classification so it doesn't second-guess findings where the anchor
+    concept doesn't apply."""
+    if finding.classification != "attacker_persistence_ai_assisted":
+        return None
+    joined = " ".join(ev.output_excerpt for ev in finding.evidence)
+    if _contains_ai_anchor(joined):
+        return None
+    return RuleFailure(
+        rule_id="R_16",
+        code="AI_ASSIST_ANCHOR_MISSING",
+        detail=(f"classification={finding.classification} but no concrete "
+                f"AI-artifact anchor (LLM endpoint URL / AI-SDK import / "
+                f"AI API-key env var) found in cited output_excerpts"),
+    )
+
+
 def R_15(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """Low-confidence auto-escalation (Slice 6 Step 3).
 
@@ -423,7 +501,7 @@ def R_15(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 # Order mirrors the rule-id numbering. R_14 is reserved for citation-gate
 # activation (mechanism lives below as parse_evidence_citations); R_15 was the
 # next unreserved slot for low-confidence auto-escalation.
-CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15]
+CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16]
 ESCALATE_CODES = {
     "EXCERPT_HALLUCINATION",
     "INJECTION_FLAGGED_EVIDENCE",
@@ -657,6 +735,20 @@ def _ni_R_12(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: in
             f"tools against their canonical paths, or downgrade the claim's confidence to medium.")
 
 
+def _ni_R_16(failure: RuleFailure, finding: Finding, ctx: CriticContext, idx: int) -> str:
+    return (f"Finding {idx} is classified as attacker_persistence_ai_assisted but no "
+            f"concrete AI-artifact anchor appears in the cited output_excerpts. "
+            f"Either (a) re-cite an excerpt that contains an LLM API endpoint URL "
+            f"(api.openai.com, api.anthropic.com, generativelanguage.googleapis.com, "
+            f"api-inference.huggingface.co), an AI-SDK import (import openai, "
+            f"import anthropic, import langchain, google.generativeai, huggingface_hub), "
+            f"or an AI API-key env var name (OPENAI_API_KEY, ANTHROPIC_API_KEY, "
+            f"HUGGINGFACE_HUB_TOKEN, HF_TOKEN, GOOGLE_API_KEY, GEMINI_API_KEY) that "
+            f"substantiates the AI-assisted classification; or (b) downgrade "
+            f"classification to attacker_persistence (no AI specialization) if no "
+            f"such anchor exists.")
+
+
 NEW_INSTRUCTION_TEMPLATES: dict[str, callable] = {
     "EVID_UNRESOLVED":           _ni_R_01,
     "PATH_INCONSISTENCY":        _ni_R_02,
@@ -668,6 +760,7 @@ NEW_INSTRUCTION_TEMPLATES: dict[str, callable] = {
     "EVIDENCE_TOOL_EXIT_NONZERO":_ni_R_09,
     "CLASSIFICATION_MISSING":    _ni_R_11,
     "ABSENCE_UNSUBSTANTIATED":   _ni_R_12,
+    "AI_ASSIST_ANCHOR_MISSING":  _ni_R_16,
     # EXCERPT_HALLUCINATION, INJECTION_FLAGGED_EVIDENCE, TEMPORAL_INCONSISTENT escalate — no correction
 }
 
@@ -684,6 +777,7 @@ RETRY_BRANCH: dict[str, str] = {
     "EVIDENCE_TOOL_EXIT_NONZERO":"re_interpret",
     "CLASSIFICATION_MISSING":    "re_interpret",
     "ABSENCE_UNSUBSTANTIATED":   "re_plan",       # re-run failed tools
+    "AI_ASSIST_ANCHOR_MISSING":  "re_interpret",  # model re-cites anchor or downgrades classification
 }
 
 
@@ -783,6 +877,8 @@ __all__ = [
     # Rules + registry
     "R_01", "R_02", "R_03", "R_04", "R_05", "R_06", "R_07",
     "R_08", "R_09", "R_10", "R_11", "R_12", "R_13",
+    "R_15", "R_16",  # Slice 6 Step 3 + 3b
+    "AI_ASSIST_ANCHORS",  # exposed so tests can assert coverage
     "CRITIC_RULES", "ESCALATE_CODES",
     # Orchestrator
     "critic_evaluate",

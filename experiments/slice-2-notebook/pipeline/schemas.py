@@ -107,6 +107,7 @@ PersistenceCategory = Literal[
 # See docs/runbooks/slice-3-runbook.md Step 0 for rationale.
 Classification = Literal[
     "attacker_persistence",        # confidently malicious
+    "attacker_persistence_ai_assisted",  # Slice 6 Step 3b — malicious AND carries concrete AI-tooling artifacts (LLM URL / SDK import / API key in cited evidence). R_16 enforces the anchor.
     "legitimate_responder_tool",   # DFIR/IR tool installed during response
     "legitimate_vendor_product",   # commercial security/IT product
     "legitimate_windows_default",  # stock Windows component or driver (also used for NOT_FOUND)
@@ -257,6 +258,7 @@ RuleId = Literal[
     'R_13',  # Temporal Consistency — added 2026-04-20 Phase C (stub; real impl in Slice 5)
     # R_14 reserved for citation-gate activation (mechanism landed 2026-04-24; see critic.py)
     'R_15',  # Low-confidence auto-escalation — added 2026-04-24 Slice 6 Step 3
+    'R_16',  # AI-assisted anchor check — added 2026-04-24 Slice 6 Step 3b
 ]
 FailureCode = Literal[
     'EVID_UNRESOLVED', 'PATH_INCONSISTENCY', 'TOOL_MISMATCH',
@@ -270,6 +272,7 @@ FailureCode = Literal[
     'CANARY_LEAK',                 # interpret_node: LLM response echoed the per-run canary → instruction/data boundary leaked
     'UNCITED_CLAIM',               # R_14 (mechanism landed, activation deferred) — Finding.notes lacks inline [ev:<id>] citation(s), or cites a tool_call_id not in this run's bundle
     'LOW_CONFIDENCE_AUTO_ESCALATE',# R_15 — any finding at confidence=low auto-routes to human_review (see CONFIDENCE_RUBRIC)
+    'AI_ASSIST_ANCHOR_MISSING',    # R_16 — classification=attacker_persistence_ai_assisted but no concrete AI-artifact anchor (LLM URL / SDK import / API-key env var) in cited evidence
 ]
 
 class RuleFailure(BaseModel):

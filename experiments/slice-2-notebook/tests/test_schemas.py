@@ -54,7 +54,9 @@ def test_persistence_category_literal():
 def test_classification_literal():
     from pipeline.schemas import Classification
     vals = set(get_args(Classification))
-    assert {"attacker_persistence", "legitimate_responder_tool",
+    # attacker_persistence_ai_assisted added Slice 6 Step 3b (2026-04-24)
+    assert {"attacker_persistence", "attacker_persistence_ai_assisted",
+            "legitimate_responder_tool",
             "legitimate_vendor_product", "legitimate_windows_default",
             "requires_disambiguation"} == vals
 

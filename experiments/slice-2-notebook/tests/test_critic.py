@@ -13,9 +13,10 @@ from pathlib import Path
 import pytest
 
 from pipeline.critic import (
+    AI_ASSIST_ANCHORS,
     CRITIC_RULES,
     CriticContext,
-    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15,
+    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16,
     build_resolution,
     critic_evaluate,
 )
@@ -308,6 +309,168 @@ def test_R_15_orchestrator_routes_to_escalate(make_plan, make_evidence, make_fin
     assert any(rf.code == "LOW_CONFIDENCE_AUTO_ESCALATE" for rf in result.rules_failed)
 
 
+# ---- R_16 — AI_ASSIST_ANCHOR_MISSING (Slice 6 Step 3b) --------------------
+
+
+def test_R_16_bad_ai_assisted_without_anchor(make_plan, make_evidence, make_finding):
+    """classification=attacker_persistence_ai_assisted but cited excerpts
+    contain no LLM URL / SDK import / API-key env var → R_16 fires."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out DFIR / vendor / Windows defaults.",
+        evidence_refs=[("t-0", "some generic persistence artifact with no AI content")],
+    )
+    r = R_16(f, ctx)
+    assert r is not None
+    assert r.rule_id == "R_16"
+    assert r.code == "AI_ASSIST_ANCHOR_MISSING"
+
+
+def test_R_16_good_ai_assisted_with_llm_url(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out sanctioned Copilot daemons.",
+        evidence_refs=[("t-0", "curl https://api.openai.com/v1/chat/completions -d ...")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_good_ai_assisted_with_sdk_import(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out dev-workstation Cursor daemons.",
+        evidence_refs=[("t-0", "import anthropic\nclient = anthropic.Anthropic()")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_good_ai_assisted_with_api_key_env(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out enterprise HF deployments.",
+        evidence_refs=[("t-0", "setx HUGGINGFACE_HUB_TOKEN hf_xxxxxxxxx /M")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_noop_on_plain_attacker_persistence(make_plan, make_evidence, make_finding):
+    """R_16 is scope-limited to attacker_persistence_ai_assisted — plain
+    attacker_persistence with no AI anchor must NOT fire R_16."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence",
+        notes="Ruled out DFIR / vendor / Windows defaults.",
+        evidence_refs=[("t-0", "HKLM\\...\\Run\\malware")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_noop_on_legitimate_classification(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="legitimate_windows_default",
+        evidence_refs=[("t-0", "any text")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_case_sensitive_matching(make_plan, make_evidence, make_finding):
+    """Anchors are case-sensitive — env-var names are literal in real
+    artifacts. Lowercase/narrative mentions must NOT match."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    # Lowercase / narrative — should NOT match
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out.",
+        evidence_refs=[("t-0", "the openai_api_key variable was set by the user")],
+    )
+    assert R_16(f, ctx) is not None
+
+
+def test_R_16_orchestrator_routes_to_retry(make_plan, make_evidence, make_finding):
+    """R_16 is retryable (not in ESCALATE_CODES) — orchestrator routes to
+    severity='retry', not escalate. Model gets a chance to re-cite anchor
+    or downgrade classification."""
+    plan = make_plan("fsstat_e01", "regripper_run")
+    ev_fs = make_evidence("t-fs", {"fs_type": "NTFS"},
+                          expected_paths_covered=["/mnt/hackathon/x.E01"])
+    ev_reg = make_evidence("t-regripper", {
+        "plugin_name": "run", "hive_type": "Software",
+        "entries": [{"key_path": "HKLM\\Software\\...", "value_name": "m",
+                     "value_type": "REG_SZ", "value_data_safe": "C:\\malware.exe",
+                     "last_write": None}],
+    })
+    ctx = CriticContext(plan, [ev_fs, ev_reg])
+    # Clean finding except classification is ai_assisted with no anchor
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        notes="Ruled out.",
+        evidence_refs=[("t-regripper", "C:\\\\malware.exe")],
+    )
+    result = critic_evaluate(f, ctx, finding_index=0)
+    assert result.severity == "retry"
+    codes = [rf.code for rf in result.rules_failed]
+    assert "AI_ASSIST_ANCHOR_MISSING" in codes
+
+
+def test_AI_ASSIST_ANCHORS_covers_expected_surface():
+    """Regression: anchor set must include the 4 major LLM endpoints and
+    the common SDK imports + API-key env vars. If the set shrinks below
+    coverage, this test flags it."""
+    anchors_text = " ".join(AI_ASSIST_ANCHORS)
+    for expected in (
+        "api.openai.com", "api.anthropic.com",
+        "generativelanguage.googleapis.com", "api-inference.huggingface.co",
+        "import openai", "import anthropic", "import langchain",
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HUGGINGFACE_HUB_TOKEN",
+    ):
+        assert expected in anchors_text, f"AI_ASSIST_ANCHORS missing {expected!r}"
+
+
+# ---- R_11 widening for attacker_persistence_ai_assisted --------------------
+
+
+def test_R_11_bad_ai_assisted_high_conf_no_rule_out(make_plan, make_evidence, make_finding):
+    """R_11 widened to treat ai_assisted the same as plain attacker_persistence —
+    high-confidence ai_assisted without rule-out language in notes must fail."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        confidence="high",
+        notes="Definitely AI-assisted persistence.",  # no 'rul' token
+        evidence_refs=[("t-0", "import openai")],
+    )
+    r = R_11(f, ctx)
+    assert r is not None
+    assert r.code == "CLASSIFICATION_MISSING"
+    assert "attacker_persistence_ai_assisted" in r.detail
+
+
+def test_R_11_good_ai_assisted_high_conf_with_rule_out(make_plan, make_evidence, make_finding):
+    """Rule-out language present → R_11 passes on ai_assisted too."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted",
+        confidence="high",
+        notes="Ruled out legitimate Copilot daemons — no enterprise path convention.",
+        evidence_refs=[("t-0", "import openai")],
+    )
+    assert R_11(f, ctx) is None
+
+
 # ---- build_resolution branches ---------------------------------------------
 
 
@@ -355,9 +518,10 @@ def test_build_resolution_retry_branch(make_plan, make_evidence, make_finding):
 # ---- critic_evaluate + full CRITIC_RULES registry -------------------------
 
 
-def test_critic_rules_registry_has_14_rules():
-    # R_01..R_13 + R_15. R_14 reserved for citation-gate activation.
-    assert len(CRITIC_RULES) == 14
+def test_critic_rules_registry_has_15_rules():
+    # R_01..R_13 + R_15 (low-confidence) + R_16 (AI-assist anchor).
+    # R_14 reserved for citation-gate activation.
+    assert len(CRITIC_RULES) == 15
 
 
 def test_critic_evaluate_clean_finding_passes_all_rules(
