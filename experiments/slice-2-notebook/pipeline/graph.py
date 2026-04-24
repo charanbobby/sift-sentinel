@@ -111,6 +111,7 @@ def build_graph(*, checkpointer=None):
     from pipeline.nodes import (
         extract_node,
         plan_node,
+        reissue_token_node,
         execute_node,
         interpret_node,
         critic_node,
@@ -123,6 +124,7 @@ def build_graph(*, checkpointer=None):
     builder = StateGraph(PipelineState)
     builder.add_node("extract",                    extract_node)
     builder.add_node("plan",                       plan_node)
+    builder.add_node("reissue_token",              reissue_token_node)
     builder.add_node("execute",                    execute_node)
     builder.add_node("interpret",                  interpret_node)
     builder.add_node("critic",                     critic_node)
@@ -130,9 +132,10 @@ def build_graph(*, checkpointer=None):
     builder.add_node("debounce_before_plan",       debounce_before_plan)
     builder.add_node("debounce_before_interpret",  debounce_before_interpret)
 
-    builder.add_edge(START,        "extract")
-    builder.add_edge("extract",    "plan")
-    builder.add_edge("plan",       "execute")
+    builder.add_edge(START,              "extract")
+    builder.add_edge("extract",          "plan")
+    builder.add_edge("plan",             "reissue_token")
+    builder.add_edge("reissue_token",    "execute")
     builder.add_edge("execute",    "interpret")
     builder.add_edge("interpret",  "critic")
     builder.add_conditional_edges(

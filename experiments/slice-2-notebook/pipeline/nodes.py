@@ -561,6 +561,34 @@ def _unwrap_mcp(result) -> dict:
     return data
 
 
+def reissue_token_node(state: "PipelineState") -> dict:
+    """Re-issue the capability token after every plan_node execution.
+
+    Keeps state.capability_token.plan_digest in sync with state.plan_digest on
+    both the initial plan and every re-plan. Without this, a re-plan produces a
+    new plan_digest that no longer matches the old token, causing
+    plan_digest_mismatch / capability_denied on every subsequent MCP tool call.
+
+    The token is re-issued here (not inside plan_node) to keep planning and
+    authorization separate.
+    """
+    from pipeline.mcp.tokens import issue_token as _issue_token
+    case_id = _require("CASE_ID", CASE_ID)
+    allowed_paths = (
+        "/mnt/hackathon/",
+        "/mnt/derived/",
+        f"/home/sansforensics/cases/{case_id}/analysis/extracted/",
+    )
+    token = _issue_token(
+        state.tool_plan,
+        case_id=case_id,
+        allowed_paths=allowed_paths,
+        ttl_seconds=3600,
+    )
+    print(f"  [reissue_token] token_id={token.token_id[:8]}…  plan_digest={token.plan_digest[:16]}…")
+    return {"capability_token": token}
+
+
 async def execute_node(state: "PipelineState") -> dict:
     """Run every step in the approved tool_plan against the streamable-HTTP
     MCP endpoint; collect EvidenceRecords; return `{"evidence": [...]}`.

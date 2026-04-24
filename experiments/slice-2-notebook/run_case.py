@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -159,10 +158,17 @@ def run(case_id: str, e01_path: str) -> int:
     else:
         print("  no findings object in final state")
 
-    # Copy evidence.jsonl if it ended up in the legacy out/ root
-    src_ev = Path("/workspace/out/evidence.jsonl")
-    if src_ev.exists():
-        shutil.copy2(src_ev, out_dir / "evidence.jsonl")
+    # Persist all evidence records accumulated across all graph passes
+    evidence_list = final.get("evidence") or []
+    if evidence_list:
+        from pipeline.schemas import EvidenceRecord as _EvidenceRecord
+        ev_path = out_dir / "evidence.jsonl"
+        with ev_path.open("w", encoding="utf-8") as _f:
+            for _ev in evidence_list:
+                if isinstance(_ev, dict):
+                    _ev = _EvidenceRecord.model_validate(_ev)
+                _f.write(_ev.model_dump_json() + "\n")
+        print(f"evidence written: {len(evidence_list)} record(s)")
 
     langfuse.flush()
     print(f"\nDone. Outputs at {out_dir}")
