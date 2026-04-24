@@ -1,0 +1,34 @@
+{
+  "case_id": "srl-2018-wkstn-05",
+  "e01_path": "/mnt/hackathon/base-wkstn-05-cdrive.E01",
+  "annotated_by": "charan.bobby@gmail.com",
+  "annotated_at": "2026-04-19",
+  "agent_findings_verdicts": [
+    {
+      "finding_index": 0,
+      "finding_summary": "F-Response Subject service",
+      "verdict": "FP",
+      "rationale": "F-Response Subject is the agent-side component of a commercial DFIR remote-access product by F-Response LLC. Hostname base-hunt.shieldbase.lan uses non-routable .lan TLD plus 'hunt'/'shield' naming consistent with responder infrastructure, not attacker C2."
+    },
+    {
+      "finding_index": 1,
+      "finding_summary": "mnemosyne kernel driver",
+      "verdict": "FP",
+      "rationale": "Mnemosyne is a known memory-acquisition/DFIR driver. Manual start type fits on-demand RAM imaging (load/capture/unload) rather than attacker persistence. Co-occurrence with Finding 0 reads as coordinated responder toolkit deployment."
+    },
+    {
+      "finding_index": 2,
+      "finding_summary": "PerfMon / perfmonsvc64.exe",
+      "verdict": "TP",
+      "rationale": "No legitimate Windows service named 'PerfMon' using perfmonsvc64.exe ships with the OS; real perf components (PerfDisk, PerfHost, PerfNet, PerfOS, PerfProc) are all present separately, making the rogue name stand out. Textbook MITRE ATT&CK T1036.005 masquerading. Binary shows up on malware analysis platforms, not as a known product."
+    },
+    {
+      "finding_index": 3,
+      "finding_summary": "tbbd05 pipe-echo service",
+      "verdict": "TP",
+      "rationale": "Signature PsExec/Metasploit service-creation pattern: random 5-char name, empty display, ImagePath is a cmd.exe one-liner writing a hex token to a named pipe. The service was a vehicle for SYSTEM-level code execution; 'Disabled' state is post-use cleanup. Registry key is the forensic residue, no legitimate vendor explanation."
+    }
+  ],
+  "false_negatives": [],
+  "notes": "False-negative spot-check covered the full 3,684-line services output (agent saw only the first ~65% due to MCP 64 KB stdout cap). All 4 agent findings are present in the full list, and no additional random-named or OS-mimicking services were found. Two GUID-named services ({34D2D645-27C6-40B2-B582-E1072F391BCE} and {B94CD76B-0D04-4AAA-AE29-5A2FF8906FE7}) appear with every field empty (no ImagePath, no Start type) — these are leftover registry stubs from uninstalled software, not persistence. Scope caveats per runbook: scheduled task XML files (C:\\Windows\\System32\\Tasks\\), Startup folder, and NTUSER hives for non-Administrator users were not audited this cycle — Slice 3 backlog. Runbook specified output path experiments/slice-2-notebook/out/ground_truth.json; written alongside findings.json at experiments/slice-2-notebook/out/runs/srl-2018-wkstn-05/ground_truth.json to keep case-pairing with the actual findings file. Scorecard: TP=2, FP=2, FN=0, Precision=0.50, Recall=1.00 (within audited scope)."
+}

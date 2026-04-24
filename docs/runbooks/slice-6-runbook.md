@@ -74,7 +74,7 @@ To preprocess (4 cases — E01s already staged on D: drive):
 
 - [x] `base-dc` — Windows domain controller (12 GB E01) → `derived/base-dc.ntfs.dd` 36.11 GB sha256 `58973a4dcf74c3001dc3a769e88cd81609a94b5c529d6ac44e188e7a335f8410` ✅ 2026-04-23
 - [x] `base-file` — Windows file server (16 GB E01) → `derived/base-file.ntfs.dd` 31.69 GB sha256 `5f5cba969a29ee4ab5c3caf5a9967ef5b38de6a532b18832d121e308128cb0bc` ✅ 2026-04-23
-- [~] `base-rd-02` — Remote desktop server (17 GB E01) — dd in progress 2026-04-23
+- [x] `base-rd-02` — Remote desktop server (17 GB E01) → `derived/base-rd-02.ntfs.dd` ✅ 2026-04-23
 - [ ] `dmz-ftp` — DMZ FTP server (12 GB E01) — queued
 
 Not downloaded (not blocking — 6 cases satisfies the ≥5 gate): `base-rd-01`, `base-wkstn-01`.
@@ -91,12 +91,14 @@ Not downloaded (not blocking — 6 cases satisfies the ≥5 gate): `base-rd-01`,
 
 Two cases already have GT (`base-wkstn-05`, `dfirmadness-001-desktop`). Third is a Step-0 decision.
 
-For the new third case:
-- [ ] Run the pipeline under the current Slice 5 wiring → produces `findings.json` + `evidence.jsonl`
-- [ ] Manually audit every finding: TP / FP / UNCLEAR
-- [ ] Manually check for FN by scanning the full evidence for persistence mechanisms the agent missed (see Slice 2.5 scope discipline: FN spot-check covers the full audited output)
-- [ ] Author `ground_truth.md` (narrative) + `ground_truth.json` (machine-readable verdicts)
-- [ ] Record in the case's `out/runs/<case>/`
+For the new third case (`base-dc`):
+- [x] Run the pipeline under the current Slice 5 + Tier-1 wiring → produces `findings.json` + `evidence.jsonl` ✅ 2026-04-24
+- [x] Manually audit every finding: TP / FP / UNCLEAR ✅ 2026-04-24
+- [x] Manually check for FN by scanning the full evidence for persistence mechanisms the agent missed ✅ 2026-04-24
+- [x] Author `ground_truth.md` (narrative) + `ground_truth.json` (machine-readable verdicts) ✅ 2026-04-24
+- [x] Record in the case's `out/runs/srl-2018-base-dc/` ✅ 2026-04-24
+
+**Result:** TP=0, FP=0, FN=0. Negative-control case — no attacker persistence. F-Response Subject + Mnemosyne correctly classified as `legitimate_responder_tool` and excluded. Critic R_12 escalated correctly (Winlogon parse_error gap); human reviewer confirms absence claim is correct.
 
 **Why the bar is "3 full-GT cases, not all ~7":** ground-truth annotation is expensive (hours per case) and only needed for the L2→L3 regression claim. The other 4 cases get the cheaper sampled-audit treatment.
 

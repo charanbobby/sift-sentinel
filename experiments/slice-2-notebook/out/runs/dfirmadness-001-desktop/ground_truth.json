@@ -1,0 +1,22 @@
+{
+  "case_id": "dfirmadness-001-desktop",
+  "e01_path": "/mnt/derived/dfirmadness-desktop.ntfs.dd",
+  "annotated_by": "claude-code (re-derived post-Step-0 from same published DFIR Madness Case 001 answer key + community writeups, 2026-04-19)",
+  "annotated_at": "2026-04-19",
+  "agent_findings_verdicts": [
+    {
+      "finding_index": 0,
+      "finding_summary": "HKLM Run key 'coreupdate' — PowerShell stager with base64-encoded payload from registry",
+      "verdict": "TP",
+      "rationale": "Directly corroborated by published DFIR Madness Case 001 answer key and community writeups: 'a registry key was created coreupdater on both systems' [DC + DESKTOP]. PowerShell '-nop -w hidden' + IEX + Base64 from registry is textbook fileless stager. Classified correctly as attacker_persistence post-Step-0."
+    },
+    {
+      "finding_index": 1,
+      "finding_summary": "Windows auto-start service 'coreupdater' at C:\\Windows\\System32\\coreupdater.exe",
+      "verdict": "TP",
+      "rationale": "Named in published answer key: 'The installation of the service coreupdater first occurred on the DC at 2:27:49 and at 2:42:42 on DESKTOP-SDN1RPT'. Agent-extracted LastWrite timestamp matches. Same attacker-controlled binary referenced by Finding 0's Run key. Classified correctly as attacker_persistence post-Step-0."
+    }
+  ],
+  "false_negatives": [],
+  "notes": "Post-Step-0 ground truth for the 2026-04-19 14:55 run. Findings are identical in content to the pre-Step-0 run (the DFIR Madness case had no DFIR responder tools to suppress, so Step 0's only change was adding the required classification field to each finding — no filter-driven reduction). Pre-Step-0 artifacts archived at out/runs/dfirmadness-001-desktop/pre-step-0/. Scorecard: TP=2, FP=0, FN=0, Precision=1.00, Recall=1.00, Hallucinations=0 — unchanged from pre-Step-0 (no regression, as expected)."
+}

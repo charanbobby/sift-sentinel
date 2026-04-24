@@ -1,0 +1,22 @@
+{
+  "case_id": "srl-2018-wkstn-05",
+  "e01_path": "/mnt/hackathon/base-wkstn-05-cdrive.E01",
+  "annotated_by": "charan.bobby@gmail.com (re-annotated post-Step-0 prompt hardening, 2026-04-19)",
+  "annotated_at": "2026-04-19",
+  "agent_findings_verdicts": [
+    {
+      "finding_index": 0,
+      "finding_summary": "PerfMon / perfmonsvc64.exe (masquerading service)",
+      "verdict": "TP",
+      "rationale": "No legitimate Windows service named 'PerfMon' using perfmonsvc64.exe ships with the OS; legitimate perf components (PerfDisk, PerfHost, PerfNet, PerfOS, PerfProc) are all present separately. Textbook MITRE ATT&CK T1036.005 masquerading. Agent's notes correctly identify the masquerading pattern."
+    },
+    {
+      "finding_index": 1,
+      "finding_summary": "tbbd05 named-pipe beacon service (Metasploit-style)",
+      "verdict": "TP",
+      "rationale": "Signature PsExec/Metasploit service-creation pattern: random 5-char name, empty display, ImagePath is cmd.exe echo to named pipe. Service was a vehicle for SYSTEM-level code execution; Disabled state is post-use cleanup. No legitimate vendor explanation."
+    }
+  ],
+  "false_negatives": [],
+  "notes": "Post-Step-0 re-run of the pipeline against base-wkstn-05 with INTERPRET prompt hardened for DFIR-responder / vendor-product / Windows-default disambiguation, and Finding.classification field required. F-Response Subject and Mnemosyne kernel driver (the 2 pre-Step-0 FPs) were correctly classified as legitimate_responder_tool and suppressed from findings.json. Remaining 2 findings are both attacker_persistence TPs. Pre-Step-0 baseline (for A/B comparison) archived at out/runs/srl-2018-wkstn-05/pre-step-0/. Scorecard: TP=2, FP=0, FN=0, Precision=1.00, Recall=1.00, Hallucinations=0. Delta vs pre-Step-0: +0.50 precision lift (0.50 -> 1.00); Step 0 prompt-hardening fully resolved the responder-tool FP class on this image without any Critic layer."
+}

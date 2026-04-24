@@ -1,0 +1,22 @@
+{
+  "case_id": "dfirmadness-001-desktop",
+  "e01_path": "/mnt/derived/dfirmadness-desktop.ntfs.dd",
+  "annotated_by": "claude-code (cross-reference to dfirmadness.com published answer key + community writeups; verification in this session 2026-04-19)",
+  "annotated_at": "2026-04-19",
+  "agent_findings_verdicts": [
+    {
+      "finding_index": 0,
+      "finding_summary": "HKLM Run key 'coreupdate' \u2014 fileless PowerShell stager, Base64 payload stashed in custom registry key HKLM:Software\\q9Z1bssi",
+      "verdict": "TP",
+      "rationale": "Directly corroborated by published DFIR Madness Case 001 answer key and community writeups (netresec.com, mimircyber.com): 'a registry key was created coreupdater on both systems' [DC + DESKTOP]. Attacker chain documented as Hydra brute-force on DC \u2192 RDP lateral to DESKTOP \u2192 Meterpreter/Cobalt Strike download \u2192 persistence installed. PowerShell '-nop -w hidden' + IEX + Base64 from registry is textbook fileless stager."
+    },
+    {
+      "finding_index": 1,
+      "finding_summary": "Windows auto-start service 'coreupdater' at C:\\Windows\\System32\\coreupdater.exe",
+      "verdict": "TP",
+      "rationale": "Named in published answer key: 'The installation of the service coreupdater first occurred on the DC at 2:27:49 and at 2:42:42 on DESKTOP-SDN1RPT'. Agent-extracted LastWrite timestamp (Sat Sep 19 03:42:42 2020 Z) matches with 1-hour timezone offset. Same attacker-controlled binary referenced by Finding 0's Run key; both are the same campaign's persistence footholds."
+    }
+  ],
+  "false_negatives": [],
+  "notes": "Ground truth derived from the published answer key at dfirmadness.com/answers-to-szechuan-case-001/ plus the Netresec walkthrough and the MimirCyber community writeup \u2014 NOT from independent hand-annotation. The published answer key is specific on the 'coreupdate*' pair but vague on whether other persistence mechanisms exist on DESKTOP ('registry and service, same as DC'). Within the scope of what public documentation enumerates, the agent found everything (Recall=1.00) with no false positives (Precision=1.00) and zero hallucinations (all evidence excerpts verified present in the cited tool_call_id's stdout). Scope caveat: if the DESKTOP image contains additional persistence mechanisms not mentioned in public writeups, we would not detect those false negatives. Confidence that public writeups are complete enough for L1 baseline purposes: medium-high (this CTF has been worked publicly for ~6 years; major persistence artifacts would have been enumerated). Scorecard: TP=2, FP=0, FN=0 (within audited scope), Precision=1.00, Recall=1.00."
+}

@@ -54,6 +54,18 @@ HACKATHON-2026/*-memory/
 # --- Pipeline run artifacts (reproducible, keep folder via .gitkeep) ---
 experiments/*/out/*
 !experiments/*/out/.gitkeep
+# Ground-truth annotations are authored artifacts, not reproducible outputs — track them.
+# Pattern order matters: un-ignore parent dirs, then re-ignore everything inside them,
+# then carve out only ground_truth.* files.
+!experiments/*/out/runs/
+!experiments/*/out/runs/*/
+experiments/*/out/runs/*/*
+!experiments/*/out/runs/*/ground_truth.json
+!experiments/*/out/runs/*/ground_truth.md
+!experiments/*/out/runs/*/pre-step-0/
+experiments/*/out/runs/*/pre-step-0/*
+!experiments/*/out/runs/*/pre-step-0/ground_truth.json
+!experiments/*/out/runs/*/pre-step-0/ground_truth.md
 
 # --- Claude Code memory (junctioned to D:\ for portability; see docs/setup/portable-memory-setup.md) ---
 .claude-memory/

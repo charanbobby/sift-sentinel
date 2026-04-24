@@ -1,0 +1,32 @@
+{
+  "case_id": "srl-2018-base-dc",
+  "e01_path": "/mnt/derived/base-dc.ntfs.dd",
+  "annotated_by": "charan.bobby (GT annotation post-Tier-1 Slice 6 baseline run, 2026-04-24)",
+  "annotated_at": "2026-04-24",
+  "ground_truth_persistence_count": 0,
+  "agent_findings_verdicts": [
+    {
+      "finding_index": 0,
+      "finding_summary": "F-Response Subject service (subject_srv.exe, DFIR acquisition tool)",
+      "verdict": "TN",
+      "rationale": "F-Response Subject is a legitimate remote forensic acquisition tool. The agent correctly identified it via the canonical signatures: binary subject_srv.exe, examiner hostname base-hunt.shieldbase.lan matching F-Response *-hunt.* naming convention, and port 5682. Classification legitimate_responder_tool is accurate — this is a responder-installed tool, not attacker persistence. No FP; the agent did not claim attacker_persistence for this finding."
+    },
+    {
+      "finding_index": 1,
+      "finding_summary": "NOT_FOUND — no attacker persistence mechanisms across all examined categories",
+      "verdict": "TN",
+      "rationale": "Correct absence claim. All registry Run/RunOnce (HKLM + HKCU), RunOnceEx, IFEO, AppInit_DLLs, and Services channels returned only legitimate Windows components, VMware drivers, McAfee agent, F-Response Subject (classified above), and Mnemosyne DFIR kernel driver. No attacker-installed persistence exists in this image. Critic escalated to human_review via R_12 (Winlogon step returned parse_error, leaving a gap in the evidence-of-absence chain) — that flag is correct from the system's perspective, but the GT verdict is TN: the Winlogon gap does not hide any real attacker persistence."
+    }
+  ],
+  "false_negatives": [],
+  "critic_notes": "R_12 (ABSENCE_UNSUBSTANTIATED) fired correctly on the NOT_FOUND finding: step 10 (regripper winlogon plugin) returned parse_error, so the evidence-of-absence claim is not fully substantiated. Human reviewer confirms: the parse_error reflects a regripper plugin limitation on this image, not an adversarial blind spot. No additional persistence exists in the Winlogon channel.",
+  "scorecard": {
+    "TP": 0,
+    "FP": 0,
+    "FN": 0,
+    "TN": 1,
+    "precision": null,
+    "recall": null,
+    "note": "Negative-control image — no attacker persistence present. Precision/recall undefined (no true positives to predict). Agent correctly returned NOT_FOUND. F-Response and Mnemosyne DFIR tools correctly excluded via classification field."
+  }
+}
