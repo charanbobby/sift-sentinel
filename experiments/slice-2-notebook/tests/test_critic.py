@@ -555,6 +555,73 @@ def test_critic_node_noops_on_empty_state():
     assert N.critic_node(PipelineState(question="q")) == {}
 
 
+# ---- _extract_json_object (2026-04-24 fix for LLM narrative preamble) -----
+
+
+def test_extract_json_object_clean_passthrough():
+    """Clean JSON input returned as-is."""
+    import pipeline.nodes as N
+    assert N._extract_json_object('{"findings": []}') == '{"findings": []}'
+
+
+def test_extract_json_object_strips_code_fences():
+    import pipeline.nodes as N
+    raw = '```json\n{"findings": [{"category": "service"}]}\n```'
+    got = N._extract_json_object(raw)
+    assert '"findings"' in got
+    assert got.startswith("{")
+    assert got.endswith("}")
+
+
+def test_extract_json_object_strips_narrative_preamble():
+    """The actual fix — LLM sometimes returns 'Here are the findings: {...}'
+    which crashed json.loads before this helper existed."""
+    import pipeline.nodes as N
+    raw = ('I have analyzed the evidence. Here is the findings JSON:\n\n'
+           '{"findings": [{"category": "service"}]}\n\n'
+           'Let me know if you need more detail.')
+    import json
+    parsed = json.loads(N._extract_json_object(raw))
+    assert parsed["findings"][0]["category"] == "service"
+
+
+def test_extract_json_object_handles_braces_in_strings():
+    """Windows paths / quoted strings that contain { or } must not confuse
+    the bracket balancer."""
+    import pipeline.nodes as N
+    import json
+    raw = '{"value": "C:\\\\Program Files\\\\{test}\\\\binary.exe", "x": 1}'
+    parsed = json.loads(N._extract_json_object(raw))
+    assert parsed["x"] == 1
+
+
+def test_extract_json_object_empty_when_no_json_present():
+    """Response with no JSON returns empty → caller raises clear error."""
+    import pipeline.nodes as N
+    assert N._extract_json_object("I cannot comply with that request.") == ""
+    assert N._extract_json_object("") == ""
+    assert N._extract_json_object("   \n\n  ") == ""
+
+
+def test_extract_json_object_nested_objects_balanced():
+    import pipeline.nodes as N
+    import json
+    raw = ('{"findings": [{"category": "service", '
+           '"evidence": [{"tool_call_id": "tc-1", "output_excerpt": "x"}]}]}')
+    parsed = json.loads(N._extract_json_object(raw))
+    assert parsed["findings"][0]["evidence"][0]["tool_call_id"] == "tc-1"
+
+
+def test_extract_json_object_preamble_with_fences():
+    """Combined case: preamble AND code fences wrapping the JSON."""
+    import pipeline.nodes as N
+    import json
+    raw = ('Here are the findings:\n\n```json\n{"findings": []}\n```\n\n'
+           'Analysis complete.')
+    parsed = json.loads(N._extract_json_object(raw))
+    assert parsed == {"findings": []}
+
+
 def test_critic_node_clean_pass_end_to_end(
     tmp_path, make_plan, make_evidence, make_finding,
 ):

@@ -92,6 +92,65 @@ def _require(name: str, value):
 # No-op if CASE_ID is unset (notebook / test imports the module before
 # configuring globals). Probe-verified pattern (d:/tmp/probe_ledger_wiring.py).
 
+def _extract_json_object(raw: str) -> str:
+    """Return the JSON object substring from an LLM response, stripping
+    narrative preamble, trailing text, and optional code fences. Returns ""
+    if no plausible `{...}` block is present — caller handles the empty case.
+
+    Added 2026-04-24 after the base-file pilot crashed: LLM returned
+    substantive output but prefixed it with a narrative ("I have analyzed
+    the evidence...") that the bare `json.loads` couldn't parse. The old
+    fence-strip only handled ```json ...``` markers.
+
+    Scope:
+      - Leading ``` fences stripped (with or without `json` language hint).
+      - Then find the first `{` and slice a bracket-balanced close,
+        respecting string literals so braces inside quoted values
+        (Windows paths, commit hashes, escaped braces) don't confuse the
+        balancer.
+      - If brackets never balance, return the whole input so `json.loads`
+        produces its own clear error rather than silently accepting
+        malformed input.
+    """
+    s = raw.strip()
+    if not s:
+        return ""
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json|JSON)?\s*\n?", "", s)
+        s = re.sub(r"\n?```\s*$", "", s)
+        s = s.strip()
+    if not s:
+        return ""
+    if s[0] != "{":
+        idx = s.find("{")
+        if idx < 0:
+            return ""
+        s = s[idx:]
+    # Bracket-balanced slice — respect string literals
+    depth = 0
+    in_str = False
+    escape = False
+    for i, ch in enumerate(s):
+        if escape:
+            escape = False
+            continue
+        if in_str:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[: i + 1]
+    return s
+
+
 def _ledger_path() -> Path:
     return OUT_DIR / "integrity_ledger.jsonl"
 
@@ -1160,12 +1219,9 @@ def interpret_node(state: "PipelineState") -> dict:
                     f"{audit_path} for audit entry."
                 )
 
-            s = raw.strip()
-            if s.startswith("```"):
-                s = re.sub(r"^```(?:json|JSON)?\s*", "", s)
-                s = re.sub(r"\s*```\s*$", "", s)
+            s = _extract_json_object(raw)
             if not s:
-                print(f"  [interpret] WARN: empty response from LLM "
+                print(f"  [interpret] WARN: empty / no-JSON response from LLM "
                       f"(raw={repr(raw)[:120]}); treating as parse failure → escalate")
                 raise ValueError("INTERPRET: empty LLM response")
             parsed = json.loads(s)
