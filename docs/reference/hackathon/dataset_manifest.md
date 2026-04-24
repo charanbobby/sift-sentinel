@@ -45,8 +45,8 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 | Status | Host | Role (inferred) | File | Notes |
 |---|---|---|---|---|
 | [x] | base-dc | Domain Controller | `base-dc-cdrive.E01` | ✅ `derived/base-dc.ntfs.dd` 36.11 GB sha256: `58973a4dcf74c3001dc3a769e88cd81609a94b5c529d6ac44e188e7a335f8410` |
-| [~] | base-file | File Server | `base-file-cdrive.E01` | Download/extraction in progress 2026-04-23 |
-| [ ] | base-rd-01 | Remote Desktop / RDS | `base-rd-01-cdrive.E01` | |
+| [x] | base-file | File Server | `base-file-cdrive.E01` | ✅ `derived/base-file.ntfs.dd` 31.69 GB sha256: `5f5cba969a29ee4ab5c3caf5a9967ef5b38de6a532b18832d121e308128cb0bc` |
+| [~] | base-rd-01 | Remote Desktop / RDS | `base-rd-01-cdrive.E01` | On disk, conversion queued 2026-04-23 |
 | [~] | base-rd-02 | Remote Desktop / RDS | `base-rd-02-cdrive.E01` | On disk, conversion queued after base-file 2026-04-23 |
 | [ ] | base-wkstn-01 | Workstation | `base-wkstn-01-c-drive.E01` | |
 | [x] | base-wkstn-05 | Workstation | `base-wkstn-05-cdrive.E01` | **Current target** — Slice 2 pipeline runs against this |
@@ -66,7 +66,7 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 | [ ] | base-hunt | 1.1 GB | `base-hunt-memory.7z` | Threat hunting host? |
 | [x] | base-mail | 2.7 GB | `base-mail-memory.7z` | Mail server — phishing landing likely. Extracted to `HACKATHON-2026/base-mail-memory/` (archive not on disk — extracted only) |
 | [ ] | base-rd01 | 837.6 MB | `base-rd01-memory.7z` | RDS (naming differs from disk `base-rd-01`) |
-| [ ] | base-rd-02 | 931.9 MB | `base-rd-02-memory.7z` | RDS (pairs with disk) |
+| [x] | base-rd-02 | 931.9 MB | `base-rd-02-memory.7z` | RDS (pairs with disk) |
 | [ ] | base-rd-03 | 932.8 MB | `base-rd-03-memory.7z` | RDS (no disk) |
 | [ ] | base-rd-04 | 997.4 MB | `base-rd-04-memory.7z` | RDS (no disk) |
 | [ ] | base-rd-05 | 513.6 MB | `base-rd-05-memory.7z` | RDS (no disk) |
@@ -81,6 +81,24 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 | [ ] | base-wkstn-06 | 549.2 MB | `base-wkstn-06-memory.7z` | Workstation |
 
 > Screenshot cut off after `base-wkstn-06-memory.7z`. If more files exist below that row, add them here.
+
+---
+
+## Additional datasets (not from SANS share)
+
+### OpenUni22 — Compromised Windows Server 2022
+
+- **Source:** Open University PhD research (Benjamin Donnachie). CC-BY-NC-SA 4.0.
+- **Scenario:** Simulated UK small-office network, RDP exposed, Red Petya ransomware, Feb 2024. Disk decrypted post-incident.
+- **Format:** 7-segment E01 (`20240212-decrypted-Windows_Server_2022.E01` through `.E07`)
+- **Ground truth:** Available on request from author (benjamin.donnachie@open.ac.uk)
+- **Value:** Windows Server 2022 (newer OS than SRL-2018), ransomware incident type, ground truth available — good additional Reference Dataset case
+
+### Hadi3 — Windows 8.1 Challenge (negative-case stress test)
+
+- **Format:** FTK Imager split format (`.001` extension), single segment
+- **Scenario:** Published no-persistence DFIR scenario. Expected pipeline output: `findings: []`, zero hallucinations.
+- **Role:** Named validation case for negative-case discipline (success criterion #6). Empirical proof the Critic isn't rubber-stamping LLM positive-finding bias.
 
 ---
 
@@ -105,13 +123,13 @@ Path: `d:/Python Applications/Find Evil - Hackathon/HACKATHON-2026/`
 | `base-mail-memory/` | — | Mail server memory (extracted; .7z archive not on disk) |
 | `base-dc-cdrive.E01` | ~36 GB | Domain controller disk — ✅ `derived/base-dc.ntfs.dd` (36.11 GB, sha256 `58973a4dcf...f8410`) |
 | `base-dc-memory.7z` | 808 MB | Domain controller memory — on disk |
-| `base-file-cdrive.E01` | ~40 GB | File server disk — raw extraction in progress 2026-04-23 |
+| `base-file-cdrive.E01` | ~40 GB | File server disk — ✅ `derived/base-file.ntfs.dd` (31.69 GB, sha256 `5f5cba9...b0bc`) |
 | `base-file-memory.7z` | 303 MB | File server memory — on disk |
 | `base-rd-02-cdrive.E01` | — | RDS disk — conversion queued after base-file |
 | `dfirmadness-desktop/` | — | DFIR Madness Case 001 — Slice 2.5 second validation case |
 | `derived/` | — | Derived artifacts (raw partitions, hashes) |
-| `Compromised Windows Server 2022 (OpenUni22)/` | — | **Unknown — not yet catalogued** |
-| `Hadi3 Windows8.1-Challenge3.001` | — | **Unknown — not yet catalogued** |
+| `Compromised Windows Server 2022 (OpenUni22)/` | 7-segment E01 | Windows Server 2022, Red Petya ransomware incident, Feb 2024. Synthetic data. Research dataset with ground truth available (contact benjamin.donnachie@open.ac.uk). CC-BY-NC-SA 4.0. NOT from SANS share. |
+| `Hadi3 Windows8.1-Challenge3.001` | FTK Imager .001 | Windows 8.1, published no-persistence scenario. Negative-case stress test — pipeline must return `findings: []`. Named in architecture + onboarding docs. |
 
 ---
 
@@ -124,9 +142,9 @@ Already on disk or converting: `base-dc` (disk+memory), `base-file` (disk+memory
 **Needs downloading (priority order):**
 
 1. `base-wkstn-01-cdrive.E01` — second workstation for comparison with `base-wkstn-05`
-2. `base-rd-01-cdrive.E01` — completes the RDS pair
-3. `base-rd-02-memory.7z` (932 MB) — pairs with `base-rd-02` disk already on disk
-4. `base-wkstn-01-memory.7z` (984 MB) — pairs with #1 above
+2. `base-wkstn-01-memory.7z` (984 MB) — pairs with #1 above
+
+Already on disk (no longer needed): `base-rd-01-cdrive.E01` ✅, `base-rd-02-memory.7z` ✅
 
 **SRL-2015 — download for breadth (different case, older OS mix):**
 5. `win2008R2-controller-10.3.58.4.zip`

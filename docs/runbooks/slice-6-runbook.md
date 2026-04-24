@@ -72,10 +72,10 @@ Already preprocessed + Slice-2.5 baseline (2 cases): `base-wkstn-05`, `dfirmadne
 
 To preprocess (4 cases — E01s already staged on D: drive):
 
-- [ ] `base-dc` — Windows domain controller (12 GB E01) — **3rd full-GT case per Step 0**
-- [ ] `base-file` — Windows file server (16 GB E01)
-- [ ] `base-rd-02` — Remote desktop server (17 GB E01)
-- [ ] `dmz-ftp` — DMZ FTP server (12 GB E01)
+- [x] `base-dc` — Windows domain controller (12 GB E01) → `derived/base-dc.ntfs.dd` 36.11 GB sha256 `58973a4dcf74c3001dc3a769e88cd81609a94b5c529d6ac44e188e7a335f8410` ✅ 2026-04-23
+- [x] `base-file` — Windows file server (16 GB E01) → `derived/base-file.ntfs.dd` 31.69 GB sha256 `5f5cba969a29ee4ab5c3caf5a9967ef5b38de6a532b18832d121e308128cb0bc` ✅ 2026-04-23
+- [~] `base-rd-02` — Remote desktop server (17 GB E01) — dd in progress 2026-04-23
+- [ ] `dmz-ftp` — DMZ FTP server (12 GB E01) — queued
 
 Not downloaded (not blocking — 6 cases satisfies the ≥5 gate): `base-rd-01`, `base-wkstn-01`.
 
