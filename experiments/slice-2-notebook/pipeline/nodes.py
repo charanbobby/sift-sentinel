@@ -409,7 +409,13 @@ def extract_node(state: "PipelineState") -> dict:
             response_format={"type": "json_object"},
         )
         _llm_cost_post("extract", model, resp.usage)
-        candidates = Candidates.model_validate_json(resp.choices[0].message.content)
+        # Gemini occasionally emits candidates with `path_hint: null` for
+        # generic categories. They're unusable downstream (plan_node needs a
+        # path to generate tool calls) and fail Pydantic's `str` constraint.
+        # Drop them before validation rather than crashing the whole run.
+        _raw = json.loads(resp.choices[0].message.content)
+        _raw["candidates"] = [c for c in _raw.get("candidates", []) if c.get("path_hint")]
+        candidates = Candidates.model_validate(_raw)
         out_path = OUT_DIR / "candidates.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(candidates.model_dump_json(indent=2), encoding="utf-8")
