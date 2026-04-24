@@ -1,6 +1,6 @@
 # Architecture — Find Evil Hackathon
 
-**Last updated:** 2026-04-20
+**Last updated:** 2026-04-24
 **Audience:** hackathon judges. Maintainers: see [architecture-detailed.md](architecture-detailed.md) for full schemas, data-flow walkthrough, and threat model.
 **Visual:** [architecture.html](architecture.html) — styled pipeline diagram.
 
@@ -11,9 +11,9 @@
 | | |
 |---|---|
 | **Pipeline** | `E01 → EXTRACT → PLAN → gates → EXECUTE(MCP) → INTERPRET → CRITIC → findings.json` |
-| **What's shipped** | L2 end-to-end with 4/5 MCP tools, 11/13 Critic rules, LangGraph topology, Langfuse tracing |
-| **What's next** | Slice 5 (capability tokens, dual-channel handler, 5th tool, +2 Critic rules) · Slice 6 (integrity ledger + replay) |
-| **Headline trust claim** | *Replayable auditability for a research workflow.* We defend the **agent's context** from injected evidence; we do **not** defend the Python runtime from a hijacked agent. |
+| **What's shipped** | L2 end-to-end with 5/5 MCP tools, 11/13 active Critic rules (+ R_13 stub), LangGraph topology, Langfuse tracing, Slice 5 full stack (HTTP MCP transport, capability tokens, dual-channel handler, injection-quarantine wiring), 128-test pytest suite, **canary tripwire on the INTERPRET bundle** |
+| **What's next** | Slice 6 (Reference Dataset + L3 ship + sampled-audit + Accuracy Report) · AI-adversary detection branch (staged-data demo) |
+| **Headline trust claim** | *Replayable auditability for a research workflow, with explicit defender-AI integrity controls.* We defend the **agent's context** from injected evidence and **detect adversarial attempts to manipulate the defender LLM itself**; we do **not** defend the Python runtime from a hijacked agent. |
 | **Out of scope** | Memory / network / evtx forensics · non-Windows filesystems · seccomp / microVM isolation · courtroom admissibility |
 
 Status legend: ✅ shipped • 🟡 in progress • ⬜ defined, not built
@@ -49,6 +49,7 @@ flowchart LR
     CRIT -.->|budget exceeded| HUMAN
     GATE -.->|reject| HUMAN
     EXEC -.->|token invalid / injection| HUMAN
+    INT -.->|canary leak → run halt| HUMAN
 ```
 
 **What each stage does, one line each:**
@@ -57,7 +58,7 @@ flowchart LR
 - **PLAN** — emit a typed `ToolPlan` with a `depends_on` DAG. Claude Sonnet 4.6, prompt-cached.
 - **Gates** — structural invariants (e.g. every `regripper_run` must have an `icat_extract` upstream) + human approval at L1/L2, policy file at L3.
 - **EXECUTE** — dispatch each tool via MCP. Capability token scoped to `(case_id, tools, paths, plan_digest, expiry)`. Dual-channel handler splits raw bytes (→ ledger), structured fields (→ agent), injection-flagged content (→ quarantine).
-- **INTERPRET** — synthesize typed `Finding`s with DFIR classification. Pydantic `model_validator` auto-populates ATT&CK fields; LLM output on those fields is discarded.
+- **INTERPRET** — synthesize typed `Finding`s with DFIR classification. Pydantic `model_validator` auto-populates ATT&CK fields; LLM output on those fields is discarded. Per-run **canary tripwire** (`_canary` field embedded in the bundle): if the LLM response echoes the nonce, the instruction/data boundary leaked — write `CANARY_LEAK` audit entry and halt the run.
 - **CRITIC** — 13 deterministic Python rules. Fail routes through **plan-hash dedup** (no sycophantic retry) then **pre_retry_debounce** (clear volatile state) back to PLAN or INTERPRET.
 
 ---
@@ -71,13 +72,14 @@ flowchart LR
 | Structural invariants | ✅ | `slice2.ipynb` C6 |
 | `plan_approve` gate | ✅ | LangGraph conditional edge |
 | `EXECUTE` node + MCP stdio server | ✅ | `slice2.ipynb` C8 + [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) |
-| 5 typed MCP tools | ✅ 4 / 🟡 5th (`scheduled_tasks_parse`) | `mcp_server/server.py` |
-| Capability-token verification | 🟡 Slice 5 | `mcp_server/server.py` |
-| Dual-channel evidence handler | 🟡 Slice 5 | `mcp_server/server.py` |
-| `INTERPRET` node | ✅ | `slice2.ipynb` C9 |
-| `CRITIC` node | ✅ 11 / 🟡 +2 Phase C | `slice2.ipynb` C10 + C11 |
-| `human_review` escalation sink | ✅ | `slice2.ipynb` C4 |
-| `pre_retry_debounce` + plan-hash dedup | 🟡 Phase C | `slice2.ipynb` C4 |
+| 5 typed MCP tools | ✅ | `mcp_server/server.py` |
+| Capability-token verification | ✅ Slice 5 | `mcp_server/server.py` + [`pipeline/mcp/tokens.py`](../../experiments/slice-2-notebook/pipeline/mcp/tokens.py) |
+| Dual-channel evidence handler | ✅ Slice 5 | `mcp_server/server.py` + [`pipeline/mcp/injection_scanner.py`](../../experiments/slice-2-notebook/pipeline/mcp/injection_scanner.py) |
+| `INTERPRET` node | ✅ (lifted Slice 5 Step 7) | [`pipeline/nodes.py`](../../experiments/slice-2-notebook/pipeline/nodes.py) `interpret_node` |
+| Canary tripwire (defender-AI integrity) | ✅ Tier-1 (2026-04-24) | [`pipeline/nodes.py`](../../experiments/slice-2-notebook/pipeline/nodes.py) `_check_canary_leak` + [`pipeline/graph.py`](../../experiments/slice-2-notebook/pipeline/graph.py) `mint_canary` |
+| `CRITIC` node | ✅ 11 active + R_13 stub (Phase C) | [`pipeline/critic.py`](../../experiments/slice-2-notebook/pipeline/critic.py) + `pipeline/nodes.py` `critic_node` |
+| `human_review` escalation sink | ✅ | `pipeline/nodes.py` `human_review_node` |
+| `pre_retry_debounce` + plan-hash dedup | ✅ Phase C | `pipeline/nodes.py` `debounce_before_*` + `pipeline/graph.py` `plan_hash` |
 | Thread-scoped checkpointer | 🟡 Phase C | `slice2.ipynb` C4 |
 | Integrity ledger (SHA-256 linear hash chain) | ⬜ Slice 6 | separate from case folder |
 | `verify_chain_of_custody.py` replay tool | ⬜ Slice 6 | |
@@ -93,6 +95,7 @@ flowchart LR
 | Adversary | Defense |
 |---|---|
 | Prompt injection embedded in E01 content (filenames, registry values, document bodies) | **Dual-channel handler** — raw bytes go to the ledger, structured fields to the agent, flagged content to quarantine. The hijack payload never reaches the LLM context. |
+| Adversarial attempt to manipulate the defender LLM itself (boundary leak: a structured-field escape persuading the model to treat data as instructions) | **Canary tripwire** — per-run random nonce (`_canary`) embedded in the INTERPRET bundle. If the response echoes the nonce, the instruction/data boundary leaked — the run is halted and a `CANARY_LEAK` audit entry is written. |
 | LLM-internal failure (sycophancy, spec drift, silent tool-failure swallowing, hallucinated relationships) | **13-rule Critic + Hadi3 negative-case validation** |
 | Accidental agent drift (proposes a tool or path outside scope) | **Capability tokens** at the MCP boundary — application-layer routing |
 | Post-hoc tampering with recorded evidence | **SHA-256 linear hash chain** — altering entry N breaks the hash embedded in entry N+1 |
