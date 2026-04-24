@@ -187,3 +187,111 @@ def test_findings_round_trip(make_finding):
     blob = findings.model_dump_json()
     findings2 = Findings.model_validate_json(blob)
     assert findings == findings2
+
+
+# ---- Schema tightening (Tier-1 #3, 2026-04-24) -----------------------------
+
+
+def test_strip_adversarial_controls_clean_passthrough():
+    from pipeline.schemas import strip_adversarial_controls
+    assert strip_adversarial_controls("normal text") == "normal text"
+    assert strip_adversarial_controls("") == ""
+
+
+def test_strip_adversarial_controls_preserves_whitespace():
+    """\\t \\n \\r are legitimate JSON string content — must survive."""
+    from pipeline.schemas import strip_adversarial_controls
+    assert strip_adversarial_controls("l1\nl2\tc2\r\nl3") == "l1\nl2\tc2\r\nl3"
+
+
+def test_strip_adversarial_controls_removes_zero_widths():
+    from pipeline.schemas import strip_adversarial_controls
+    # ZWSP, ZWNJ, ZWJ, BOM
+    assert strip_adversarial_controls("a​b‌c‍d﻿e") == "abcde"
+
+
+def test_strip_adversarial_controls_removes_bidi_overrides():
+    """RLO (U+202E) is the classic filename-masquerade vector."""
+    from pipeline.schemas import strip_adversarial_controls
+    assert strip_adversarial_controls("exe.txt‮malicious") == "exe.txtmalicious"
+
+
+def test_strip_adversarial_controls_removes_c0_controls():
+    from pipeline.schemas import strip_adversarial_controls
+    assert strip_adversarial_controls("a\x00b\x08c\x7fd") == "abcd"
+
+
+# ---- Finding field bounds ----
+
+
+def test_finding_notes_at_bound_accepted(make_finding):
+    """notes bound is 4000; exactly at bound should validate."""
+    f = make_finding(notes=("x" * 4000))
+    assert len(f.notes) == 4000
+
+
+def test_finding_notes_over_bound_raises(make_finding):
+    from pipeline.schemas import Finding  # noqa: F401 — docstring clarity only
+    with pytest.raises(ValidationError):
+        make_finding(notes=("x" * 4001))
+
+
+def test_finding_value_over_bound_raises(make_finding):
+    with pytest.raises(ValidationError):
+        make_finding(value=("y" * 1001))
+
+
+def test_finding_mechanism_over_bound_raises(make_finding):
+    with pytest.raises(ValidationError):
+        make_finding(mechanism=("m" * 301))
+
+
+def test_finding_strips_controls_from_notes(make_finding):
+    """Pre-validator strips zero-widths before length check — realistic case
+    where an LLM emitted a zero-width inside a citation marker."""
+    f = make_finding(notes="Ruled out [ev:tc-3]​; confirmed via [ev:tc-4].")
+    assert "​" not in f.notes
+    assert "[ev:tc-3]" in f.notes
+    assert "[ev:tc-4]" in f.notes
+
+
+def test_finding_strips_controls_from_value(make_finding):
+    f = make_finding(value="C:\\Windows\\evil.exe‮")
+    assert "‮" not in f.value
+    assert f.value == "C:\\Windows\\evil.exe"
+
+
+def test_finding_strip_before_length_check(make_finding):
+    """Control chars are removed BEFORE length validation — so an attacker
+    can't pad past the bound with invisible characters to sneak in more text."""
+    # 3999 normal + 100 zero-widths → post-strip = 3999 chars → under bound
+    f = make_finding(notes=("x" * 3999) + ("​" * 100))
+    assert len(f.notes) == 3999
+
+
+# ---- Evidence field bounds ----
+
+
+def test_evidence_tool_call_id_over_bound_raises():
+    from pipeline.schemas import Evidence
+    with pytest.raises(ValidationError):
+        Evidence(tool_call_id="t" * 65, output_excerpt="ok")
+
+
+def test_evidence_output_excerpt_over_bound_raises():
+    from pipeline.schemas import Evidence
+    with pytest.raises(ValidationError):
+        Evidence(tool_call_id="tc-0", output_excerpt="x" * 1501)
+
+
+def test_evidence_strips_controls_from_excerpt():
+    from pipeline.schemas import Evidence
+    e = Evidence(tool_call_id="tc-0", output_excerpt="before​after\x00end")
+    assert e.output_excerpt == "beforeafterend"
+
+
+def test_evidence_at_bounds_accepted():
+    from pipeline.schemas import Evidence
+    e = Evidence(tool_call_id="t" * 64, output_excerpt="x" * 1500)
+    assert len(e.tool_call_id) == 64
+    assert len(e.output_excerpt) == 1500

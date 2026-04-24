@@ -8,9 +8,47 @@ Not included here, by design:
   - `PipelineState` — lives in `pipeline/graph.py` (LangGraph runtime, not shared data).
   - `CriticContext` — lives in `pipeline/critic.py` (ephemeral per-invocation context).
 """
+import re
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+# ============================================================================
+# Schema tightening (Tier-1 AI-adversary add-on, 2026-04-24).
+#
+# Two defenses applied to Finding + Evidence free-text fields:
+#   1. Length bounds (Field(max_length=N)) — prevent free-text from becoming a
+#      smuggling channel for jailbreak prompts / fabricated context.
+#   2. Pre-validator strip of zero-width, bidi-override, and most C0 control
+#      characters — keep adversarial Unicode out of downstream rendering.
+#      Preserves \t \n \r (legitimate JSON whitespace).
+#
+# Bounds chosen with ~3-4x headroom over observed real-data maxes (scanned
+# 2026-04-24 across out/runs/*/findings.json): notes=4000, value=1000,
+# mechanism=300, excerpt=1500, tool_call_id=64. Generous enough to avoid
+# breaking the 2.5 P=1.00/R=1.00 baseline; tight enough that smuggling a
+# serious injection prompt (typically 200-500+ chars) is visible against bounds.
+# ============================================================================
+
+_ADVERSARIAL_CTRL_RE = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f"       # C0 controls minus \t \n \r
+    r"​‌‍﻿"              # zero-widths: ZWSP, ZWNJ, ZWJ, BOM
+    r"‪-‮"                         # bidi overrides: LRE, RLE, PDF, LRO, RLO
+    r"⁦-⁩"                         # more bidi: LRI, RLI, FSI, PDI
+    r"]"
+)
+
+
+def strip_adversarial_controls(s: str) -> str:
+    """Remove zero-width, bidi-override, and most C0 control characters from
+    `s`. Preserves \\t, \\n, \\r. Returns `s` unchanged if it has no stripped
+    characters. Used as a pre-validator on Finding + Evidence free-text fields
+    so adversarial Unicode never enters the downstream rendering path.
+    """
+    if not s:
+        return s
+    return _ADVERSARIAL_CTRL_RE.sub("", s)
 
 
 Confidence = Literal["low", "medium", "high"]
@@ -94,18 +132,35 @@ class RawResult(BaseModel):
     duration_ms: int
 
 # ---- Phase 4 — INTERPRET output ----
+# Field length bounds + adversarial-control stripping added 2026-04-24 (Tier-1
+# schema tightening). See strip_adversarial_controls + rationale at top of file.
 class Evidence(BaseModel):
-    tool_call_id: str
-    output_excerpt: str
+    tool_call_id: str = Field(max_length=64)
+    output_excerpt: str = Field(max_length=1500)
+
+    @field_validator("tool_call_id", "output_excerpt", mode="before")
+    @classmethod
+    def _strip_ctrls(cls, v):
+        if isinstance(v, str):
+            return strip_adversarial_controls(v)
+        return v
+
 
 class Finding(BaseModel):
     category: PersistenceCategory
-    mechanism: str
-    value: str
+    mechanism: str = Field(max_length=300)
+    value: str = Field(max_length=1000)
     confidence: Confidence
     classification: Classification  # R_11 gate — required; no default forces model to commit
     evidence: list[Evidence]
-    notes: str = ""
+    notes: str = Field(default="", max_length=4000)
+
+    @field_validator("mechanism", "value", "notes", mode="before")
+    @classmethod
+    def _strip_ctrls(cls, v):
+        if isinstance(v, str):
+            return strip_adversarial_controls(v)
+        return v
     # ATT&CK fields — derived from `category` by the validator below. Included
     # in serialized output so findings.json speaks the judges' language (T-codes
     # under TA0003). LLM output for these is IGNORED; category is the only input.
@@ -146,6 +201,8 @@ FailureCode = Literal[
     'CLASSIFICATION_MISSING',      # R_11 — finding missing required classification field or rationale
     'ABSENCE_UNSUBSTANTIATED',     # R_12 — any tool in the run failed + claim is NOT_FOUND@high
     'TEMPORAL_INCONSISTENT',       # R_13 — claimed timestamp not grounded in cited stdout (stub pre-Slice-5)
+    'CANARY_LEAK',                 # interpret_node: LLM response echoed the per-run canary → instruction/data boundary leaked
+    'UNCITED_CLAIM',               # R_14 (mechanism landed, activation deferred) — Finding.notes lacks inline [ev:<id>] citation(s), or cites a tool_call_id not in this run's bundle
 ]
 
 class RuleFailure(BaseModel):
