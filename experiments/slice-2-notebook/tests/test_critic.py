@@ -622,6 +622,56 @@ def test_extract_json_object_preamble_with_fences():
     assert parsed == {"findings": []}
 
 
+# ---- _parse_json_response (PLAN uses this helper) ------------------------
+#
+# Added 2026-04-24: PLAN was previously vulnerable to the same narrative-
+# preamble crash that hit INTERPRET. The helper now routes through
+# _extract_json_object, so the same protection applies.
+
+
+def test_parse_json_response_handles_narrative_preamble():
+    """The real failure mode: Claude at PLAN emits preamble before the JSON."""
+    from pipeline.schemas import Candidates
+    import pipeline.nodes as N
+    raw = ('I have reviewed the investigation question. Here is the candidates JSON:\n\n'
+           '{"question": "q", "candidates": [{"artifact_type": "registry_hive", '
+           '"path_hint": "C:\\\\Windows\\\\System32\\\\config\\\\SOFTWARE", '
+           '"reason": "standard Run key location", "priority": 1}]}\n\n'
+           'Let me know if you need adjustments.')
+    result = N._parse_json_response(raw, Candidates)
+    assert result.candidates[0].artifact_type == "registry_hive"
+    assert result.candidates[0].priority == 1
+
+
+def test_parse_json_response_clean_json_still_works():
+    """Regression: clean JSON still parses (no preamble)."""
+    from pipeline.schemas import Candidates
+    import pipeline.nodes as N
+    raw = ('{"question": "q", "candidates": [{"artifact_type": "registry_hive", '
+           '"path_hint": "C:\\\\a", "reason": "r", "priority": 2}]}')
+    result = N._parse_json_response(raw, Candidates)
+    assert result.candidates[0].path_hint == "C:\\a"
+
+
+def test_parse_json_response_still_strips_fences():
+    """Regression: ```json ... ``` fences still handled (existing behavior)."""
+    from pipeline.schemas import Candidates
+    import pipeline.nodes as N
+    raw = ('```json\n{"question": "q", "candidates": [{"artifact_type": "service_config", '
+           '"path_hint": "p", "reason": "r", "priority": 3}]}\n```')
+    result = N._parse_json_response(raw, Candidates)
+    assert result.candidates[0].artifact_type == "service_config"
+
+
+def test_parse_json_response_raises_on_no_json():
+    """No JSON in the response at all → clear error rather than silent bad parse."""
+    from pipeline.schemas import Candidates
+    import pipeline.nodes as N
+    import pytest
+    with pytest.raises(ValueError, match="no JSON object"):
+        N._parse_json_response("I cannot produce that output.", Candidates)
+
+
 def test_critic_node_clean_pass_end_to_end(
     tmp_path, make_plan, make_evidence, make_finding,
 ):

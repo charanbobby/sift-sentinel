@@ -214,16 +214,22 @@ def _llm_cost_post(phase: str, model: str, usage) -> None:
 
 
 def _parse_json_response(raw: str, model_cls):
-    """Strip optional ```json markdown fences from LLM output, then Pydantic-validate.
+    """Strip fences + narrative preamble from LLM output, then Pydantic-validate.
 
     Claude (Sonnet / Opus) often wraps structured output in ```json…``` fences
     even with `response_format={"type":"json_object"}`. Gemini usually doesn't.
-    One helper handles both so every parse step in the pipeline is identical.
+    And either can prefix the JSON with a narrative sentence ("I have
+    analyzed..."). One helper handles both so every parse step in the
+    pipeline is identical.
+
+    Hardened 2026-04-24 after interpret_node was hit by the same preamble
+    issue; PLAN uses this helper and is vulnerable to exactly the same class
+    of crash on the same kind of LLM response.
     """
-    s = raw.strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```(?:json|JSON)?\s*", "", s)
-        s = re.sub(r"\s*```\s*$", "", s)
+    s = _extract_json_object(raw)
+    if not s:
+        raise ValueError(f"LLM response contained no JSON object; "
+                         f"raw[:120]={raw[:120]!r}")
     return model_cls.model_validate_json(s)
 
 
@@ -506,7 +512,16 @@ def extract_node(state: "PipelineState") -> dict:
         # generic categories. They're unusable downstream (plan_node needs a
         # path to generate tool calls) and fail Pydantic's `str` constraint.
         # Drop them before validation rather than crashing the whole run.
-        _raw = json.loads(resp.choices[0].message.content)
+        # 2026-04-24: wrapped in _extract_json_object so a narrative preamble
+        # from the model doesn't crash json.loads (same hardening applied to
+        # PLAN and INTERPRET after the base-file pilot crash).
+        _raw_str = _extract_json_object(resp.choices[0].message.content or "")
+        if not _raw_str:
+            raise ValueError(
+                f"EXTRACT: LLM response contained no JSON object; "
+                f"raw[:120]={(resp.choices[0].message.content or '')[:120]!r}"
+            )
+        _raw = json.loads(_raw_str)
         _raw["candidates"] = [c for c in _raw.get("candidates", []) if c.get("path_hint")]
         candidates = Candidates.model_validate(_raw)
         out_path = OUT_DIR / "candidates.json"
