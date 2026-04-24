@@ -157,6 +157,8 @@ def R_01(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
 
 def R_02(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """When the finding claims a path/name, do components of it appear in quoted evidence?"""
+    if finding.category == "NOT_FOUND":
+        return None  # mechanism/value are empty markers ('none', ''); R_12 owns NOT_FOUND integrity
     candidates = _path_tokens(finding.mechanism or "") | _path_tokens(finding.value or "")
     if not candidates:
         return None  # no path-like content → R_02 doesn't apply
@@ -213,6 +215,8 @@ def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     byte-for-byte with that rendering — `ctx.agent_visible_text` produces
     exactly that form.
     """
+    if finding.category == "NOT_FOUND":
+        return None  # NOT_FOUND evidence cites coverage documentation; excerpt exactness is not a positive-claim check
     for ev in finding.evidence:
         if ev.tool_call_id not in ctx.evidence:
             continue  # R_01 handles
@@ -283,6 +287,8 @@ def R_09(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     but the underlying signal is `tool_execution_status`. `capability_denied`
     triggers the same failure — a denied call produced no evidence, so citing
     it is structurally equivalent to citing an exit_code!=0 subprocess."""
+    if finding.category == "NOT_FOUND":
+        return None  # NOT_FOUND cites tools to document coverage (including gaps); R_12 owns that check
     for ev_ref in finding.evidence:
         rec = ctx.evidence.get(ev_ref.tool_call_id)
         if rec is None:
