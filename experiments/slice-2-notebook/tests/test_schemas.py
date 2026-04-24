@@ -12,10 +12,12 @@ from pydantic import ValidationError
 # ---- Literal memberships ----------------------------------------------------
 
 
-def test_rule_id_literal_covers_R_01_to_R_13():
+def test_rule_id_literal_covers_active_rules():
     from pipeline.schemas import RuleId
     vals = set(get_args(RuleId))
-    expected = {f"R_{i:02d}" for i in range(1, 14)}
+    # R_01..R_13 are active; R_14 reserved for citation-gate activation;
+    # R_15 added Slice 6 Step 3 for low-confidence auto-escalation.
+    expected = {f"R_{i:02d}" for i in range(1, 14)} | {"R_15"}
     assert expected <= vals, f"missing rule IDs: {expected - vals}"
 
 
@@ -28,8 +30,18 @@ def test_failure_code_membership():
         "EXCERPT_HALLUCINATION", "INJECTION_FLAGGED_EVIDENCE",
         "INJECTION_QUARANTINE",  # Step 8 addition
         "CLASSIFICATION_MISSING", "ABSENCE_UNSUBSTANTIATED", "TEMPORAL_INCONSISTENT",
+        "LOW_CONFIDENCE_AUTO_ESCALATE",  # R_15 — Slice 6 Step 3
     ):
         assert code in vals, f"FailureCode missing {code!r}"
+
+
+def test_confidence_rubric_shape():
+    from pipeline.schemas import CONFIDENCE_RUBRIC
+    assert set(CONFIDENCE_RUBRIC) == {"high", "medium", "low"}
+    for k, v in CONFIDENCE_RUBRIC.items():
+        assert isinstance(v, str) and len(v) > 30, f"rubric[{k!r}] too short"
+    # Low rubric MUST reference R_15 so prompt-rendering carries the enforcement pointer.
+    assert "R_15" in CONFIDENCE_RUBRIC["low"]
 
 
 def test_persistence_category_literal():

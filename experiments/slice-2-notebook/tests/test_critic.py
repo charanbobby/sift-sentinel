@@ -15,7 +15,7 @@ import pytest
 from pipeline.critic import (
     CRITIC_RULES,
     CriticContext,
-    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13,
+    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15,
     build_resolution,
     critic_evaluate,
 )
@@ -240,6 +240,74 @@ def test_R_13_stub_returns_none_for_any_input(make_plan, make_evidence, make_fin
     assert R_13(f, ctx) is None
 
 
+# ---- R_15 — LOW_CONFIDENCE_AUTO_ESCALATE ----------------------------------
+
+
+def test_R_15_bad_low_confidence_positive_finding(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(confidence="low", evidence_refs=[("t-0", "")])
+    r = R_15(f, ctx)
+    assert r is not None
+    assert r.rule_id == "R_15"
+    assert r.code == "LOW_CONFIDENCE_AUTO_ESCALATE"
+
+
+def test_R_15_bad_low_confidence_not_found(make_plan, make_evidence, make_finding):
+    """NOT_FOUND@low is anomalous per Hard Rule 4, but a hedged absence claim
+    still deserves human adjudication — R_15 fires."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        category="NOT_FOUND", mechanism="none", value="",
+        confidence="low", classification="legitimate_windows_default",
+        notes="", evidence_refs=[],
+    )
+    r = R_15(f, ctx)
+    assert r is not None and r.code == "LOW_CONFIDENCE_AUTO_ESCALATE"
+
+
+def test_R_15_good_medium_confidence(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(confidence="medium", evidence_refs=[("t-0", "")])
+    assert R_15(f, ctx) is None
+
+
+def test_R_15_good_high_confidence(make_plan, make_evidence, make_finding):
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(confidence="high", evidence_refs=[("t-0", "")])
+    assert R_15(f, ctx) is None
+
+
+def test_R_15_orchestrator_routes_to_escalate(make_plan, make_evidence, make_finding):
+    """Clean finding flipped to confidence=low must route to severity='escalate'
+    via LOW_CONFIDENCE_AUTO_ESCALATE ∈ ESCALATE_CODES."""
+    plan = make_plan("fsstat_e01", "regripper_run")
+    ev_fs = make_evidence("t-fs", {"fs_type": "NTFS"},
+                          expected_paths_covered=["/mnt/hackathon/x.E01"])
+    ev_reg = make_evidence("t-regripper", {
+        "plugin_name": "run", "hive_type": "Software",
+        "entries": [{"key_path": "HKLM\\Software\\...", "value_name": "m",
+                     "value_type": "REG_SZ", "value_data_safe": "C:\\malware.exe",
+                     "last_write": None}],
+    })
+    ctx = CriticContext(plan, [ev_fs, ev_reg])
+    f = make_finding(
+        confidence="low",
+        classification="requires_disambiguation",
+        notes="Signal weak; human review needed. [ev:t-regripper]",
+        evidence_refs=[("t-regripper", "C:\\\\malware.exe")],
+    )
+    result = critic_evaluate(f, ctx, finding_index=0)
+    assert result.severity == "escalate", (
+        f"low-confidence finding must escalate; "
+        f"failed codes: {[rf.code for rf in result.rules_failed]}"
+    )
+    assert any(rf.code == "LOW_CONFIDENCE_AUTO_ESCALATE" for rf in result.rules_failed)
+
+
 # ---- build_resolution branches ---------------------------------------------
 
 
@@ -287,11 +355,12 @@ def test_build_resolution_retry_branch(make_plan, make_evidence, make_finding):
 # ---- critic_evaluate + full CRITIC_RULES registry -------------------------
 
 
-def test_critic_rules_registry_has_13_rules():
-    assert len(CRITIC_RULES) == 13
+def test_critic_rules_registry_has_14_rules():
+    # R_01..R_13 + R_15. R_14 reserved for citation-gate activation.
+    assert len(CRITIC_RULES) == 14
 
 
-def test_critic_evaluate_clean_finding_passes_all_13_rules(
+def test_critic_evaluate_clean_finding_passes_all_rules(
     make_plan, make_evidence, make_finding,
 ):
     plan = make_plan("fsstat_e01", "regripper_run")

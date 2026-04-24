@@ -816,10 +816,10 @@ The bundle carries a top-level field named `_canary` — a random per-run integr
 
 4. **If nothing suspicious is found, emit exactly one Finding with** category="NOT_FOUND", mechanism="none", value="", evidence=[], confidence="high", classification="legitimate_windows_default".
 
-5. **`confidence`** reflects how strongly the evidence implicates persistence:
-   - `high`: clear suspicious path + value + category alignment + benign alternatives ruled out
-   - `medium`: plausible but could be legitimate; worth deeper review
-   - `low`: weak signal; flagging for completeness
+5. **`confidence` — L3 rubric (pipeline-enforced):**
+   - `high`: primary-tool evidence + category alignment + benign alternatives explicitly ruled out. NOT_FOUND@high additionally requires every tool in the run to have completed cleanly (`ok`/`empty` status). The pipeline enforces these via R_06 / R_08 / R_12.
+   - `medium`: plausible mechanism but benign alternative not fully excluded, or evidence only from a non-primary tool. Default for `classification=requires_disambiguation`.
+   - `low`: weak or ambiguous signal. The pipeline AUTOMATICALLY escalates any `low`-confidence finding to human review via R_15 — only use `low` when a human genuinely needs to adjudicate, not as a hedge to avoid committing.
 
 6. **Honour `tool_execution_status`.** Each step reports one of: `ok`, `timeout`, `permission_denied`, `parse_error`, `empty`, `capability_denied`. Only `ok` (and sometimes `empty`) carries trustworthy evidence. If a step's status is `capability_denied` you must NOT treat its structured_fields as evidence — the call was refused before the tool ran; the fields carry the denial reason, not tool output.
 

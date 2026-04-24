@@ -53,6 +53,36 @@ def strip_adversarial_controls(s: str) -> str:
 
 Confidence = Literal["low", "medium", "high"]
 
+# ---- L3 Confidence rubric (Slice 6 Step 3, 2026-04-24) ----
+# Deterministic criteria for what High / Medium / Low mean on a Finding.
+# Before Step 3, `confidence` was a free-form LLM label with only narrative
+# guidance in INTERPRET_SYSTEM_PROMPT. The rubric pins it to pipeline-
+# enforceable semantics:
+#   - HIGH boundary is enforced by R_06 / R_08 / R_12 (primary-tool backing,
+#     and for NOT_FOUND, every tool in the run returning ok/empty).
+#   - LOW boundary is enforced by R_15: any low-confidence finding is auto-
+#     escalated to human_review rather than committed silently.
+#   - MEDIUM is the default for `classification=requires_disambiguation`.
+# The rubric is rendered into INTERPRET_SYSTEM_PROMPT verbatim so the LLM
+# understands what the pipeline does with each label.
+CONFIDENCE_RUBRIC: dict[str, str] = {
+    "high": (
+        "Primary-tool evidence + category alignment + benign alternatives "
+        "explicitly ruled out. NOT_FOUND@high additionally requires every "
+        "tool in the run to have completed cleanly (ok/empty status)."
+    ),
+    "medium": (
+        "Plausible mechanism but benign alternative not fully excluded, or "
+        "evidence only from a non-primary tool. Default for "
+        "classification=requires_disambiguation."
+    ),
+    "low": (
+        "Weak or ambiguous signal — insufficient to commit. Pipeline "
+        "AUTOMATICALLY escalates any low-confidence finding to human_review "
+        "via R_15."
+    ),
+}
+
 PersistenceCategory = Literal[
     "registry_run_key", "service", "scheduled_task",
     "ifeo_debugger", "appinit_dll", "logon_script",
@@ -191,6 +221,8 @@ RuleId = Literal[
     'R_11',  # Classification — added 2026-04-19 post-2.5
     'R_12',  # Evidence-of-Absence — added 2026-04-20 Phase C
     'R_13',  # Temporal Consistency — added 2026-04-20 Phase C (stub; real impl in Slice 5)
+    # R_14 reserved for citation-gate activation (mechanism landed 2026-04-24; see critic.py)
+    'R_15',  # Low-confidence auto-escalation — added 2026-04-24 Slice 6 Step 3
 ]
 FailureCode = Literal[
     'EVID_UNRESOLVED', 'PATH_INCONSISTENCY', 'TOOL_MISMATCH',
@@ -203,6 +235,7 @@ FailureCode = Literal[
     'TEMPORAL_INCONSISTENT',       # R_13 — claimed timestamp not grounded in cited stdout (stub pre-Slice-5)
     'CANARY_LEAK',                 # interpret_node: LLM response echoed the per-run canary → instruction/data boundary leaked
     'UNCITED_CLAIM',               # R_14 (mechanism landed, activation deferred) — Finding.notes lacks inline [ev:<id>] citation(s), or cites a tool_call_id not in this run's bundle
+    'LOW_CONFIDENCE_AUTO_ESCALATE',# R_15 — any finding at confidence=low auto-routes to human_review (see CONFIDENCE_RUBRIC)
 ]
 
 class RuleFailure(BaseModel):
@@ -363,6 +396,8 @@ __all__ = [
     # Literals
     "Confidence", "PersistenceCategory", "Classification", "RuleId", "FailureCode",
     "ToolExecutionStatus",
+    # L3 confidence rubric (Slice 6 Step 3)
+    "CONFIDENCE_RUBRIC",
     # ATT&CK
     "ATTACK_MAPPING", "ATTACK_TACTIC_ID", "ATTACK_TACTIC_NAME",
     # Phase 1

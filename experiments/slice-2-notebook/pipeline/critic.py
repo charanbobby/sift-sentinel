@@ -394,8 +394,36 @@ def R_13(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     return None
 
 
+def R_15(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
+    """Low-confidence auto-escalation (Slice 6 Step 3).
+
+    The L3 rubric in `pipeline.schemas.CONFIDENCE_RUBRIC` defines `low` as
+    'weak or ambiguous signal — insufficient to commit'. R_15 enforces the
+    routing: any finding emitted at confidence=low escalates to
+    human_review rather than committing silently. Pairs with R_08
+    (CONF_OVERSTATED) which catches the opposite pathology — high-confidence
+    findings without primary-tool backing.
+
+    Applies uniformly across categories. A NOT_FOUND@low is anomalous (Hard
+    Rule 4 in INTERPRET_SYSTEM_PROMPT says NOT_FOUND should be high-confidence),
+    but a hedged absence claim equally deserves human adjudication, so R_15
+    fires there too. R_14 is reserved for citation-gate activation."""
+    if finding.confidence != "low":
+        return None
+    return RuleFailure(
+        rule_id="R_15",
+        code="LOW_CONFIDENCE_AUTO_ESCALATE",
+        detail=(f"finding category={finding.category}, "
+                f"classification={finding.classification} emitted at "
+                f"confidence=low — auto-escalating per L3 rubric"),
+    )
+
+
 # Rule registry + escalate-only failure codes
-CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13]
+# Order mirrors the rule-id numbering. R_14 is reserved for citation-gate
+# activation (mechanism lives below as parse_evidence_citations); R_15 was the
+# next unreserved slot for low-confidence auto-escalation.
+CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15]
 ESCALATE_CODES = {
     "EXCERPT_HALLUCINATION",
     "INJECTION_FLAGGED_EVIDENCE",
@@ -403,6 +431,7 @@ ESCALATE_CODES = {
     "TEMPORAL_INCONSISTENT",
     "CANARY_LEAK",               # interpret_node boundary-leak tripwire
     "UNCITED_CLAIM",             # R_14 mechanism landed 2026-04-24; activation deferred
+    "LOW_CONFIDENCE_AUTO_ESCALATE",  # R_15 — Slice 6 Step 3 L3 rubric enforcement
 }
 
 
