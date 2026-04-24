@@ -110,6 +110,87 @@ def test_finding_round_trip(make_finding):
     assert f == f2
 
 
+# ---- Evidence.excerpt_sha256 (Slice 6 Step 3 item 3) -----------------------
+
+
+def test_excerpt_sha256_hex_helper_known_values():
+    import hashlib
+    from pipeline.schemas import excerpt_sha256_hex
+    assert excerpt_sha256_hex("") == hashlib.sha256(b"").hexdigest()
+    assert excerpt_sha256_hex("abc") == hashlib.sha256(b"abc").hexdigest()
+    # Unicode path
+    assert excerpt_sha256_hex("café") == hashlib.sha256("café".encode("utf-8")).hexdigest()
+
+
+def test_evidence_excerpt_sha256_autofilled():
+    """Constructing without excerpt_sha256 auto-populates the field."""
+    import hashlib
+    from pipeline.schemas import Evidence
+    e = Evidence(tool_call_id="tc-0", output_excerpt="abc")
+    assert e.excerpt_sha256 == hashlib.sha256(b"abc").hexdigest()
+    assert len(e.excerpt_sha256) == 64
+
+
+def test_evidence_excerpt_sha256_matching_accepted():
+    """Caller-supplied matching hash is accepted."""
+    import hashlib
+    from pipeline.schemas import Evidence
+    correct = hashlib.sha256(b"abc").hexdigest()
+    e = Evidence(tool_call_id="tc-0", output_excerpt="abc", excerpt_sha256=correct)
+    assert e.excerpt_sha256 == correct
+
+
+def test_evidence_excerpt_sha256_tampering_tripwire():
+    """Mismatched hash raises — post-hoc edits to findings.json are detected."""
+    from pipeline.schemas import Evidence
+    with pytest.raises(ValidationError) as exc_info:
+        Evidence(tool_call_id="tc-0", output_excerpt="abc", excerpt_sha256="0" * 64)
+    assert "tampering tripwire" in str(exc_info.value)
+
+
+def test_evidence_excerpt_sha256_json_round_trip():
+    """JSON round-trip preserves excerpt_sha256 and survives re-validation."""
+    from pipeline.schemas import Evidence
+    e = Evidence(tool_call_id="tc-0", output_excerpt="hello world")
+    blob = e.model_dump_json()
+    assert "excerpt_sha256" in blob
+    e2 = Evidence.model_validate_json(blob)
+    assert e == e2
+    assert e2.excerpt_sha256 == e.excerpt_sha256
+
+
+def test_evidence_excerpt_sha256_legacy_json_autofills_on_reload():
+    """findings.json files predating this field reload cleanly — validator
+    auto-fills excerpt_sha256 from the existing output_excerpt."""
+    import hashlib
+    from pipeline.schemas import Evidence
+    legacy = '{"tool_call_id": "tc-0", "output_excerpt": "abc"}'
+    e = Evidence.model_validate_json(legacy)
+    assert e.excerpt_sha256 == hashlib.sha256(b"abc").hexdigest()
+
+
+def test_evidence_excerpt_sha256_empty_excerpt_is_canonical():
+    """NOT_FOUND findings pass empty evidence; empty excerpt must produce the
+    canonical empty-sha256 rather than raising."""
+    import hashlib
+    from pipeline.schemas import Evidence
+    e = Evidence(tool_call_id="tc-0", output_excerpt="")
+    assert e.excerpt_sha256 == hashlib.sha256(b"").hexdigest()
+
+
+def test_evidence_excerpt_sha256_over_post_strip_bytes():
+    """Adversarial-control stripping runs in the pre-validator, so the hash
+    is computed over the cleaned bytes — an attacker can't smuggle a different
+    payload through zero-width characters and hope it matches a pre-strip hash."""
+    import hashlib
+    from pipeline.schemas import Evidence
+    # Embed a zero-width space between "abc" and "def"; pre-validator strips it.
+    adversarial = "abc​def"
+    e = Evidence(tool_call_id="tc-0", output_excerpt=adversarial)
+    assert e.output_excerpt == "abcdef"
+    assert e.excerpt_sha256 == hashlib.sha256(b"abcdef").hexdigest()
+
+
 def test_finding_classification_is_required():
     from pipeline.schemas import Finding, Evidence
     with pytest.raises(ValidationError):

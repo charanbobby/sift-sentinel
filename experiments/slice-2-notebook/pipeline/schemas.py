@@ -8,6 +8,7 @@ Not included here, by design:
   - `PipelineState` — lives in `pipeline/graph.py` (LangGraph runtime, not shared data).
   - `CriticContext` — lives in `pipeline/critic.py` (ephemeral per-invocation context).
 """
+import hashlib
 import re
 from datetime import datetime
 from typing import Literal
@@ -49,6 +50,16 @@ def strip_adversarial_controls(s: str) -> str:
     if not s:
         return s
     return _ADVERSARIAL_CTRL_RE.sub("", s)
+
+
+def excerpt_sha256_hex(excerpt: str) -> str:
+    """Hex sha256 over UTF-8 bytes of `excerpt`. Used by the Evidence
+    post-validator to pin the provenance of every cited excerpt so post-hoc
+    tampering of findings.json is cryptographically detectable. Empty string
+    hashes to the canonical `e3b0c442...b855` empty-sha256 — by design, so
+    NOT_FOUND findings (which emit no evidence) don't throw on construction.
+    """
+    return hashlib.sha256((excerpt or "").encode("utf-8")).hexdigest()
 
 
 Confidence = Literal["low", "medium", "high"]
@@ -167,6 +178,15 @@ class RawResult(BaseModel):
 class Evidence(BaseModel):
     tool_call_id: str = Field(max_length=64)
     output_excerpt: str = Field(max_length=1500)
+    # excerpt_sha256 (Slice 6 Step 3 item 3) — per-excerpt provenance hash.
+    # Auto-filled by the post-validator if absent; if caller supplies one, it
+    # MUST match sha256(output_excerpt) after adversarial-control stripping, or
+    # construction raises. That's the tampering tripwire: anyone editing an
+    # excerpt in findings.json after the run has to also edit the hash, and
+    # Pydantic re-verifies on reload. The raw_sha256 / integrity-ledger layer
+    # (Step 4) hash-chains these across the whole run for the heavy-duty
+    # detection; this field is the minimum-viable self-consistency check.
+    excerpt_sha256: str = Field(default="", min_length=0, max_length=64)
 
     @field_validator("tool_call_id", "output_excerpt", mode="before")
     @classmethod
@@ -174,6 +194,20 @@ class Evidence(BaseModel):
         if isinstance(v, str):
             return strip_adversarial_controls(v)
         return v
+
+    @model_validator(mode="after")
+    def _fill_or_verify_excerpt_sha256(self):
+        computed = excerpt_sha256_hex(self.output_excerpt)
+        if not self.excerpt_sha256:
+            object.__setattr__(self, "excerpt_sha256", computed)
+            return self
+        if self.excerpt_sha256 != computed:
+            raise ValueError(
+                f"excerpt_sha256={self.excerpt_sha256!r} does not match "
+                f"sha256(output_excerpt)={computed!r} — findings.json tampering "
+                f"tripwire (Slice 6 Step 3 item 3)"
+            )
+        return self
 
 
 class Finding(BaseModel):
@@ -398,6 +432,8 @@ __all__ = [
     "ToolExecutionStatus",
     # L3 confidence rubric (Slice 6 Step 3)
     "CONFIDENCE_RUBRIC",
+    # Slice 6 Step 3 item 3 — excerpt provenance helper
+    "excerpt_sha256_hex", "strip_adversarial_controls",
     # ATT&CK
     "ATTACK_MAPPING", "ATTACK_TACTIC_ID", "ATTACK_TACTIC_NAME",
     # Phase 1
