@@ -28,7 +28,7 @@ from langfuse import Langfuse
 from langfuse.openai import OpenAI as LangfuseOpenAI
 
 import pipeline.nodes as _nodes
-from pipeline.graph import PipelineState, build_graph, compute_thread_id
+from pipeline.graph import PipelineState, build_graph, compute_thread_id, mint_canary
 from pipeline.mcp.tokens import issue_token
 
 MODELS = {
@@ -86,8 +86,14 @@ def run(case_id: str, e01_path: str) -> int:
     graph = build_graph()
     thread_id = compute_thread_id(case_id, run_id)
 
-    # Initial state — graph starts from START and runs all nodes
-    initial = PipelineState(question=QUESTION, run_id=run_id)
+    # Initial state — graph starts from START and runs all nodes.
+    # `canary` is the per-run defender-AI-integrity tripwire; interpret_node
+    # embeds it in the LLM bundle and halts the run with CANARY_LEAK if the
+    # response echoes it. Minted once per invoke; empty string would disable.
+    canary = mint_canary()
+    print(f"  canary    {canary[:12]}…  (defender-AI tripwire active)")
+    print()
+    initial = PipelineState(question=QUESTION, run_id=run_id, canary=canary)
 
     print("--- EXTRACT ---")
     # Run extract manually first so we can see candidates before plan

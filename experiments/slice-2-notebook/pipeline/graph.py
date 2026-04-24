@@ -17,6 +17,7 @@ Key Slice-5 shape changes vs. the Slice-3 notebook version:
 from __future__ import annotations
 
 import hashlib
+import secrets
 from typing import Optional
 
 from pydantic import BaseModel
@@ -80,10 +81,25 @@ class PipelineState(BaseModel):
     # ---- Slice 3 Phase C: plan-hash dedup (L3 primitive #1) ----
     failed_plan_hashes: list[str] = []
 
+    # ---- Canary tripwire (Slice-5 Tier-1 AI-adversary add-on) ----
+    # Per-run nonce injected into the INTERPRET bundle as `_canary`. interpret_node
+    # scans the LLM response for it; presence == boundary leak == adversarial attempt
+    # to manipulate defender AI. Empty string disables the check (legacy-probe compat).
+    canary: str = ""
+
 
 # ---- Helpers (moved from notebook C4) ----
 # `plan_hash` is the `compute_plan_digest` import above. Accepts a `ToolPlan`;
 # the re-export keeps the C4-era call-site name intact across the node-lift.
+
+
+def mint_canary() -> str:
+    """Per-run random nonce for the INTERPRET-bundle tripwire. Callers (notebook,
+    run_case.py) should set `state.canary = mint_canary()` when building the
+    initial PipelineState. Empty `state.canary` disables the check so legacy
+    probes continue to work unchanged.
+    """
+    return "canary_" + secrets.token_urlsafe(9)
 
 
 def compute_thread_id(case_id: str, run_uuid: str) -> str:
@@ -160,6 +176,7 @@ def build_graph(*, checkpointer=None):
 __all__ = [
     "PipelineState",
     "plan_hash",
+    "mint_canary",
     "compute_thread_id",
     "build_graph",
 ]
