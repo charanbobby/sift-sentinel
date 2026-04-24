@@ -32,7 +32,7 @@ from pipeline.graph import PipelineState, build_graph, compute_thread_id, mint_c
 from pipeline.mcp.tokens import issue_token
 
 MODELS = {
-    "extract":   "google/gemini-2.0-flash-001",
+    "extract":   "google/gemini-2.5-flash",
     "plan":      "anthropic/claude-sonnet-4-6",
     "interpret": "anthropic/claude-sonnet-4-6",
 }

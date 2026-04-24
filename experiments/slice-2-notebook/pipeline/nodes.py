@@ -1042,7 +1042,7 @@ def interpret_node(state: "PipelineState") -> dict:
                 max_tokens=8000,
             )
             _llm_cost_post("interpret", model, resp.usage)
-            raw = resp.choices[0].message.content
+            raw = resp.choices[0].message.content or ""
 
             # Canary tripwire — if the LLM echoed the per-run nonce, the
             # instruction/data boundary leaked (attacker content persuaded the
@@ -1082,6 +1082,10 @@ def interpret_node(state: "PipelineState") -> dict:
             if s.startswith("```"):
                 s = re.sub(r"^```(?:json|JSON)?\s*", "", s)
                 s = re.sub(r"\s*```\s*$", "", s)
+            if not s:
+                print(f"  [interpret] WARN: empty response from LLM "
+                      f"(raw={repr(raw)[:120]}); treating as parse failure → escalate")
+                raise ValueError("INTERPRET: empty LLM response")
             parsed = json.loads(s)
 
             # Individual Finding validation — a missing `classification` field
