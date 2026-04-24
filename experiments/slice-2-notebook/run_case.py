@@ -82,6 +82,13 @@ def run(case_id: str, e01_path: str) -> int:
 
     _configure_nodes(case_id, e01_path, out_dir, langfuse, llm_client)
 
+    # Slice 6 Step 4b — genesis entry for the integrity ledger. Written once
+    # per case; idempotent across resume via LedgerWriter.append_genesis.
+    # e01_sha256 is left empty here — preprocess_e01.py captures it at stage
+    # time; plumbing that through to run_case is a follow-on. Still a valid
+    # genesis; plan_approved + per-event entries anchor the chain downstream.
+    _nodes._ledger_genesis(e01_sha256="", plan_digest="")
+
     # Build the graph (extract_node is now the real impl in pipeline.nodes)
     graph = build_graph()
     thread_id = compute_thread_id(case_id, run_id)
@@ -137,6 +144,15 @@ def run(case_id: str, e01_path: str) -> int:
     # Write APPROVED sentinel so any code checking for it doesn't block
     (out_dir / "tool_plan.APPROVED").touch()
 
+    # Slice 6 Step 4b — plan_approved ledger entry.
+    _nodes._ledger_append(
+        "plan_approved",
+        plan_digest=token.plan_digest,
+        token_id=token.token_id,
+        n_steps=len(state_with_token.tool_plan.steps),
+        allowed_tools=sorted(token.allowed_tools),
+    )
+
     print("--- EXECUTE → INTERPRET → CRITIC ---")
     # Feed the pre-built state into the graph. Extract and plan nodes will skip
     # (idempotency guards: candidates and tool_plan are already set).
@@ -175,6 +191,28 @@ def run(case_id: str, e01_path: str) -> int:
                     _ev = _EvidenceRecord.model_validate(_ev)
                 _f.write(_ev.model_dump_json() + "\n")
         print(f"evidence written: {len(evidence_list)} record(s)")
+
+    # Slice 6 Step 4b — session_close. Marks the pipeline run as complete.
+    # A ledger without this entry verifies as valid-prefix (crashed mid-run);
+    # with it, the reviewer can tell the run finished normally.
+    findings_count = len(findings_obj.findings) if findings else 0
+    _nodes._ledger_append(
+        "session_close",
+        findings_count=findings_count,
+        evidence_count=len(evidence_list),
+    )
+
+    # Verify the ledger on the way out — fail loudly if the chain broke
+    # during the run (infrastructure problem worth catching before downstream
+    # consumers read from it).
+    from pipeline.ledger import verify_ledger
+    ledger_path = out_dir / "integrity_ledger.jsonl"
+    ok, entries, err = verify_ledger(ledger_path)
+    if ok:
+        print(f"\nIntegrity ledger: {entries} entries, chain verifies clean.")
+    else:
+        print(f"\n!!! Integrity ledger BROKEN at entry {entries}: {err}")
+        raise RuntimeError(f"ledger chain broken: {err}")
 
     langfuse.flush()
     print(f"\nDone. Outputs at {out_dir}")

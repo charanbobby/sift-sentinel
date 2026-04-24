@@ -47,6 +47,7 @@ from pipeline.schemas import (
     ToolPlan,
 )
 from pipeline.mcp.tokens import compute_plan_digest
+from pipeline.ledger import LedgerWriter  # Slice 6 Step 4b — integrity-ledger wiring
 
 if TYPE_CHECKING:
     from pipeline.graph import PipelineState
@@ -77,6 +78,39 @@ def _require(name: str, value):
             f"module attribute from the notebook C1 cell before invoking the graph."
         )
     return value
+
+
+# ============================================================================
+# Integrity-ledger helpers (Slice 6 Step 4b — wiring)
+# ============================================================================
+# Each node calls these helpers at key events to write an append-only,
+# hash-chained entry to `OUT_DIR / integrity_ledger.jsonl`. Primitive lives
+# in `pipeline.ledger`; these helpers are the thin wrappers that the node
+# I/O code calls. Discipline mirrors `_append_critic_disagreement`:
+# write-errors are NOT swallowed — unwritable audit log ⇒ pipeline halts.
+#
+# No-op if CASE_ID is unset (notebook / test imports the module before
+# configuring globals). Probe-verified pattern (d:/tmp/probe_ledger_wiring.py).
+
+def _ledger_path() -> Path:
+    return OUT_DIR / "integrity_ledger.jsonl"
+
+
+def _ledger_genesis(*, e01_sha256: str = "", plan_digest: str = "") -> None:
+    """Write the genesis entry — idempotent across resume (no-op if the
+    ledger already has a genesis)."""
+    if not CASE_ID:
+        return
+    with LedgerWriter(_ledger_path(), case_id=CASE_ID) as w:
+        w.append_genesis(e01_sha256=e01_sha256, plan_digest=plan_digest)
+
+
+def _ledger_append(event_type: str, **payload) -> None:
+    """Append one entry to the integrity ledger. No-op if CASE_ID unset."""
+    if not CASE_ID:
+        return
+    with LedgerWriter(_ledger_path(), case_id=CASE_ID) as w:
+        w.append(event_type=event_type, **payload)
 
 
 # ============================================================================
@@ -766,6 +800,20 @@ async def execute_node(state: "PipelineState") -> dict:
         for ev in collected:
             f.write(ev.model_dump_json() + "\n")
 
+    # Slice 6 Step 4b — hash-chained integrity ledger. One entry per
+    # EvidenceRecord; carries tool_call_id + raw_sha256 + status so the
+    # ledger is a tamper-evident record of WHICH tools ran and WHAT they
+    # returned (not the content itself — that's evidence.jsonl's job).
+    for ev in collected:
+        _ledger_append(
+            "tool_call_completed",
+            plan_digest=compute_plan_digest(state.tool_plan) if state.tool_plan else "",
+            tool_call_id=ev.tool_call_id,
+            raw_sha256=ev.raw_sha256,
+            status=ev.tool_execution_status,
+            token_id=ev.token_id,
+        )
+
     # Partial results propagate. A halt on step N (resolver error OR
     # non-continuable status) leaves us with N-1 usable records; raising
     # would lose that signal to the caller's PipelineState.evidence. The
@@ -1175,6 +1223,21 @@ def interpret_node(state: "PipelineState") -> dict:
         findings.model_dump_json(indent=2), encoding="utf-8"
     )
     (OUT_DIR / "findings.SUCCESS").touch()
+
+    # Slice 6 Step 4b — one ledger entry per committed finding. Records the
+    # classification + confidence + excerpt hashes so a reviewer can verify
+    # that the findings.json on disk still matches what the ledger witnessed.
+    for i, f in enumerate(findings.findings):
+        _ledger_append(
+            "finding_committed",
+            plan_digest=plan_digest,
+            finding_index=i,
+            category=f.category,
+            classification=f.classification,
+            confidence=f.confidence,
+            excerpt_sha256s=[e.excerpt_sha256 for e in f.evidence],
+        )
+
     langfuse.flush()
 
     return {"findings": findings}
@@ -1321,6 +1384,22 @@ def critic_node(state: "PipelineState") -> dict:
         for r in results:
             r.severity = "escalate"
     for r in results:
+        # Slice 6 Step 4b — one ledger entry per critique decision (including
+        # passes), so the ledger is a complete record of Critic activity,
+        # not just the disagreements. This is additive over critic_disagreements.jsonl
+        # (which only records non-pass cases for retry/escalate routing).
+        _ledger_append(
+            "critic_decision",
+            plan_digest=plan_digest,
+            iteration=state.iteration,
+            finding_index=r.finding_index,
+            severity=r.severity,
+            rules_passed_count=len(r.rules_passed),
+            rules_failed=[
+                {"rule_id": rf.rule_id, "code": rf.code}
+                for rf in r.rules_failed
+            ],
+        )
         if r.severity == "pass":
             continue
         finding = state.findings.findings[r.finding_index]

@@ -278,3 +278,97 @@ def test_entry_schema_json_round_trip():
     js = p.model_dump_json()
     p2 = LedgerEntry.model_validate_json(js)
     assert p == p2
+
+
+# ---- Step 4b — wiring helpers in pipeline.nodes ---------------------------
+
+
+def test_nodes_ledger_helpers_skip_when_unconfigured(tmp_path: Path, monkeypatch):
+    """_ledger_append + _ledger_genesis must no-op when CASE_ID is unset —
+    prevents early import / test fixtures from crashing."""
+    import pipeline.nodes as N
+    monkeypatch.setattr(N, "CASE_ID", "", raising=False)
+    monkeypatch.setattr(N, "OUT_DIR", tmp_path, raising=False)
+    N._ledger_append("tool_call_completed", tool_call_id="tc-1", raw_sha256="a" * 64)
+    N._ledger_genesis(e01_sha256="a" * 64)
+    assert not (tmp_path / "integrity_ledger.jsonl").exists()
+
+
+def test_nodes_ledger_helpers_produce_valid_chain(tmp_path: Path, monkeypatch):
+    """Full synthetic sequence through the node-level helpers must produce
+    a chain that verify_ledger accepts."""
+    import pipeline.nodes as N
+    monkeypatch.setattr(N, "CASE_ID", "test-case", raising=False)
+    monkeypatch.setattr(N, "OUT_DIR", tmp_path, raising=False)
+
+    N._ledger_genesis(e01_sha256="a" * 64, plan_digest="d" * 64)
+    N._ledger_append("plan_approved", plan_digest="d" * 64, token_id="tok-01",
+                     n_steps=2, allowed_tools=["fsstat_e01", "regripper_run"])
+    N._ledger_append("tool_call_completed", plan_digest="d" * 64,
+                     tool_call_id="tc-1", raw_sha256="b" * 64, status="ok",
+                     token_id="tok-01")
+    N._ledger_append("finding_committed", plan_digest="d" * 64,
+                     finding_index=0, category="service",
+                     classification="attacker_persistence", confidence="high",
+                     excerpt_sha256s=["c" * 64])
+    N._ledger_append("critic_decision", plan_digest="d" * 64, iteration=0,
+                     finding_index=0, severity="pass",
+                     rules_passed_count=15, rules_failed=[])
+    N._ledger_append("session_close", findings_count=1, evidence_count=1)
+
+    ok, n, err = verify_ledger(tmp_path / "integrity_ledger.jsonl")
+    assert ok, f"chain failed: {err}"
+    assert n == 6
+
+
+def test_critic_node_writes_ledger_entries(
+    tmp_path, make_plan, make_evidence, make_finding,
+):
+    """End-to-end check: running critic_node against a clean finding writes
+    a `critic_decision` entry (severity=pass) to the integrity ledger.
+    Mirrors test_critic.py::test_critic_node_clean_pass_end_to_end, but
+    asserts on the ledger side as well."""
+    import pipeline.nodes as N
+    from pipeline.graph import PipelineState
+    from pipeline.schemas import Findings
+    from datetime import datetime, timezone
+
+    plan = make_plan("fsstat_e01", "regripper_run")
+    ev_fs = make_evidence("t-fs", {"fs_type": "NTFS"},
+                          expected_paths_covered=["/mnt/hackathon/x.E01"])
+    ev_reg = make_evidence("t-regripper", {
+        "plugin_name": "run", "hive_type": "Software",
+        "entries": [{"key_path": "HKLM\\Software\\...", "value_name": "m",
+                     "value_type": "REG_SZ", "value_data_safe": "C:\\malware.exe",
+                     "last_write": None}],
+    })
+    findings = Findings(
+        case_id="test",
+        question="q",
+        findings=[make_finding(evidence_refs=[("t-regripper", "C:\\\\malware.exe")])],
+        plan_digest="d" * 64,
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+    )
+
+    N.OUT_DIR = tmp_path
+    N.CASE_ID = "test-case"
+    state = PipelineState(
+        question="q", tool_plan=plan, evidence=[ev_fs, ev_reg],
+        findings=findings, plan_digest="d" * 64,
+    )
+    N.critic_node(state)
+
+    # Ledger file should exist with one critic_decision entry
+    ledger_path = tmp_path / "integrity_ledger.jsonl"
+    assert ledger_path.exists()
+    ok, n, err = verify_ledger(ledger_path)
+    assert ok, f"chain failed: {err}"
+    assert n == 1, f"expected 1 ledger entry (critic_decision), got {n}"
+    # Verify entry content
+    line = ledger_path.read_text(encoding="utf-8").strip()
+    import json as _json
+    entry = _json.loads(line)
+    assert entry["event_type"] == "critic_decision"
+    assert entry["severity"] == "pass"
+    assert entry["finding_index"] == 0
