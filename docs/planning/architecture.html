@@ -57,8 +57,9 @@
     margin-bottom: 22px;
     padding: 8px 12px;
     background: #f8fafc;
-    border-left: 3px solid #3b82f6;
-    border-radius: 4px;
+    border: 1px solid #dbeafe;
+    border-left: 4px solid #3b82f6;
+    border-radius: 8px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     color: #334155;
@@ -458,8 +459,9 @@
   .failure-intro {
     padding: 14px 16px;
     margin: 4px 0 16px;
-    background: #fafafa;
-    border: 1px dashed #d1d5db;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #64748b;
     border-radius: 8px;
     font-size: 11.5px;
     color: #334155;
@@ -587,11 +589,12 @@
     margin-top: 24px;
   }
   .novelty-intro {
-    padding: 12px 16px;
-    margin: 4px 0 14px;
-    background: #fffbeb;
-    border-left: 3px solid #f59e0b;
-    border-radius: 0 6px 6px 0;
+    padding: 14px 16px;
+    margin: 4px 0 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #64748b;
+    border-radius: 8px;
     font-size: 11.5px;
     color: #334155;
     line-height: 1.55;
@@ -633,8 +636,9 @@
     margin-top: 8px;
     padding: 6px 10px;
     background: #fef3c7;
-    border-left: 3px solid #f59e0b;
-    border-radius: 0 4px 4px 0;
+    border: 1px solid #fde68a;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
     font-size: 11px;
     color: #78350f;
     line-height: 1.5;
@@ -649,9 +653,11 @@
   }
   .supporting-line {
     margin-top: 12px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     background: #f8fafc;
-    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #64748b;
+    border-radius: 8px;
     font-size: 10.5px;
     color: #64748b;
     font-family: 'IBM Plex Mono', monospace;
@@ -835,8 +841,9 @@
   .external-ledger {
     padding: 10px 14px;
     background: #fffbeb;
-    border: 1.5px solid #fcd34d;
-    border-radius: 6px;
+    border: 1px solid #fde68a;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
     font-size: 11px;
     color: #78350f;
     line-height: 1.55;
@@ -858,8 +865,9 @@
     margin-top: 14px;
     padding: 10px 14px;
     background: #fff1f2;
-    border-left: 3px solid #f43f5e;
-    border-radius: 0 6px 6px 0;
+    border: 1px solid #fecdd3;
+    border-left: 4px solid #f43f5e;
+    border-radius: 8px;
     font-size: 11px;
     color: #4b5563;
     line-height: 1.55;
@@ -906,9 +914,9 @@
   }
 
   /* ── Presentation mode: click-to-reveal ── */
-  /* Applied via JS: every card, pillar, process, ledger, caveat, rule-group,
+  /* Optional presentation mode. Applied via JS when enabled: every card, pillar, process, ledger, caveat, rule-group,
      rules-table row, and walkthrough box is a "reveal" target.
-     Default: faded. Click → .is-on → bright + pops forward.
+     When enabled: targets fade until clicked; .is-on makes them bright and pops them forward.
      Scene hints: see docs/planning/architecture-video.html (Scene 2, 3, 4, 5). */
   .reveal {
     opacity: 0.22;
@@ -937,18 +945,6 @@
   }
   /* Flow row stays stable; only the card inside pops. */
   .flow .reveal.is-on { z-index: 20; }
-
-  /* Nested reveals: opacity must not compound.
-     — If any descendant is active, auto-light the ancestor (no scale pop). */
-  .reveal:has(.reveal.is-on) {
-    opacity: 1;
-    filter: none;
-  }
-  /* — If an ancestor is explicitly active, its reveal descendants ride along. */
-  .reveal.is-on .reveal:not(.is-on) {
-    opacity: 1;
-    filter: none;
-  }
 
   /* Floating presentation controls — collapsed to a dot by default so the
      toolbar doesn't sit in every screen-recorded frame. Click the dot (or
@@ -1179,28 +1175,18 @@
   /* ── Unified plain-English callout (used in Critic + Topology) ──── */
   .plain-english {
     position: relative;
-    padding: 16px 16px 12px;
+    padding: 14px 16px;
     margin: 10px 0 18px;
-    background: #eef2ff;
-    border-left: 3px solid #4f46e5;
-    border-radius: 0 6px 6px 0;
-    font-size: 12px;
-    color: #1e293b;
-    line-height: 1.65;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #64748b;
+    border-radius: 8px;
+    font-size: 11.5px;
+    color: #334155;
+    line-height: 1.6;
   }
   .plain-english::before {
-    content: "PLAIN ENGLISH";
-    position: absolute;
-    top: -9px;
-    left: 12px;
-    padding: 2px 8px;
-    background: #4f46e5;
-    color: #fff;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    border-radius: 3px;
+    content: none;
   }
   .plain-english p { margin-bottom: 8px; }
   .plain-english p:last-child { margin-bottom: 0; }
@@ -1229,8 +1215,9 @@
     margin-top: 10px;
     padding: 10px 14px;
     background: #ecfdf5;
-    border-left: 3px solid #10b981;
-    border-radius: 0 6px 6px 0;
+    border: 1px solid #a7f3d0;
+    border-left: 4px solid #10b981;
+    border-radius: 8px;
     font-size: 11px;
     color: #064e3b;
     line-height: 1.55;
@@ -1293,14 +1280,15 @@
   .chain-wrap {
     margin: 14px 0 20px;
     padding: 16px 14px 14px;
-    background: #0f172a;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
     border-radius: 10px;
     overflow-x: auto;
   }
   .chain-wrap .chain-title {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 9.5px;
-    color: #94a3b8;
+    color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     margin-bottom: 10px;
@@ -1315,49 +1303,49 @@
   .chain-block {
     flex: 0 0 168px;
     padding: 10px 10px 9px;
-    background: #1e293b;
-    border: 1.5px solid #334155;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
     border-radius: 7px;
-    color: #e2e8f0;
+    color: #334155;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     line-height: 1.45;
     position: relative;
   }
-  .chain-block.genesis { background: #334155; border-color: #64748b; color: #cbd5e1; }
+  .chain-block.genesis { background: #e2e8f0; border-color: #94a3b8; color: #334155; }
   .chain-block.broken  {
-    background: #450a0a;
-    border-color: #ef4444;
-    box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
+    background: #fff1f2;
+    border-color: #f43f5e;
+    box-shadow: 0 0 0 2px rgba(244,63,94,0.1);
   }
   .chain-block .seq {
     font-size: 9px;
-    color: #94a3b8;
+    color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin-bottom: 3px;
   }
   .chain-block .event {
-    color: #fde68a;
+    color: #1e293b;
     font-weight: 600;
     font-size: 10.5px;
     margin-bottom: 6px;
     font-family: 'IBM Plex Sans', sans-serif;
   }
-  .chain-block.broken .event { color: #fecaca; }
+  .chain-block.broken .event { color: #9f1239; }
   .chain-block .field {
     display: block;
-    color: #cbd5e1;
+    color: #475569;
     font-size: 9.5px;
     margin-bottom: 2px;
   }
-  .chain-block .field .k { color: #7dd3fc; }
-  .chain-block .field .v { color: #e2e8f0; }
-  .chain-block.broken .field .v { color: #fca5a5; text-decoration: line-through; }
+  .chain-block .field .k { color: #2563eb; }
+  .chain-block .field .v { color: #0f172a; }
+  .chain-block.broken .field .v { color: #be123c; text-decoration: line-through; }
   .chain-arrow {
     flex: 0 0 18px;
     align-self: center;
-    color: #64748b;
+    color: #94a3b8;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 14px;
     text-align: center;
@@ -1367,10 +1355,10 @@
     margin-top: 10px;
     font-family: 'IBM Plex Mono', monospace;
     font-size: 9.5px;
-    color: #94a3b8;
+    color: #64748b;
     line-height: 1.5;
   }
-  .chain-wrap .chain-caption b { color: #e2e8f0; }
+  .chain-wrap .chain-caption b { color: #334155; }
 
   /* ── Events-recorded table ── */
   .ledger-events {
@@ -1531,8 +1519,9 @@
   .storage-caveat {
     padding: 10px 14px;
     background: #fffbeb;
-    border-left: 3px solid #f59e0b;
-    border-radius: 0 6px 6px 0;
+    border: 1px solid #fde68a;
+    border-left: 4px solid #f59e0b;
+    border-radius: 8px;
     font-size: 11px;
     color: #334155;
     line-height: 1.55;
@@ -1544,8 +1533,9 @@
     padding: 12px 16px;
     margin: 10px 0 4px;
     background: #fef2f2;
-    border-left: 3px solid #dc2626;
-    border-radius: 0 6px 6px 0;
+    border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626;
+    border-radius: 8px;
   }
   .limits-box h4 {
     font-family: 'IBM Plex Mono', monospace;
@@ -1564,6 +1554,322 @@
   .limits-box ul li { margin-bottom: 6px; }
   .limits-box ul li b { color: #1a1a2e; }
   .limits-box ul li:last-child { margin-bottom: 0; }
+
+  /* ── Dark presentation theme override ─────────────────────────────
+     Keep the existing layout rules above; override only surface, text,
+     border, and status colors so every section shares one visual system. */
+  :root {
+    --bg: #0b1020;
+    --panel: #111827;
+    --panel-2: #172033;
+    --panel-3: #1f2937;
+    --line: #334155;
+    --line-soft: #243044;
+    --text: #f8fafc;
+    --muted: #cbd5e1;
+    --subtle: #94a3b8;
+    --blue: #60a5fa;
+    --cyan: #22d3ee;
+    --indigo: #818cf8;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #fb7185;
+    --purple: #a78bfa;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(96,165,250,0.14), transparent 32rem),
+      radial-gradient(circle at 80% 10%, rgba(34,211,238,0.08), transparent 28rem),
+      var(--bg);
+    color: var(--text);
+  }
+  .head-row,
+  .rsec-head,
+  .foot { border-color: var(--line); }
+  .head-row h1,
+  .rsec-head h2,
+  .card .name,
+  .audit .block p,
+  .failure-subhead h3,
+  .rule-group-header .descr b,
+  .rules-table .rule-name,
+  .process .process-title,
+  .hash-split .hash-card h4,
+  .tamper-card h4,
+  .storage-card h4,
+  .limits-box ul li b { color: var(--text); }
+  .head-row .pipe,
+  .sub-row,
+  .rsec-head .subtitle,
+  .scenario-row,
+  .section-nav,
+  .card .role,
+  .card .detail,
+  .card .model,
+  .card .eg,
+  .failure-subhead p,
+  .rules-table .rule-id,
+  .rules-table .rule-status,
+  .process .process-role,
+  .process .process-body,
+  .shared-resources,
+  .plain-english,
+  .novelty-intro,
+  .failure-intro,
+  .supporting-line,
+  .hash-split .hash-card p,
+  .ledger-events td,
+  .tamper-card p,
+  .storage-card ul,
+  .storage-caveat,
+  .limits-box ul,
+  .foot { color: var(--muted); }
+
+  .sub-row .chip,
+  .autonomy-bar,
+  .scenario-row,
+  .section-nav,
+  .card,
+  .lane .src,
+  .lane-eg,
+  .rule-group,
+  .rule-group-header,
+  .audit .block,
+  .container-box,
+  .container-label,
+  .process,
+  .shared-resources,
+  .plain-english,
+  .novelty-intro,
+  .failure-intro,
+  .supporting-line,
+  .hash-split .hash-card,
+  .chain-wrap,
+  .ledger-events th,
+  .tamper-card,
+  .storage-card,
+  .pres-bar {
+    background: rgba(17,24,39,0.92);
+    border-color: var(--line);
+  }
+  .card .eg,
+  .card .model,
+  .lane-eg .mono,
+  .rules-table td code,
+  .ledger-events td code,
+  .tamper-card code,
+  .shared-resources .mono-inline,
+  .process .process-body .mono-inline,
+  .storage-card .path {
+    background: rgba(15,23,42,0.92);
+    color: #bfdbfe;
+  }
+  .rules-table td,
+  .ledger-events td { border-color: var(--line-soft); }
+  .rules-table .rule-what,
+  .rule-group-header .descr,
+  .failure-intro,
+  .plain-english,
+  .novelty-intro { color: #cbd5e1; }
+
+  .lane-eg {
+    background: rgba(15,23,42,0.96);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--blue);
+    border-radius: 8px;
+    color: #e5e7eb;
+  }
+  .lane-eg.walkthrough {
+    padding: 16px 18px;
+    font-size: 12.25px;
+    line-height: 1.75;
+    color: #e5e7eb;
+  }
+  .lane-eg b,
+  .lane-eg.walkthrough b {
+    color: #f8fafc;
+  }
+  .lane-eg .mono,
+  .plain-english .mono,
+  .failure-intro .mono,
+  .rules-table span[style*="IBM Plex Mono"] {
+    background: rgba(30,64,175,0.28);
+    border: 1px solid rgba(96,165,250,0.35);
+    color: #bfdbfe;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .rule-example {
+    color: #cbd5e1;
+    border-left-color: var(--line);
+  }
+  .rule-example::before {
+    color: var(--blue);
+  }
+  .failure-subhead {
+    border-bottom-color: var(--line);
+  }
+  .failure-subhead p,
+  .rules-table .rule-id,
+  .rules-table .rule-status,
+  .tamper-card .t-num,
+  .pb-label,
+  .shared-resources .shared-label {
+    color: var(--subtle);
+  }
+
+  .card.io { background: rgba(30,64,175,0.22); border-color: var(--blue); }
+  .card.io .name,
+  .card.s1 .name,
+  .scenario-row .lbl { color: #93c5fd; }
+  .card.io.out { background: rgba(6,95,70,0.24); border-color: var(--green); }
+  .card.io.out .name { color: #6ee7b7; }
+  .card.s1 { border-color: var(--blue); }
+  .card.s2 { border-color: var(--purple); }
+  .card.s3 { border-color: var(--muted); }
+  .card.s4 { border-color: var(--cyan); }
+  .card.s5 { border-color: var(--indigo); }
+  .card.s6 { border-color: var(--red); }
+  .card.s2 .name { color: #c4b5fd; }
+  .card.s3 .name { color: #cbd5e1; }
+  .card.s4 .name { color: #67e8f9; }
+  .card.s5 .name { color: #a5b4fc; }
+  .card.s6 .name { color: #fca5a5; }
+
+  .card.s1 .step-badge,
+  .card.s2 .step-badge,
+  .card.s3 .step-badge,
+  .card.s4 .step-badge,
+  .card.s5 .step-badge,
+  .card.s6 .step-badge,
+  .audit .block .pillar-tag,
+  .hash-split .hash-tag,
+  .storage-card .s-tag {
+    background: rgba(15,23,42,0.96);
+    color: var(--text);
+    border-color: var(--line);
+  }
+
+  .sub-row .chip.live,
+  .status-badge.shipped,
+  .cache-badge.hit,
+  .pb-status-shipped,
+  .tamper-card .verdict.caught {
+    background: rgba(16,185,129,0.18);
+    color: #86efac;
+    border-color: rgba(52,211,153,0.55);
+  }
+  .sub-row .chip.wip,
+  .status-badge.wip,
+  .pb-status-wip,
+  .tamper-card .verdict.partial {
+    background: rgba(245,158,11,0.18);
+    color: #fde68a;
+    border-color: rgba(251,191,36,0.55);
+  }
+  .sub-row .chip.next,
+  .status-badge.later {
+    background: rgba(148,163,184,0.12);
+    color: #cbd5e1;
+    border-color: rgba(148,163,184,0.35);
+  }
+  .pb-status-off,
+  .tamper-card .verdict.not-caught {
+    background: rgba(244,63,94,0.18);
+    color: #fecdd3;
+  }
+
+  .autonomy-bar .al { background: var(--panel); border-color: var(--line); color: var(--muted); }
+  .autonomy-bar .al.here { background: rgba(16,185,129,0.18); border-color: var(--green); color: #86efac; }
+  .autonomy-bar .al.goal { background: rgba(245,158,11,0.18); border-color: var(--amber); color: #fde68a; }
+  .autonomy-bar .al.oos { background: rgba(148,163,184,0.08); border-color: var(--line); color: var(--subtle); }
+
+  .guardrail-box,
+  .audit .block .novel,
+  .external-ledger,
+  .storage-caveat {
+    background: rgba(245,158,11,0.12);
+    border-color: rgba(251,191,36,0.5);
+    color: #fde68a;
+  }
+  .critic-box,
+  .topology-caveat,
+  .limits-box {
+    background: rgba(244,63,94,0.12);
+    border-color: rgba(251,113,133,0.5);
+    color: #fecdd3;
+  }
+  .plain-english,
+  .novelty-intro,
+  .failure-intro,
+  .supporting-line {
+    border-left-color: var(--blue);
+  }
+
+  .chain-block {
+    background: #0f172a;
+    border-color: var(--line);
+    color: var(--text);
+  }
+  .chain-block.genesis {
+    background: #1e293b;
+    border-color: var(--muted);
+    color: #cbd5e1;
+  }
+  .chain-block.broken {
+    background: rgba(127,29,29,0.55);
+    border-color: var(--red);
+  }
+  .chain-block .event { color: #fde68a; }
+  .chain-block .field,
+  .chain-block .seq,
+  .chain-wrap .chain-caption { color: var(--muted); }
+  .chain-block .field .k { color: #67e8f9; }
+  .chain-block .field .v,
+  .chain-wrap .chain-caption b { color: var(--text); }
+  .chain-block.broken .event,
+  .chain-block.broken .field .v { color: #fecdd3; }
+
+  .ledger-events th { color: #cbd5e1; }
+  .ledger-events td.ev { color: #bfdbfe; }
+  .hash-split .hash-card.frozen,
+  .storage-card.evidence { background: rgba(16,185,129,0.10); border-color: rgba(52,211,153,0.45); }
+  .hash-split .hash-card.chain,
+  .storage-card.ledger { background: rgba(129,140,248,0.10); border-color: rgba(129,140,248,0.45); }
+
+  .pres-dot,
+  .pres-controls.expanded .pres-dot,
+  .pres-bar button.on {
+    background: var(--blue);
+    color: #020617;
+    border-color: var(--blue);
+  }
+  .pres-bar button {
+    background: #0f172a;
+    color: var(--text);
+    border-color: var(--line);
+  }
+  .pres-bar button:hover { background: #1e293b; }
+  .pres-hint {
+    background: rgba(15,23,42,0.96);
+    color: var(--text);
+    border: 1px solid var(--line);
+  }
+
+  .reveal {
+    opacity: 0.16;
+    filter: grayscale(0.75) brightness(0.72);
+  }
+  .reveal:hover:not(.is-on) {
+    opacity: 0.45;
+    filter: grayscale(0.35) brightness(0.9);
+  }
+  .reveal.is-on {
+    opacity: 1;
+    filter: none;
+    box-shadow: 0 18px 42px -18px rgba(96,165,250,0.7), 0 0 0 1px rgba(96,165,250,0.3);
+  }
 
 </style>
 </head>
@@ -1584,7 +1890,7 @@
   <span class="chip wip">citation gate</span>
   <span class="chip live">repeat guard + fresh context</span>
   <span class="chip next">SHA-256 integrity ledger</span>
-  <span style="margin-left: auto; font-size: 9px; color: #94a3b8;">
+  <span style="margin-left: auto; font-size: 9px; color: var(--subtle);">
     <span style="display:inline-block;width:8px;height:8px;background:#6ee7b7;border-radius:50%;margin-right:3px;vertical-align:middle;"></span>shipped
     &nbsp;<span style="display:inline-block;width:8px;height:8px;background:#fcd34d;border-radius:50%;margin-right:3px;vertical-align:middle;"></span>in&nbsp;progress
     &nbsp;<span style="display:inline-block;width:8px;height:8px;background:#d1d5db;border-radius:50%;margin-right:3px;vertical-align:middle;"></span>planned
@@ -1599,7 +1905,7 @@
   <span class="chevron">→</span>
   <span class="al goal">L3 exception ← goal <span class="sub">policy-driven · escalate only on flag</span></span>
   <span class="chevron">→</span>
-  <span class="al oos">L4 autonomous <span class="sub">out of scope for 8-week hackathon</span></span>
+  <span class="al oos">L4 autonomous <span class="sub">outside prototype scope</span></span>
 </div>
 
 <div class="scenario-row">
@@ -1701,7 +2007,7 @@
       <div class="guardrail-box">
         regripper ⟵ icat ✓<br>paths ⊂ case folder ✓
       </div>
-      <div class="eg" style="border-left-color: #475569;">
+      <div class="eg" style="border-left-color: var(--line);">
         <span class="eg-lbl">on pass → issues token</span>
         capability token<br>(scoped to this plan)<br>is handed to EXECUTE
       </div>
@@ -1722,14 +2028,14 @@
     </div>
     <div class="middle">
       <div class="detail">verify token · run tool ·<br>split output (safe vs raw)</div>
-      <div class="eg" style="border-left-color: #475569;">
+      <div class="eg" style="border-left-color: var(--line);">
         <span class="eg-lbl">1 · verify token (from GATES)</span>
-        <span style="color:#94a3b8;">check: HMAC signature + scope claims</span><br>
+        <span style="color:var(--subtle);">check: HMAC signature + scope claims</span><br>
         case: win10-case01<br>tools: [fls, icat, regripper]<br>paths: /cases/win10-case01/*<br>plan_digest: a3f2…<br>expires: 5 min
       </div>
       <div class="eg">
         <span class="eg-lbl">2 · raw bytes → audit trail</span>
-        HKLM\…\Run "svchost" =<br>C:\Users\…\Temp\a.exe<br><span style="color:#9ca3af;">→ raw preserved for audit;<br>&nbsp;&nbsp;&nbsp;Slice 6 adds SHA-linked ledger</span>
+        HKLM\…\Run "svchost" =<br>C:\Users\…\Temp\a.exe<br><span style="color:var(--subtle);">→ raw preserved for audit;<br>&nbsp;&nbsp;&nbsp;planned ledger adds SHA links</span>
       </div>
       <div class="eg" style="border-left-color: #0891b2;">
         <span class="eg-lbl" style="color: #0e7490;">3 · parsed fields → agent</span>
@@ -1783,7 +2089,7 @@
     </div>
     <div class="bottom">
       <span class="status-badge shipped">✅ 11 active rules</span>
-      <span class="status-badge wip">🟡 R_13 stub + polish</span>
+      <span class="status-badge wip">🟡 2 rules completing</span>
     </div>
   </div>
 
@@ -1795,7 +2101,7 @@
       <div class="name">findings.json</div>
     </div>
     <div class="middle">
-      <div class="detail">+ plan_digest<br>+ scorecard_v2</div>
+      <div class="detail">+ plan digest<br>+ accuracy summary</div>
       <div class="eg">
         <span class="eg-lbl">delivered</span>
         typed finding list<br>with ATT&amp;CK IDs<br>+ audit trail
@@ -1807,16 +2113,16 @@
 </div>
 </div><!-- /.pipeline-section.collapsible -->
 
-<!-- ── FIVE TRUST LAYERS (latest positioning) ──── -->
+<!-- ── FIVE TRUST LAYERS ──── -->
 <a id="sec-pillars"></a>
 <div class="novelty-section collapsible">
   <div class="rsec-head">
     <h2>Five trust layers — AI-adversary-aware DFIR</h2>
-    <span class="subtitle">latest project pillars · each compared against standard-practice baseline · the Novel line is the differentiator</span>
+    <span class="subtitle">evidence controls · execution boundaries · deterministic checks · reproducible outputs</span>
   </div>
 
   <div class="novelty-intro">
-    The current thesis is narrower and stronger than "DFIR copilot." Find Evil is an autonomous Windows-disk triage pipeline for adversarial evidence: the image may contain traces of attacker AI use, and the evidence itself may try to manipulate the defender AI. The layers below are the <b>trust story</b>: what is shipped, what is staged, and why the architecture is different from a standard "LLM → tools → LLM → checker" agent.
+    Find Evil triages Windows disk images where evidence can include both AI-use artifacts and adversarial text that may try to manipulate the defender AI. The layers below show how the pipeline separates evidence, scopes tool execution, checks model output, and keeps runs reproducible.
   </div>
 
   <div class="audit">
@@ -1857,15 +2163,15 @@
     <div class="block">
       <span class="pillar-tag">Pillar 5</span>
       <h3>Measured accuracy + reproducibility</h3>
-      <p><b>Standard:</b> many demos show one impressive case and rely on narrative confidence. That does not tell a defender what failure modes remain or whether changes improved the system.</p>
-      <p><b>Here:</b> runs emit typed findings, <span class="mono">plan_digest</span>, execution traces, and <span class="mono">scorecard_v2</span>. Slice 6 adds the Reference Dataset, L3 scenarios, sampled audit, ablations, and the Accuracy Report so the system can be judged on false positives, false negatives, latency, and correction behavior.</p>
-      <div class="novel"><b>Novel</b> the evaluation package is part of the product claim, not a demo afterthought: AI-adversary scenarios, clean negatives, and reproducibility controls are measured together.</div>
+      <p><b>Standard:</b> a single successful run does not show what failure modes remain or whether changes improved the system.</p>
+      <p><b>Here:</b> runs emit typed findings, a plan digest, execution traces, and an accuracy summary. Planned evaluation work adds the Reference Dataset, exception-level scenarios, sampled audit, ablations, and the Accuracy Report so the system can be judged on false positives, false negatives, latency, and correction behavior.</p>
+      <div class="novel"><b>Novel</b> AI-adversary scenarios, clean negatives, and reproducibility controls are measured together instead of being evaluated as separate concerns.</div>
     </div>
 
   </div>
 
   <div class="supporting-line">
-    <b>Supporting:</b> <span class="mono">PipelineState</span> carries the run facts from node to node; Langfuse traces every LLM call and tool invocation for replay/debugging. The SHA-256 artifact hash and planned append-only ledger stay in scope as Slice 6 reproducibility and tamper-detection controls, not as the main legal-chain-of-custody story.
+    <b>Supporting:</b> <span class="mono">PipelineState</span> carries the run facts from node to node; Langfuse traces every LLM call and tool invocation for replay/debugging. The SHA-256 artifact hash and planned append-only ledger stay in scope as reproducibility and tamper-detection controls.
   </div>
 </div>
 
@@ -1907,9 +2213,9 @@
     <br>&nbsp;
     <br><b>Step 4 — verdict.</b> The literal string <span class="mono">NotRun</span> doesn't appear anywhere in the regripper output. The LLM invented the key name. R_02 <b>fails</b> with corrective: <i>"only quote text you actually saw in a tool response."</i>
     <br>&nbsp;
-    <br><b>Step 5 — routing.</b> R_02 is a content-level rule (the tools ran fine; the agent just misread them). LLMs are <b style="color:#b45309;">sycophantic</b>: told "try again," they often re-emit the <i>same failed plan</i> with cosmetic tweaks. Two guards run before the retry to catch that:
+    <br><b>Step 5 — routing.</b> R_02 is a content-level rule (the tools ran fine; the agent just misread them). LLMs are <b style="color:var(--amber);">sycophantic</b>: told "try again," they often re-emit the <i>same failed plan</i> with cosmetic tweaks. Two guards run before the retry to catch that:
     <br>&nbsp;
-    <br>&nbsp; &nbsp; <span class="mono">repeat-guard</span> — hashes the new plan and compares against every plan tried this run. Same hash? Straight to <span class="mono">human_review</span>; no point burning another tool cycle. <span style="color:#64748b;font-size:9.5px;">The hash is computed over a <i>canonicalized</i> plan — sorted keys, stripped whitespace, normalized paths — so trailing-space or key-reorder variation from the LLM doesn't slip through.</span>
+    <br>&nbsp; &nbsp; <span class="mono">repeat-guard</span> — hashes the new plan and compares against every plan tried this run. Same hash? Straight to <span class="mono">human_review</span>; no point burning another tool cycle. <span style="color:var(--muted);font-size:9.5px;">The hash is computed over a <i>canonicalized</i> plan — sorted keys, stripped whitespace, normalized paths — so trailing-space or key-reorder variation from the LLM doesn't slip through.</span>
     <br>&nbsp; &nbsp; <span class="mono">fresh-context</span> — clears stale tool outputs and error traces from the LLM's context window so the retry starts clean.
     <br>&nbsp;
     <br>Both guards are needed. Repeat-guard catches <i>identical</i> retries (the sycophancy trap); fresh-context stops the <i>next</i> retry from inheriting stale state. Without repeat-guard, the agent would burn the full retry budget re-proposing the same bad plan.
@@ -2063,13 +2369,13 @@
 <a id="sec-ledger"></a>
 <div class="ledger-section collapsible">
   <div class="rsec-head">
-    <h2>Integrity ledger (Slice 6) — planned hash-chain audit trail</h2>
-    <span class="subtitle">next control · two hashes doing different jobs · hash-chained JSONL · separate from case folders · <span class="mono">verify_chain_of_custody.py</span> replays from genesis</span>
+    <h2>Integrity ledger — planned hash-chain audit trail</h2>
+    <span class="subtitle">planned control · two hashes doing different jobs · hash-chained JSONL · separate from case folders · verifier replays from genesis</span>
   </div>
 
   <div class="plain-english">
     <p>The investigative question: <i>"how do you prove the evidence — or the agent's record of examining it — wasn't silently changed later?"</i></p>
-    <p>In IR, the practical value is reproducibility and error detection, not courtroom ceremony. A log file that says "I saw X at timestamp Y" is weak if anyone with write access could edit the log after the fact. The ledger turns an append-only log into a <b>tamper-evident</b> record by chaining SHA-256 hashes across entries: flipping one byte anywhere in history breaks every hash downstream. A companion script walks the chain from genesis to the current tip and fails loudly on the first mismatch.</p>
+    <p>The practical value is reproducibility and error detection. A log file that says "I saw X at timestamp Y" is weak if anyone with write access could edit the log after the fact. The ledger turns an append-only log into a <b>tamper-evident</b> record by chaining SHA-256 hashes across entries: flipping one byte anywhere in history breaks every hash downstream. A companion script walks the chain from genesis to the current tip and fails loudly on the first mismatch.</p>
   </div>
 
   <!-- Two-hash splash: artifact fingerprint vs ledger chain -->
@@ -2143,7 +2449,7 @@
       </div>
     </div>
     <div class="chain-caption">
-      <b>construction:</b> <code>my_hash = sha256(prev_hash ‖ payload)</code> · each entry's hash depends on every byte of every entry before it · <b>verify:</b> <code>verify_chain_of_custody.py</code> recomputes from genesis, fails on first mismatch
+      <b>construction:</b> <code>my_hash = sha256(prev_hash ‖ payload)</code> · each entry's hash depends on every byte of every entry before it · <b>verify:</b> a ledger verifier recomputes from genesis and fails on first mismatch
     </div>
   </div>
 
@@ -2196,8 +2502,8 @@
   </div>
 
   <!-- What gets written to the ledger -->
-  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">What the orchestrator writes to the ledger</h3>
-  <p style="font-size:11.5px; color:#475569; margin-bottom:8px; line-height:1.55;">
+  <h3 style="font-size:14px; margin:18px 0 6px; color:var(--text);">What the orchestrator writes to the ledger</h3>
+  <p style="font-size:11.5px; color:var(--muted); margin-bottom:8px; line-height:1.55;">
     Every state-changing event in a run lands in <code style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:#f1f5f9;padding:1px 5px;border-radius:3px;">ledger.jsonl</code> as one JSON line. Read-only events (screen redraws, cached lookups) don't — the ledger captures <i>decisions and observations</i>, not UI state.
   </p>
   <table class="ledger-events">
@@ -2240,7 +2546,7 @@
   </table>
 
   <!-- Tamper scenarios -->
-  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">Attack scenarios — what the chain catches</h3>
+  <h3 style="font-size:14px; margin:18px 0 6px; color:var(--text);">Attack scenarios — what the chain catches</h3>
   <div class="tamper-grid">
 
     <div class="tamper-card">
@@ -2287,14 +2593,14 @@
       <span class="t-num">Scenario 6</span>
       <h4>Full ledger replacement</h4>
       <p>Attacker rewrites the entire ledger from scratch with internally consistent entries — but different history.</p>
-      <p><b>Detection:</b> only as strong as the out-of-band publication of the tip hash. Our scope: Git tag on submission pins <code>final_tip_hash</code>. Post-submission replacement is detectable against the tag.</p>
+      <p><b>Detection:</b> only as strong as the out-of-band publication of the tip hash. A Git tag can pin <code>final_tip_hash</code>; later ledger replacement is detectable against that anchor.</p>
       <span class="verdict partial">caught — with out-of-band anchor</span>
     </div>
 
   </div>
 
   <!-- Storage separation -->
-  <h3 style="font-size:14px; margin:18px 0 6px; color:#1a1a2e;">Why the ledger lives outside the case folder</h3>
+  <h3 style="font-size:14px; margin:18px 0 6px; color:var(--text);">Why the ledger lives outside the case folder</h3>
   <div class="storage-split">
     <div class="storage-card evidence">
       <span class="s-tag">case folder · evidence</span>
@@ -2325,8 +2631,8 @@
   <div class="limits-box">
     <h4>What the chain does NOT protect against — honest scope</h4>
     <ul>
-      <li><b>Compromised orchestrator during a live run.</b> An attacker with code execution on <code>sift-sentinel</code> controls what gets written and can produce an internally-consistent malicious chain. Real defense: hardware-attested signing (TPM / HSM). Not in hackathon scope.</li>
-      <li><b>Tampering before ingest.</b> If the source E01 was modified on the examiner's workstation before <code>ewfmount</code> ran, our chain starts from a poisoned baseline. We assert "unchanged since we ingested it," not "faithful to the source disk." That's where acquisition-time chain-of-custody (dates, examiner signatures, write-blocker logs) is supposed to cover the gap.</li>
+      <li><b>Compromised orchestrator during a live run.</b> An attacker with code execution on <code>sift-sentinel</code> controls what gets written and can produce an internally-consistent malicious chain. Stronger defense would require hardware-attested signing (TPM / HSM), which is outside the prototype boundary.</li>
+      <li><b>Tampering before ingest.</b> If the source E01 was modified on the examiner's workstation before <code>ewfmount</code> ran, the chain starts from a poisoned baseline. The claim is "unchanged since ingest," not "faithful to the source disk." Acquisition-time handling covers that earlier gap.</li>
       <li><b>Confidentiality.</b> The ledger is integrity-only. It doesn't prevent someone <i>reading</i> evidence they shouldn't — that's a separate access-control problem.</li>
     </ul>
   </div>
@@ -2391,7 +2697,7 @@
       <span class="stdio-label">streamable-HTTP</span>
       <span class="stdio-symbol">⇄</span>
       <span class="stdio-label" style="margin-top: 4px;">bearer-token auth</span>
-      <span class="stdio-label" style="margin-top: 2px; color:#94a3b8;">:8000 · internal only</span>
+      <span class="stdio-label" style="margin-top: 2px; color:var(--subtle);">:8000 · internal only</span>
     </div>
 
     <div class="container-box" style="flex: 1 1 300px; min-width: 280px; margin-bottom:0;">
@@ -2434,7 +2740,7 @@
        whom) from filesystem channels (who sees the same bytes on disk). -->
   <div class="shared-resources" style="margin-top: 8px;">
     <span class="shared-label">how the two are connected</span>
-    <div style="margin-top: 4px; font-size: 10.5px; color: #475569; line-height: 1.55;">
+    <div style="margin-top: 4px; font-size: 10.5px; color: var(--muted); line-height: 1.55;">
       Start here: <b>two separate containers</b> means two separate process trees, two separate root filesystems, two separate network stacks. Nothing is implicitly shared — whatever the two containers have in common has to be explicitly declared in <span class="mono-inline">docker-compose.yaml</span> (a network they both join, a volume they both mount, or a host directory they both bind). The rows below are those explicit declarations.
     </div>
     <div class="pb-row" style="margin-top: 8px;">
@@ -2467,11 +2773,11 @@
 
   <div class="external-ledger">
     <span class="ext-label">outside the containers</span>
-    <span class="ext-name">integrity ledger</span> — planned Slice 6 control · append-only file · SHA-256 chain (each entry includes the hash of the previous one, so any tampering invalidates everything after it) · stored on a <b>separate volume</b> mounted outside the containers' writable filesystems. Important for the final audit story, but not part of the current shipped novelty surface.
+    <span class="ext-name">integrity ledger</span> — planned audit control · append-only file · SHA-256 chain (each entry includes the hash of the previous one, so any tampering invalidates everything after it) · stored on a <b>separate volume</b> mounted outside the containers' writable filesystems. Important for reproducibility, but separate from the live evidence-processing path.
   </div>
 
   <div class="topology-caveat">
-    <span class="caveat-tag">Honest caveat</span> the containers share a host kernel (one Docker daemon, one Linux VM on Docker Desktop). A container-to-host escape via a kernel bug would bypass everything here — the classic container-boundary caveat. Full microVM isolation (Firecracker, Kata Containers) is a documented extension point, not in scope for an 8-week hackathon.
+    <span class="caveat-tag">Honest caveat</span> the containers share a host kernel (one Docker daemon, one Linux VM on Docker Desktop). A container-to-host escape via a kernel bug would bypass everything here — the classic container-boundary caveat. Full microVM isolation (Firecracker, Kata Containers) is a documented extension point, but outside the prototype boundary.
   </div>
 
 </div>
@@ -2516,7 +2822,7 @@
 
 
 <div class="foot">
-  <span>docs/planning/architecture.html · judge-facing current submission view</span>
+  <span>docs/planning/architecture.html · architecture overview</span>
   <span>updated 2026-04-24</span>
 </div>
 
@@ -2528,7 +2834,7 @@
 <div class="pres-controls" id="pres-controls" role="region" aria-label="Presentation reveal controls">
   <div class="pres-bar" id="pres-bar" role="toolbar" aria-label="Reveal actions">
     <span class="pres-label">reveal</span>
-    <button id="pres-toggle" class="on" title="Toggle presentation mode (cards faded by default)">on</button>
+    <button id="pres-toggle" title="Toggle presentation reveal mode">off</button>
     <button id="pres-solo" title="Solo: clicking a card dims all others">solo</button>
     <button id="pres-all" title="Brighten every card">all</button>
     <button id="pres-reset" title="Re-fade every card">reset</button>
@@ -2539,7 +2845,7 @@
 
 <!-- One-time hint toast, auto-fades ~5 seconds after load. -->
 <div class="pres-hint" id="pres-hint" role="status" aria-live="polite">
-  click cards to reveal · press <kbd>h</kbd> to hide controls
+  optional reveal mode · press <kbd>h</kbd> for controls
 </div>
 
 <script>
@@ -2548,15 +2854,24 @@
   //   Scene 2 — .card (hero pipeline, E01 through findings.json)
   //   Scene 3 — .audit .block (five trust layers)
   //   Scene 4 — .process, .external-ledger, .topology-caveat (deployment topology)
-  //   Scene 5 — .rule-group, .rules-table tr (flash R_02 row), .lane-eg (walkthrough)
+  //   Scene 5 — .rule-group and walkthrough boxes
   var selectors = [
     '.card',
     '.audit > .block',
     '.process',
+    '.plain-english',
+    '.hash-split .hash-card',
+    '.chain-wrap',
+    '.ledger-events',
+    '.tamper-card',
+    '.storage-card',
+    '.storage-caveat',
+    '.limits-box',
+    '.shared-resources',
     '.external-ledger',
     '.topology-caveat',
+    '.failure-intro',
     '.rule-group',
-    '.rules-table tr',
     '.lane-eg'
   ];
 
@@ -2567,7 +2882,15 @@
     });
   });
 
-  var revealOn = true;
+  // Avoid nested reveal targets. If both a parent card and an inner row are
+  // targets, browser opacity compounds and the reveal state feels random.
+  targets = targets.filter(function (el) {
+    return !targets.some(function (other) {
+      return other !== el && other.contains(el);
+    });
+  });
+
+  var revealOn = false;
   var soloMode = false;
 
   function applyRevealClass() {
@@ -2621,6 +2944,7 @@
     revealOn = !revealOn;
     toggleBtn.textContent = revealOn ? 'on' : 'off';
     toggleBtn.classList.toggle('on', revealOn);
+    targets.forEach(function (el) { el.classList.remove('is-on'); });
     applyRevealClass();
   });
 
