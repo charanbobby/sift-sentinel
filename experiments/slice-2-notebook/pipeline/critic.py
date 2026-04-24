@@ -395,7 +395,96 @@ ESCALATE_CODES = {
     "INJECTION_FLAGGED_EVIDENCE",
     "INJECTION_QUARANTINE",      # Step 8: quarantine-severity injection flag
     "TEMPORAL_INCONSISTENT",
+    "CANARY_LEAK",               # interpret_node boundary-leak tripwire
+    "UNCITED_CLAIM",             # R_14 mechanism landed 2026-04-24; activation deferred
 }
+
+
+# ============================================================================
+# Citation gate (R_14 mechanism) — Tier-1 AI-adversary add-on, 2026-04-24.
+#
+# Landing the mechanism (parser + validator + FailureCode) WITHOUT wiring the
+# rule into CRITIC_RULES yet. Activation is a separate step that requires an
+# end-to-end pipeline run proving the INTERPRET LLM reliably emits the
+# `[ev:<tool_call_id>]` citation format now specified in INTERPRET_SYSTEM_PROMPT.
+# Same opt-in-until-verified discipline the canary tripwire followed.
+#
+# The rule will sit alongside R_11: R_11 checks that `notes` rules out benign
+# alternatives for high-confidence attacker_persistence; R_14 checks that
+# those rule-out claims carry inline `[ev:<id>]` citations pointing to real
+# tool_call_ids in the bundle. Together they prevent free-text hallucination.
+# ============================================================================
+
+_EVIDENCE_CITATION_RE = re.compile(r"\[ev:([A-Za-z0-9_\-]+)\]")
+
+
+class CitationCheckResult:
+    """Result of parsing + validating citations in a Finding's free-text field.
+
+    Attributes:
+        cited_ids      — tool_call_ids in document order; duplicates preserved.
+        distinct_cited — set of unique IDs cited.
+        invalid_ids    — distinct IDs that are NOT in the run's bundle
+                         (candidates for UNCITED_CLAIM with detail="cites unknown id").
+        has_citations  — True if any `[ev:<id>]` marker was present.
+    """
+    __slots__ = ("cited_ids", "distinct_cited", "invalid_ids", "has_citations")
+
+    def __init__(
+        self,
+        cited_ids: list[str],
+        distinct_cited: set[str],
+        invalid_ids: set[str],
+        has_citations: bool,
+    ):
+        self.cited_ids = cited_ids
+        self.distinct_cited = distinct_cited
+        self.invalid_ids = invalid_ids
+        self.has_citations = has_citations
+
+    def __repr__(self) -> str:  # pragma: no cover — debugging aid
+        return (
+            f"CitationCheckResult(cited_ids={self.cited_ids!r}, "
+            f"distinct_cited={sorted(self.distinct_cited)!r}, "
+            f"invalid_ids={sorted(self.invalid_ids)!r}, "
+            f"has_citations={self.has_citations})"
+        )
+
+
+def parse_evidence_citations(text: str) -> list[str]:
+    """Extract cited tool_call_ids from free text (typically `Finding.notes`).
+
+    Returns the list of IDs in document order; duplicates preserved so the
+    caller can see which excerpts were cited multiple times vs. once. Empty
+    list if `text` is empty or has no `[ev:<id>]` markers.
+
+    Format is strict: `[ev:<tool_call_id>]` with no internal whitespace.
+    Malformed markers (`[ev: tc-0]`, `[ev tc-0]`) are ignored — the strictness
+    is intentional so ambiguous free text never resolves to a false citation.
+    """
+    if not text:
+        return []
+    return _EVIDENCE_CITATION_RE.findall(text)
+
+
+def validate_finding_citations(
+    notes: str, available_tool_call_ids: set[str]
+) -> CitationCheckResult:
+    """Parse `notes` and cross-check cited IDs against the bundle's tool_call_ids.
+
+    Pure validation — reports what it found. Policy ("attacker_persistence at
+    high confidence MUST carry a citation", etc.) lives in the caller (future
+    R_14), not here.
+    """
+    cited = parse_evidence_citations(notes)
+    distinct = set(cited)
+    invalid = distinct - available_tool_call_ids
+    return CitationCheckResult(
+        cited_ids=cited,
+        distinct_cited=distinct,
+        invalid_ids=invalid,
+        has_citations=bool(cited),
+    )
 
 
 # ---- Orchestrator (from C11) ----
