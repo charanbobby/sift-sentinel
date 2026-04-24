@@ -104,23 +104,76 @@ For the new third case (`base-dc`):
 
 ---
 
-## Step 3 — L3 confidence rubric + auto-escalation
+## Step 3 — L3 confidence rubric + auto-escalation ✅ 2026-04-24
 
 Today's system uses the Critic's severity (pass/retry/escalate). Slice 6 adds an explicit **finding-level** confidence rubric independent of the rule-failure path.
 
-- [ ] Define the H/M/L rubric in `pipeline/schemas.py`: when does a finding get High, Medium, or Low?
-  - Candidate criteria: number of corroborating evidence records, presence of timestamp grounding, classification certainty, count of ruled-out alternatives, Critic-rule pass rate
-- [ ] Wire in `pipeline/critic.py`: any `Low`-confidence finding auto-escalates to `human_review` regardless of Critic rule outcomes
-- [ ] Add a new `CRITIC_RULE` or orchestrator-layer check: `R_14_LOW_CONFIDENCE_AUTO_ESCALATE` (consider: is this a Rule, or a separate mechanism?)
-- [ ] Fail-fast probe + pytest: synthetic Low-confidence finding → forces escalate; High-confidence finding → passes
-- [ ] Re-run 2.5 baseline; confirm no regression (P=1.00 R=1.00 still)
+- [x] Defined H/M/L rubric as `CONFIDENCE_RUBRIC` dict in `pipeline/schemas.py` — deterministic criteria aligned with R_06/R_08/R_12 (for high) and R_15 (for low)
+- [x] Wired into `pipeline/critic.py`: any `Low`-confidence finding auto-escalates to `human_review` via **R_15** (LOW_CONFIDENCE_AUTO_ESCALATE in ESCALATE_CODES, no retry template)
+- [x] **R_15** added (R_14 still reserved for citation-gate activation). Fires on any finding at `confidence=low`, including NOT_FOUND@low. Registry now has 14 active rules.
+- [x] `INTERPRET_SYSTEM_PROMPT` section 5 rewritten to render the rubric verbatim and reference the enforcing rules so the LLM calibrates its confidence labels correctly
+- [x] 6 new pytest cases (bad-low-positive, bad-NOT_FOUND@low, good-medium, good-high, orchestrator→escalate, rubric shape)
+- [x] Regression baseline: **193/193** green (up from 187)
 
-### 3a — Per-excerpt sha256 provenance
+**Committed as `96897f1` (2026-04-24).**
 
-- [ ] Every `Evidence` record carries the sha256 of the structured_fields it cites (not just the raw bytes sha256)
-- [ ] Linked to `plan_digest` so an excerpt can be traced to the exact approved plan version that produced it
-- [ ] schemas.py change + migration note
-- [ ] Fail-fast probe: tamper with cited structured_fields post-hoc → provenance-verifier detects
+### 3a — Per-excerpt sha256 provenance ✅ 2026-04-24
+
+- [x] `Evidence.excerpt_sha256` field landed in `pipeline/schemas.py` — Pydantic validator auto-fills from `output_excerpt` after adversarial-control stripping; caller-supplied hashes are tamper-verified at construction
+- [x] Mismatch between stored hash and recomputed hash raises `ValidationError` on reload — the tampering tripwire for `findings.json`
+- [x] Legacy findings.json without the field reload cleanly (default="" → post-validator fills it)
+- [x] 8 pytest cases added (helper, autofill, matching accepted, tampering rejected, JSON round-trip, legacy reload, empty excerpt, post-strip bytes)
+- [x] Deep binding to `raw_sha256` across records is **Step 4's** integrity-ledger job; this field is the minimum-viable primitive that Step 4 will hash-chain
+
+**Committed as `a6c2078` (2026-04-24).** Full suite green: **201/201**.
+
+---
+
+## Step 3b — AI-assisted attacker detection (awareness layer) ⬅ added 2026-04-24
+
+**Why this step exists:** Q1 2026 threat reports (CrowdStrike GTR 2026, Mandiant M-Trends 2026, Google GTIG) confirm multiple in-the-wild malware samples that **call LLM APIs from compromised hosts** (PROMPTFLUX → Gemini, PromptSteal/LameHug → Hugging Face, QuietVault → on-host AI CLI, PromptLock → LLM-generated Lua). This is no longer a future-threat projection — it's a present-day TTP. Full threat-landscape evidence review at [`docs/research/ai-assisted-threat-landscape-2026.md`](../research/ai-assisted-threat-landscape-2026.md).
+
+**Scope discipline:** *awareness layer, not a schema rebuild.* Core PersistenceCategory values stay. A Run key is still a Run key. What changes is that the agent **specifically recognizes** when persistence calls out to an LLM / imports an AI SDK / carries prompt-like strings, and flags it as AI-assisted. Avoiding the high-FPR trap of stylometric "was this AI-written?" classifiers — we anchor on concrete artifacts (URLs, imports, keys), not writing style.
+
+### 3b.1 — INTERPRET prompt update
+
+- [ ] Add a new sub-section to `INTERPRET_SYSTEM_PROMPT` (in `pipeline/nodes.py`) documenting AI-attacker signals to look for:
+  - LLM API URLs in persistence artifacts: `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api-inference.huggingface.co`
+  - AI-SDK imports in scheduled tasks / services / Run-key payloads: `openai`, `anthropic`, `langchain`, `langgraph`, `google.generativeai`, `transformers`, `huggingface_hub`
+  - Env-var references: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HUGGINGFACE_HUB_TOKEN`
+  - Config-folder paths: `%USERPROFILE%\.openai\`, `%USERPROFILE%\.anthropic\`
+  - Prompt-like strings embedded in payloads (imperative English, "You are a helpful assistant..." preambles)
+- [ ] Prompt instruction: when any of these signals are present on persistence, set `classification = "attacker_persistence_ai_assisted"` and cite the specific signal in `notes` with inline `[ev:<id>]` citation
+
+### 3b.2 — Schema change: new Classification value
+
+- [ ] Add `attacker_persistence_ai_assisted` to the `Classification` literal in `pipeline/schemas.py`
+- [ ] Treated as a flavor of `attacker_persistence` by R_08 / R_11 (same primary-tool-evidence and rule-out requirements apply)
+- [ ] Update `test_classification_literal` in `tests/test_schemas.py`
+
+### 3b.3 — New Critic rule: R_16 AI-assisted evidence anchor
+
+- [ ] Fires when `classification == "attacker_persistence_ai_assisted"` but the cited evidence does NOT contain at least one of the concrete anchors (LLM URL substring, SDK import name, known API-key env var)
+- [ ] Prevents the model from crying wolf on stylistic guesses — the classification must be grounded in a recoverable artifact
+- [ ] FailureCode: `AI_ASSIST_ANCHOR_MISSING` — routes to `re_interpret` (model must either find the anchor or downgrade to `attacker_persistence`)
+- [ ] pytest: bad case (classified as AI-assisted with no anchor in excerpts) → fires; good case (classified with `openai` import visible in excerpts) → passes
+
+### 3b.4 — Demo staging
+
+- [ ] Add **one PROMPTFLUX-style persistence artifact** to the staged adversary-AI E01: scheduled task running a Python script that imports `openai` and calls `api.openai.com` with a hard-coded key
+- [ ] Ground-truth: agent must classify the finding as `attacker_persistence_ai_assisted` and cite the LLM URL in the evidence excerpt
+- [ ] This is the "here's what 2026 actually looks like" demo beat for the judges
+
+### 3b.5 — Accuracy Report framing
+
+- [ ] Include a named section in the Accuracy Report: *"Detecting AI-Assisted Persistence — 2026 Threat Landscape"*
+- [ ] Cite the 4-5 confirmed in-the-wild samples (PROMPTFLUX, PromptSteal/LameHug, QuietVault, PromptLock, Slopoly)
+- [ ] Explicit about the FPR problem: legitimate Copilot/Cursor users on dev machines will trigger surface-level AI-SDK import signals. Our pipeline mitigates this by anchoring on LLM-endpoint URLs + prompt-like strings (which devs don't typically embed in scheduled tasks) rather than stylometry alone
+- [ ] Acknowledge: the `machine_role` context (developer vs non-developer) is hard-coded per case for the hackathon; post-hack it would be inferred from AD / OU / hostname
+
+**Acceptance:** pipeline runs clean on the demo case with the AI-assisted artifact; agent correctly classifies it; Critic R_16 passes; no regression on the existing 3 GT-annotated cases (wkstn-05, dfirmadness, base-dc).
+
+**Scope tradeoff acknowledged:** This is ~1–2 focused days of implementation work on top of the existing Slice 6 plan. The pivot was taken after April-2026 threat intel showed the TTP is present, not emerging.
 
 ---
 
