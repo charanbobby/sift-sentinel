@@ -1,10 +1,14 @@
 """Autonomous pipeline runner — replaces the notebook workflow.
 
 Runs the full pipeline (extract → plan → execute → interpret → critic) for a
-single case and saves outputs to out/runs/<case_id>/. No interactive cells,
-no Jupyter, no human approval prompt for the capability token — this is the
-"u can do it" path where the orchestrator auto-issues the token after plan_node
-generates the ToolPlan.
+single case and saves outputs to out/runs/<case_id>/<run_id>/. Each invocation
+gets its own isolated subfolder so re-runs never overwrite prior runs (needed
+for Step 7 ablation and general audit-trail integrity). A `latest.txt` file at
+the case level holds the most recent run_id for convenience.
+
+No interactive cells, no Jupyter, no human approval prompt for the capability
+token — this is the "u can do it" path where the orchestrator auto-issues the
+token after plan_node generates the ToolPlan.
 
 Usage (inside sift-sentinel):
     /workspace/.venv/bin/python /workspace/run_case.py \\
@@ -32,7 +36,7 @@ from pipeline.graph import PipelineState, build_graph, compute_thread_id, mint_c
 from pipeline.mcp.tokens import issue_token
 
 MODELS = {
-    "extract":   "google/gemini-2.5-flash",
+    "extract":   "google/gemini-3-flash-preview",
     "plan":      "anthropic/claude-sonnet-4-6",
     "interpret": "anthropic/claude-sonnet-4-6",
 }
@@ -62,8 +66,14 @@ def _configure_nodes(case_id: str, e01_path: str, out_dir: Path, langfuse, llm_c
 
 def run(case_id: str, e01_path: str) -> int:
     run_id = f"{case_id}-{uuid.uuid4().hex[:8]}"
-    out_dir = Path("/workspace/out/runs") / case_id
+    case_dir = Path("/workspace/out/runs") / case_id
+    out_dir = case_dir / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Update the case-level pointer to the most recent run. Written before any
+    # pipeline work so a crashed mid-run still leaves a discoverable run_id;
+    # downstream tools that read latest.txt must accept "run dir exists but
+    # findings.SUCCESS may be absent" semantics.
+    (case_dir / "latest.txt").write_text(run_id + "\n", encoding="utf-8")
 
     print(f"\n{'='*70}")
     print(f"PIPELINE RUN")
