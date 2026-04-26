@@ -493,7 +493,7 @@
     <div class="script-col">
       <span class="col-label">Narrator</span>
       <div class="script-content">
-        <p>Deployment is deliberately honest. The orchestrator and the MCP server run in the <span class="emph">same container</span>, under the same UID. Capability tokens are application-layer routing — <span class="emph">not a cryptographic sandbox</span>. A fully hijacked agent could bypass the MCP boundary directly.</p>
+        <p>Deployment is deliberately honest. The orchestrator and the MCP server run in <span class="emph">separate containers</span> over an internal HTTP MCP bridge. Capability tokens are application-layer routing — <span class="emph">not a cryptographic sandbox</span>. A container escape or compromised runtime would still be outside the prototype boundary.</p>
         <p>That's why <b>Pillar 2</b> — the evidence splitter — is the real injection defense. If injection never reaches the agent's context, the hijack never happens in the first place.</p>
         <p>The integrity ledger lives <span class="emph">outside</span> the container, on a separate volume. The container can't silently rewrite its own audit trail.</p>
       </div>
@@ -572,7 +572,7 @@
       <span class="col-label">On screen</span>
       <div class="visual-content">
         <p><span class="cue">FINAL CARD</span> single still image, centered. Hold for 20s.</p>
-        <p><b>Title:</b> <i>Find Evil — Autonomous DFIR Pipeline</i></p>
+        <p><b>Title:</b> <i>Find Evil — Guarded DFIR Pipeline</i></p>
         <p><b>Four claims</b>, one line each (large type):</p>
         <ul>
           <li>Deterministic 13-rule Critic — validated against a no-persistence scenario</li>

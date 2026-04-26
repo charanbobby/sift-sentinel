@@ -1,13 +1,12 @@
-# Slice 6 Runbook — Reference Dataset + L3 Ship + Sampled-Audit + Accuracy Report
+# Slice 6 Runbook — Bounded Reference Dataset + L3 Ship + Accuracy Report
 
-**Goal:** Ship the submission. Four named deliverables per [`PLAN.md`](../planning/PLAN.md) row 6:
+**Goal:** Ship the submission. Three named deliverables per [`PLAN.md`](../planning/PLAN.md) row 6:
 
-1. **Reference Dataset** — stage ~5–7 SRL-2018 Windows/NTFS E01s under `HACKATHON-2026/`. Full ground-truth annotation on 3 cases (L2→L3 regression baseline); sampled post-hoc audit on the rest.
+1. **Bounded Reference Dataset** — stage Windows/NTFS E01s under `HACKATHON-2026/`, but only make scored claims on fully ground-truthed cases. Target 3 full-GT cases for the L2→L3 regression baseline.
 2. **L3 controls** — H/M/L confidence rubric with auto-escalation of Low; per-excerpt sha256 provenance linked to `plan_digest`; Critic-disagreement log; token/latency/tool-call audit trail; **append-only integrity ledger** stored separately from case folders (NIST: hashes in the same mutable folder look like self-attestation).
-3. **Sampled-audit research artifact** — autonomous run across the full Reference Dataset with post-hoc reviewer audit on sampled findings. Scoped as a research artifact, **not** a claim of deployment-ready forensic-auditor operation.
-4. **Accuracy Report** — named submission deliverable per `docs/reference/hackathon/rules.md` §4 #5. Lives at `docs/submission/accuracy-report.md`. Assembles scorecard_v2 + 4-row ablation + per-case FP/FN inventory + hallucinated-claim log with Critic catches.
+3. **Accuracy Report** — named submission deliverable per `docs/reference/hackathon/rules.md` §4 #5. Lives at `docs/submission/accuracy-report.md`. Assembles scorecard_v2 + ablation data + per-case FP/FN inventory + hallucinated-claim log with Critic catches + evidence-integrity results.
 
-**Why this shape (submission framing):** Slice 5 made the evidence-to-LLM boundary structurally defensible. Slice 6 demonstrates that boundary **scales across a real dataset** and produces an **auditable record** — the two things a judge needs to believe the system would hold up in practice. L3 "Exception-Based Autonomy" is the autonomy dial we ship; the sampled-audit artifact documents one justified next step (we don't headline aspirational levels).
+**Why this shape (submission framing):** Slice 5 made the evidence-to-LLM boundary structurally defensible. Slice 6 demonstrates that boundary on multiple real cases and produces an auditable record. L3 "Exception-Based Autonomy" is the autonomy dial we ship. A sampled review of non-GT cases is optional supporting evidence, not a milestone and not a claim of deployment-ready autonomous auditing.
 
 **Submission deadline:** 2026-06-15 (~7 weeks from Slice 5 close on 2026-04-23).
 
@@ -40,7 +39,7 @@ Cost calibration run measured — INTERPRET cost per call is **~$0.09** (21,998 
 - [x] **Third GT-annotated case**: `base-dc` (Windows domain controller) — gives the most different persistence profile from the two already-annotated workstations, exercises hive paths that wkstn-05 doesn't hit (NETLOGON, AD-related artifacts)
 - [x] **Integrity-ledger scope**: linear hash-chain real impl (Slice 6 Step 4). At ~$5 for the whole slice the dollar pressure that would have pushed to a stub is gone; submission narrative is stronger with a real ledger + `verify_chain_of_custody.py` replay tool
 - [x] **Ablation scope**: run all 4 rows on **all staged cases**. Rows 2+4 on all 7 cases ≈ $2.80; not worth cutting for pennies. Accuracy Report gets a full 4-row × 7-case matrix + the adversarial demo quarantine% column
-- [x] **Sampled-audit rate**: 3 findings per non-GT case (all findings if the case produced ≤3) + 2 random evidence records per case. Cheap in reviewer-time, catches the dominant FP / hallucination class
+- [x] **Optional sampled-review rate**: 3 findings per non-GT case (all findings if the case produced ≤3) + 2 random evidence records per case. Use only as Accuracy Report appendix evidence, not scored recall.
 - [x] **Integrity-ledger storage location**: `/var/lib/find-evil/ledger.jsonl` on `sift-sentinel` via a new named Docker volume — survives container restart, lives outside case folders per NIST, not mounted into `sift-mcp` (write-only from the orchestrator)
 
 All five decisions carried into [PLAN.md](../planning/PLAN.md) Key Decisions table.
@@ -81,7 +80,7 @@ Not downloaded (not blocking — 6 cases satisfies the ≥5 gate): `base-rd-01`,
 
 ### 1a — Dataset manifest update
 
-- [ ] Update [`docs/reference/hackathon/dataset_manifest.md`](../reference/hackathon/dataset_manifest.md) with status rows for each staged case: `[staged / preprocessed / pipeline-runs-clean / GT-annotated / sampled-audit-done]`
+- [ ] Update [`docs/reference/hackathon/dataset_manifest.md`](../reference/hackathon/dataset_manifest.md) with status rows for each staged case: `[staged / preprocessed / pipeline-runs-clean / GT-annotated / optional-review-done]`
 - [ ] Record each `.ntfs.dd` sha256 (captured at preprocess time) as baseline identity for Step-4 ledger genesis
 - [ ] Persistence-profile notes per case: expected Windows roles → expected persistence mechanisms to watch for
 
@@ -100,7 +99,7 @@ For the new third case (`base-dc`):
 
 **Result:** TP=0, FP=0, FN=0. Negative-control case — no attacker persistence. F-Response Subject + Mnemosyne correctly classified as `legitimate_responder_tool` and excluded. Critic R_12 escalated correctly (Winlogon parse_error gap); human reviewer confirms absence claim is correct.
 
-**Why the bar is "3 full-GT cases, not all ~7":** ground-truth annotation is expensive (hours per case) and only needed for the L2→L3 regression claim. The other 4 cases get the cheaper sampled-audit treatment.
+**Why the bar is "3 full-GT cases, not all ~7":** ground-truth annotation is expensive (hours per case) and only needed for the L2→L3 regression claim. Other staged cases can get cheaper sampled review, but they must be labeled recall-limited.
 
 ---
 
@@ -171,9 +170,69 @@ Today's system uses the Critic's severity (pass/retry/escalate). Slice 6 adds an
 - [ ] Explicit about the FPR problem: legitimate Copilot/Cursor users on dev machines will trigger surface-level AI-SDK import signals. Our pipeline mitigates this by anchoring on LLM-endpoint URLs + prompt-like strings (which devs don't typically embed in scheduled tasks) rather than stylometry alone
 - [ ] Acknowledge: the `machine_role` context (developer vs non-developer) is hard-coded per case for the hackathon; post-hack it would be inferred from AD / OU / hostname
 
-**Acceptance:** pipeline runs clean on the demo case with the AI-assisted artifact; agent correctly classifies it; Critic R_16 passes; no regression on the existing 3 GT-annotated cases (wkstn-05, dfirmadness, base-dc).
+### 3b.6 — Memory-evidence path (added 2026-04-25)
 
-**Scope tradeoff acknowledged:** This is ~1–2 focused days of implementation work on top of the existing Slice 6 plan. The pivot was taken after April-2026 threat intel showed the TTP is present, not emerging.
+AI-assisted attackers manifest more sharply at runtime in memory than as dormant disk artifacts. PROMPTFLUX's live LLM-API connection, PromptSteal's loaded `transformers` import, QuietVault's command-line invocation are all visible in process state, not on disk. Disk-only AI-assisted detection is the weaker version of the differentiation pitch; memory makes it the stronger version. See [PLAN.md Key Decisions row "Memory analysis folded into Slice 6 Step 3b"](../planning/PLAN.md#L130) for full rationale.
+
+**Tooling: Volatility 2.6.1 (already installed in `sift-mcp`).** No install work required. Coverage envelope: Windows XP through Windows 10 + Server 2008 R2 / Server 2012, which contains all SRL-2018 hosts. Win11 + Server 2022 (e.g., OpenUni22 memory) require Volatility 3 and stay deferred.
+
+**One-time evidence-staging step (operational finding 2026-04-25):** raw memory dumps on the host `D:` bind mount serve the SIFT container at ~1.5 MB/s sustained, making direct vol.py runs unusably slow. Each dump is staged once into a fast container-local volume before pipeline runs. This mirrors the existing `E01 → .ntfs.dd` preprocessing pattern.
+
+#### 3b.6.1 — `volatility_run` MCP tool
+
+- [ ] Add `@mcp.tool()` `volatility_run(capability_token, plan_digest, case_id, image_path, profile, plugin)` in [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py); pattern-match against `regripper_run`
+- [ ] Plugin allowlist: `{pslist, cmdline, netscan, dlllist, malfind}` only. Anything else raises before subprocess
+- [ ] Profile parameter accepted as input (do not auto-detect with `imageinfo`; ~15 min wall clock per dump). Per-host profile mapping documented in case manifest
+- [ ] Path allowlist: image_path must live under `/var/lib/find-evil/memory/` (named volume) or the case's `analysis/extracted/` directory
+- [ ] Subprocess: `vol.py -f <image> --profile=<profile> <plugin>`; same `_run_subprocess` helper as existing tools; same 64 KB stdout cap
+- [ ] Capability-token enforcement same as other tools
+
+#### 3b.6.2 — Memory-evidence schemas
+
+- [ ] Add `VolatilityProcessEntry`, `VolatilityNetworkEntry`, `VolatilityMalfindEntry`, `VolatilityDllEntry` to [`pipeline/schemas.py`](../../experiments/slice-2-notebook/pipeline/schemas.py)
+- [ ] Add `VolatilityResult` (discriminated union by `plugin_name`)
+- [ ] Add new `Classification` literals: `process_injection`, `c2_beacon`, `attacker_persistence_ai_assisted_runtime`
+- [ ] Add `evidence_type: Literal["disk", "memory"]` field on `EvidenceRecord` if not already present; default `"disk"` for existing records
+- [ ] Update `__all__` exports
+- [ ] Apply existing `strip_adversarial_controls` validator + `Field(max_length=N)` bounds to all string fields (Tier-1 polish #3 carries forward)
+
+#### 3b.6.3 — PLAN prompt: memory-evidence dispatch
+
+- [ ] Edit `PLAN_SYSTEM_PROMPT` in [`pipeline/nodes.py`](../../experiments/slice-2-notebook/pipeline/nodes.py): advertise `volatility_run` alongside the existing 5 disk tools; document the 5-plugin allowlist + profile-required parameter
+- [ ] Add memory-pivot guidance: "if `evidence_type=memory`, plan a sweep of `pslist` → `cmdline` → `netscan` → `dlllist` → `malfind` against the staged image; do not chain icat/regripper for memory inputs"
+- [ ] Structural invariant addition: every `volatility_run` step requires a `profile` value present in the case manifest
+
+#### 3b.6.4 — INTERPRET prompt: memory taxonomy + AI-assisted runtime anchors
+
+- [ ] Edit `INTERPRET_SYSTEM_PROMPT` in [`pipeline/nodes.py`](../../experiments/slice-2-notebook/pipeline/nodes.py): add "Memory-evidence semantics" section with the new Classification values
+- [ ] Add memory-specific AI-assisted anchors (extends 3b.1 disk-side anchor list):
+  - LLM-endpoint connections in `netscan` rows: any TCP destination matching `api.openai.com`, `api.anthropic.com`, `generativelanguage.googleapis.com`, `api-inference.huggingface.co`, `api.cohere.ai`
+  - AI-SDK module names in `cmdline` (Python `-m openai`, `python ... import anthropic`, `from langchain ...`)
+  - API-key env-var references in process command-line (`OPENAI_API_KEY=`, `ANTHROPIC_API_KEY=`)
+  - Inference-process pairings (`python.exe` parent of network connection to LLM endpoint)
+- [ ] Hard rule: classify as `attacker_persistence_ai_assisted_runtime` only when a memory anchor is recoverable in cited evidence excerpts; otherwise downgrade to nearest non-AI classification
+
+#### 3b.6.5 — R_16 verification on memory artifacts
+
+- [ ] Confirm R_16 anchor logic in [`pipeline/critic.py`](../../experiments/slice-2-notebook/pipeline/critic.py) treats memory anchors (LLM URLs in `netscan`, SDK imports in `cmdline`) as valid anchors
+- [ ] Only add a memory-specific Critic rule if probing reveals an FP / FN class R_16 misses; default is "no new rule"
+
+#### 3b.6.6 — Demo + ground truth on `base-wkstn-05` memory
+
+- [ ] Stage `base-wkstn-05-memory.img` to `/var/lib/find-evil/memory/` (named volume). Document profile in case manifest
+- [ ] Run end-to-end dual-evidence pipeline: disk + memory inputs, single PLAN, single INTERPRET
+- [ ] Annotate memory findings into `ground_truth.json` for `srl-2018-wkstn-05` (extend existing record); per-finding verdict markdown updates `slice-2.5-ground-truth.md`
+- [ ] Acceptance: pipeline classifies any memory-resident persistence cleanly; no regression on the existing 3 disk-only GT-annotated cases (wkstn-05, dfirmadness, base-dc)
+
+#### 3b.6.7 — pytest coverage
+
+- [ ] `tests/test_volatility_tool.py` — argv construction, plugin-allowlist enforcement, profile required, capability-token denial paths, parser per plugin
+- [ ] Extend `tests/test_schemas.py` — new Classification literals, VolatilityResult validation, evidence_type field defaults
+- [ ] Extend `tests/test_critic.py` — R_16 fires on memory finding without anchor; passes on memory finding with anchor
+
+**Acceptance:** pipeline runs clean on the demo case with the AI-assisted artifact AND on `base-wkstn-05` dual-evidence; agent correctly classifies disk + memory findings; Critic R_16 passes on both classes; no regression on the existing 3 GT-annotated cases (wkstn-05, dfirmadness, base-dc); full pytest suite green.
+
+**Scope tradeoff acknowledged:** combined disk-side AI-assisted (3b.1-3b.5) + memory-evidence path (3b.6) is ~5 working days inside the 7-week submission runway. Cost calibration: Volatility 2 already installed (no install work), raw `.img` already extracted (no decompression tax), MCP tool wrapper pattern-matches `regripper_run` (no architectural new work), schema/prompt edits are line edits not redesigns. **Hard fail-fast cutoff:** if Vol2 cannot bind a profile to the first staged dump after I/O staging, fall back to disk-only AI-assisted (3b.1-3b.5 only) and document memory as Slice 6.5 / extension.
 
 ---
 
@@ -202,14 +261,14 @@ Per carried item 9 in PLAN.md: **linear hash-chained** ledger, not plain append-
 
 ---
 
-## Step 6 — Sampled-audit protocol
+## Step 6 — Optional sampled-review protocol
 
 For the ~4 cases without full GT, apply a lightweight post-hoc reviewer audit.
 
 - [ ] Sampling rate (Step 0 decision): e.g., audit N findings per case + M random evidence records
 - [ ] Audit template: reviewer marks each sampled finding as "plausible / suspicious / known wrong" + cross-references cited structured_fields
-- [ ] Per-case sampled-audit report: `out/runs/<case>/sampled_audit.md`
-- [ ] Aggregate sampled-audit stats for the Accuracy Report
+- [ ] Per-case optional-review report: `out/runs/<case>/sampled_review.md`
+- [ ] Aggregate optional-review notes for the Accuracy Report appendix
 
 **Framing:** this is a *research artifact*, not a deployment-readiness claim. The Accuracy Report must be explicit about recall-blind-spot: we don't know FNs on non-GT cases.
 
@@ -233,12 +292,12 @@ Lives at [`docs/submission/accuracy-report.md`](../submission/accuracy-report.md
 
 Structure:
 - [ ] **Executive summary** — the submission in 200 words: what we built, headline accuracy numbers, where the system shines / fails
-- [ ] **Methodology** — Reference Dataset composition, GT protocol, sampled-audit protocol, ablation design, tool + model stack
+- [ ] **Methodology** — Reference Dataset composition, GT protocol, optional sampled-review protocol, ablation design, tool + model stack
 - [ ] **Per-case results** — for each case: scorecard_v2, per-finding verdict table, FP / FN inventory with notes
 - [ ] **Ablation table** — 4 rows × (2.5 cases + adversarial demo) with precision/recall/quarantine%
 - [ ] **Hallucinated-claim log** — every hallucination the Critic caught (from `critic_disagreements.jsonl` across all runs), categorized by failure code
-- [ ] **Known limitations** — Windows-disk only, 4-tool MCP scope, FN blind spot on non-GT cases, stdio-transport caveat (now HTTP — update)
-- [ ] **Extension points** — seccomp / eBPF / microVM for true adversarial bypass, memory analysis (Volatility), Linux disk profile
+- [ ] **Known limitations** — Windows-disk only, 5-tool MCP scope, FN blind spot on non-GT cases, container-boundary caveat
+- [ ] **Extension points** — seccomp / eBPF / microVM for true adversarial bypass; Volatility 3 for Win11 / Server 2022 memory (Vol2 covers the SRL-2018 envelope, included in scope per Step 3b.6); Linux disk profile
 
 ---
 
@@ -276,7 +335,7 @@ Keeps scope tight. These are good ideas that won't make the submission:
 
 - Real adversarial E01 builder (`make_adversarial_e01.py`) — Slice 5 Option C demo is sufficient for the submission's adversarial story
 - Full-stack UI (Next.js findings viewer) — originally Slice 7; still stretch-only
-- Memory analysis (Volatility) + Linux disk profile — documented as extension points in the Accuracy Report
+- Volatility 3 (Win11 / Server 2022 memory) + Linux disk profile — documented as extension points in the Accuracy Report. **Note:** Volatility 2 memory coverage for SRL-2018 hosts is now in scope per Step 3b.6 (added 2026-04-25).
 - MCP-over-WAN capability-token upgrade to Ed25519 — HMAC is sufficient for the current trust boundary
 - SSHub.dev portfolio demo — explicitly post-submission per PLAN.md Open Questions
 
@@ -292,6 +351,8 @@ Keeps scope tight. These are good ideas that won't make the submission:
 | Cost overrun on full-dataset runs | Cut ablation rows 2 + 4; cut non-GT cases if needed; always keep GT-annotated cases in the run |
 | Third GT case ambiguous | Cut to 2 GT-annotated cases; document reason in Accuracy Report |
 | Submission deadline slipping | Cut in order: rows 2+4 ablation → non-GT cases → third GT case → ledger (ship stub only). Never cut: Accuracy Report, scorecard_v2 on 2.5 cases, adversarial demo |
+| Vol2 cannot bind a profile to a staged memory dump (Step 3b.6 fail-fast) | Fall back to disk-only AI-assisted (3b.1-3b.5 only); document memory analysis as Slice 6.5 / extension; do not sink-cost on profile hunting |
+| Memory plugin output bloats the INTERPRET bundle past safe-cost envelope | Apply same bundle-trim discipline as the Step-7 fls_list fix: strip plugin output rows that don't carry forensic content (e.g., system processes in `pslist` matching a known-safe set); cap per-plugin output rows in the bundle builder |
 
 ---
 
@@ -315,6 +376,6 @@ Keeps scope tight. These are good ideas that won't make the submission:
 
 1. **Confidence rubric definition** — what specific signals determine H/M/L? Needs a decision before Step 3 can begin.
 2. **Third full-GT case** — which of `base-dc` / `base-file` / `base-rd-0{1,2}` / `base-wkstn-01` makes the best regression baseline? Candidate criteria: cleanest persistence mechanism, diversity from wkstn-05 + dfirmadness.
-3. **Sampled-audit sampling rate** — 3 findings per non-GT case? All findings? Random evidence records too?
+3. **Optional sampled-review sampling rate** — 3 findings per non-GT case? All findings? Random evidence records too?
 4. **Integrity-ledger storage location** — `/var/lib/find-evil/ledger.jsonl` on the sift-sentinel container vs the host FS vs an external DB?
 5. **Ablation scope** — rows 2 + 4 add ~$18 in LLM spend. Worth it for the headline number, or cut?

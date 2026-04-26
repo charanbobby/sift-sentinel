@@ -21,7 +21,7 @@ Status legend used throughout: ✅ shipped • 🟡 runbook-ready, implementatio
 | Structural-invariants check | Post-PLAN static validation (e.g. every `regripper_run` must have `icat_extract` upstream) | `slice2.ipynb` C6 | ✅ |
 | `plan_approve` gate | Human approves the PLAN before any tool runs (L1/L2) | LangGraph conditional edge | ✅ |
 | `EXECUTE` node | Run each tool in plan order via an MCP client | `slice2.ipynb` C8 + [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) | ✅ |
-| MCP server | Local stdio-transport MCP server, exposes 5 typed forensic tools | `mcp_server/server.py` (inside the SIFT Docker container) | ✅ 4 tools / 🟡 5th tool |
+| MCP server | Streamable-HTTP MCP server on an internal Docker bridge, exposes 5 typed forensic tools | `mcp_server/server.py` in the `sift-mcp` container | ✅ |
 | Capability-token verification | Per-plan token scoped to `(case_id, allowed_tools, allowed_paths, plan_digest, expires_at)` | `mcp_server/server.py` | 🟡 Slice 5 |
 | Dual-channel evidence handler | Raw bytes → integrity ledger; structured fields → agent context; suspicious content → quarantine + escalate | `mcp_server/server.py` | 🟡 Slice 5 |
 | `INTERPRET` node | Synthesize typed `Finding` objects with DFIR classification + auto-populated MITRE ATT&CK fields | `slice2.ipynb` C9 — model `anthropic/claude-sonnet-4.6` | ✅ |
@@ -203,13 +203,13 @@ The architecture layers four distinct boundaries. Each one catches a different f
 - **Network-layer attackers** on the host.
 - **Courtroom admissibility.** Protocol SIFT itself is experimental per SANS. We describe these mechanisms as *replayable auditability for a research workflow*, not proxies for legal admissibility.
 
-### 3c. The stdio-transport nuance
+### 3c. The container-isolation nuance
 
-In our deployment, the LangGraph orchestrator and the MCP server run in the same Docker container under the same UID. An adversary that fully hijacks the agent's reasoning (via a successful prompt injection that slips past the dual-channel handler) could, in principle, escape to the Python runtime and issue arbitrary `subprocess` calls — capability tokens can't prevent that because the agent is on the inside of the MCP transport.
+In the current deployment, the LangGraph orchestrator and MCP server run in separate containers over an internal streamable-HTTP MCP bridge. The agent container has no Docker socket and no forensic tool binaries; the MCP server is the only evidence-processing capability exposed to the agent. Capability tokens are therefore load-bearing for tool routing, path scope, and plan-digest binding.
 
-**This is explicitly acknowledged in the submission.** Capability tokens are advertised as *application-layer least-privilege routing* — they prevent the LLM from logically requesting an out-of-scope tool. They are **not** a cryptographic boundary against adversarial breakout. The actual adversarial-injection defense is the dual-channel handler, which keeps injection strings out of the LLM context in the first place — a hijacked agent is a hijacked agent we never have, because the hijack payload never reaches it.
+**This is still explicitly bounded in the submission.** Capability tokens are application-layer least-privilege routing, not a cryptographic sandbox. They do not defend against container escape, host compromise, model-provider compromise, or a bug in the Python runtime itself. The actual adversarial-evidence defense is still the dual-channel handler, which keeps injection strings out of the LLM context in the first place.
 
-Full isolation in stdio would require seccomp-BPF, eBPF-LSM, or microVM wrapping (e.g., Firecracker, gVisor). Documented as an extension point in the submission; not in scope for an 8-week hackathon.
+Stronger isolation would require seccomp-BPF, eBPF-LSM, or microVM wrapping (e.g., Firecracker, gVisor). Documented as an extension point in the submission; not in scope for an 8-week hackathon.
 
 ---
 
@@ -220,7 +220,7 @@ Full isolation in stdio would require seccomp-BPF, eBPF-LSM, or microVM wrapping
 3. **`PLAN` runs** (C6). Claude Sonnet 4.6 takes the candidate list + available MCP tools + inline `ToolPlan` schema, emits a typed sequence of tool calls with a `depends_on` DAG.
 4. **Structural invariants check** (C6). Every `regripper_run` must have an `icat_extract` upstream; every `scheduled_tasks_parse` must have an `icat_extract` of the Tasks directory upstream; every tool call's `allowed_path` must resolve inside the case folder. Fail → back to PLAN.
 5. **`plan_approve` gate.** At L1/L2, the human reviews the plan. L3 submission target: the gate reads from a confidence-rubric + policy file rather than blocking on a human approval.
-6. **`EXECUTE` runs** (C8). Each tool call is dispatched to the MCP server over stdio with a capability token in the request header.
+6. **`EXECUTE` runs** (C8). Each tool call is dispatched to the MCP server over internal HTTP MCP with a capability token in the request payload.
 7. **Capability-token check** ([`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py)). Server validates `(case_id, tool_name, paths, plan_digest, expiry)` against the token. Failure → refuse + escalate.
 8. **Tool runs.** `fsstat_e01` / `fls_list` / `icat_extract` / `regripper_run` / `scheduled_tasks_parse`. Raw stdout/stderr bytes are captured.
 9. **Dual-channel split** (Slice 5 boundary). The raw bytes are hashed and written to the integrity ledger with `prev_entry_hash` embedded. Structured fields are server-side-extracted (parsed registry keys, file paths, timestamps, ATT&CK-relevant fields) into an `EvidenceRecord`. Content matching injection patterns is flagged — the raw record is preserved, but the structured extract substitutes a safe placeholder and the case is escalated to `human_review`.

@@ -12,7 +12,7 @@
 |---|---|
 | **Pipeline** | `E01 → EXTRACT → PLAN → gates → EXECUTE(MCP) → INTERPRET → CRITIC → findings.json` |
 | **What's shipped** | L2 end-to-end with 5/5 MCP tools, 11/13 active Critic rules (+ R_13 stub), LangGraph topology, Langfuse tracing, Slice 5 full stack (HTTP MCP transport, capability tokens, dual-channel handler, injection-quarantine wiring), 128-test pytest suite, **canary tripwire on the INTERPRET bundle** |
-| **What's next** | Slice 6 (Reference Dataset + L3 ship + sampled-audit + Accuracy Report) · AI-adversary detection branch (staged-data demo) |
+| **What's next** | Slice 6 (bounded Reference Dataset + L3 ship + Accuracy Report) · AI-adversary detection demo only if it stays evidence-anchored |
 | **Headline trust claim** | *Replayable auditability for a research workflow, with explicit defender-AI integrity controls.* We defend the **agent's context** from injected evidence and **detect adversarial attempts to manipulate the defender LLM itself**; we do **not** defend the Python runtime from a hijacked agent. |
 | **Out of scope** | Memory / network / evtx forensics · non-Windows filesystems · seccomp / microVM isolation · courtroom admissibility |
 
@@ -71,7 +71,7 @@ flowchart LR
 | `PLAN` node (Claude Sonnet 4.6, cached) | ✅ | `slice2.ipynb` C6 |
 | Structural invariants | ✅ | `slice2.ipynb` C6 |
 | `plan_approve` gate | ✅ | LangGraph conditional edge |
-| `EXECUTE` node + MCP stdio server | ✅ | `slice2.ipynb` C8 + [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) |
+| `EXECUTE` node + HTTP MCP server | ✅ | `slice2.ipynb` C8 + [`mcp_server/server.py`](../../experiments/slice-2-notebook/mcp_server/server.py) |
 | 5 typed MCP tools | ✅ | `mcp_server/server.py` |
 | Capability-token verification | ✅ Slice 5 | `mcp_server/server.py` + [`pipeline/mcp/tokens.py`](../../experiments/slice-2-notebook/pipeline/mcp/tokens.py) |
 | Dual-channel evidence handler | ✅ Slice 5 | `mcp_server/server.py` + [`pipeline/mcp/injection_scanner.py`](../../experiments/slice-2-notebook/pipeline/mcp/injection_scanner.py) |
@@ -102,13 +102,15 @@ flowchart LR
 
 **Explicitly out of scope:** local root compromise · supply-chain attacks on packages / images / model providers · network-layer attackers · courtroom admissibility.
 
-**The honest stdio caveat.** LangGraph and the MCP server run in the same container under the same UID. A successful prompt-injection that slipped past the dual-channel handler *could* reach `subprocess` via the Python runtime — capability tokens can't stop that because the hijacked agent is on the inside of the MCP transport. Capability tokens are *application-layer least-privilege routing*, **not** a cryptographic sandbox. Seccomp-BPF, eBPF-LSM, or microVM wrapping would close this gap; documented as an extension point, not in scope for 8 weeks. Full prose: [architecture-detailed.md §3c](architecture-detailed.md#3c-the-stdio-transport-nuance).
+**The honest isolation caveat.** LangGraph and the MCP server now run in separate containers over internal HTTP MCP, with no Docker socket or forensic tool binaries in the agent container. Capability tokens are therefore load-bearing for MCP tool routing, but they are still **not** a cryptographic sandbox against container escape, host compromise, model-provider compromise, or a bug in the Python runtime itself. Seccomp-BPF, eBPF-LSM, or microVM wrapping would close more of that gap; documented as an extension point, not in scope for 8 weeks.
 
 ---
 
 ## 4. Autonomy climb
 
 Components activate progressively. L4 (post-deployment Forensic Auditor) is **not** in the submission narrative.
+
+**Scope correction:** the submission goal stops at L3. With only a handful of fully ground-truthed cases, we should not imply that the project reaches a calibrated autonomous-auditor stage. Any sampled audit across non-ground-truthed cases is supporting evidence for the Accuracy Report, not a headline goal.
 
 | | L1 Assisted | L2 Guarded | L3 Exception-Based |
 |---|---|---|---|

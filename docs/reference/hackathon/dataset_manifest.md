@@ -51,7 +51,7 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 | [ ] | base-wkstn-01 | Workstation | `base-wkstn-01-c-drive.E01` | |
 | [x] | base-wkstn-05 | Workstation | `base-wkstn-05-cdrive.E01` | **Current target** — Slice 2 pipeline runs against this |
 | [x] | dmz-ftp | DMZ FTP server | `dmz-ftp-cdrive.E01` | External-facing — likely initial foothold |
-| [ ] | *SRL-2018 (subfolder)* | — | — | Contents unknown — confirm |
+| n/a | *SRL-2018 (subfolder)* | — | — | Confirmed 2026-04-25: subfolder contains additional memory captures only (no disk images, no scenario brief, no ground truth). Out-of-scope for current Windows-disk pipeline. |
 
 ### Memory captures (.7z / .zip)
 
@@ -82,6 +82,18 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 
 > Screenshot cut off after `base-wkstn-06-memory.7z`. If more files exist below that row, add them here.
 
+### Memory profile mapping (Vol 2.6.1)
+
+Per-host kdbgscan + pslist verification — staged 2026-04-25 in `sift-mcp:/tmp/`. SRL-2018 hosts are not a single OS; the case manifest must store the profile per host because Vol2 will not auto-detect cross-build.
+
+| Host | Staged path (sift-mcp) | Vol2 profile | Build | OS | Verified by | Boot |
+|---|---|---|---|---|---|---|
+| base-wkstn-05 | `/tmp/wkstn05.img` (3.2 GB) | `Win7SP1x64` | 7601 | Windows 7 SP1 x64 | kdbgscan + 5 plugins | (user probe) |
+| base-file | `/tmp/base-file-memory.img` (2.0 GB) | `Win2012R2x64` | 9600.16452 winblue_gdr | Server 2012 R2 | kdbgscan + pslist (104 lines) | 2018-08-08 18:07:56 |
+| base-dc | `/tmp/base-dc-memory.img` (5.0 GB) | `Win2016x64_14393` | 14393.2214 rs1_release | Server 2016 | kdbgscan + pslist (109 lines) | 2018-08-16 21:05:18 |
+
+Other SRL-2018 hosts with both disk + memory available (`base-rd-02`, `base-mail`, `base-rd01`) not yet staged. Profile must be probed per host before pipeline runs against them.
+
 ---
 
 ## Additional datasets (not from SANS share)
@@ -104,7 +116,7 @@ Per-host ZIP bundles (each likely contains disk + memory + misc for one host).
 
 ## Open questions
 
-- What's inside the `SRL-2018` subfolder beside the E01 files? (Docs? Ground truth? Network captures?)
+- ~~What's inside the `SRL-2018` subfolder beside the E01 files? (Docs? Ground truth? Network captures?)~~ **Answered 2026-04-25:** memory captures only. No scenario brief, no ground truth, no network captures. Same out-of-scope status as the other memory files.
 - Does SRL-2015 have memory captures we haven't seen yet, or are memory images bundled inside the per-host ZIPs?
 - Is there a case brief / scenario document anywhere in the share (victim org, scope, "find evil" prompt)?
 - Did the original `base-wkstn-05-memory.7z` get deleted after extraction, or was memory obtained from elsewhere? (Folder present, source archive not on disk.)
