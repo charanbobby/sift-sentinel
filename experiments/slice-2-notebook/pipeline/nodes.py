@@ -191,41 +191,67 @@ def _ledger_append(event_type: str, **payload) -> None:
 # Shared helpers
 # ============================================================================
 
-# OpenRouter pricing (USD per 1M tokens). Verify at https://openrouter.ai/models
-# when adding new models. These are the provider pass-through rates OpenRouter
-# charges — no additional markup for the models we use.
-_OR_RATES: dict[str, tuple[float, float]] = {
-    "anthropic/claude-sonnet-4.6":          (3.00, 15.00),
-    "google/gemini-3.1-flash-lite-preview": (0.075, 0.30),
-}
+# Slice 6 Step 5 P1: cost reporting moved off a hardcoded rate table to
+# OpenRouter's usage-include feature. Every LLM call site passes
+# `extra_body={"usage": {"include": True}}`; the response's `usage` object
+# then carries `usage.cost` (total USD) plus `usage.cost_details` with input
+# and completion subtotals. This eliminates the silent-drift failure mode
+# where a model-slug change (e.g. "claude-sonnet-4.6" vs "claude-sonnet-4-6")
+# would print "rate unknown" while real money was being spent — exactly the
+# 2026-04-23 incident's setup. PRE remains an input-token-count sanity
+# check; the dollar number lives in POST and comes straight from the API.
+
+# Required on every chat.completions.create() call to populate usage.cost.
+LLM_USAGE_INCLUDE: dict = {"usage": {"include": True}}
+
+
+def _cost_details_get(details, key: str, default: float = 0.0) -> float:
+    """Read a cost subtotal from `usage.cost_details` regardless of whether
+    OpenRouter returned it as a Pydantic model or a plain dict."""
+    if details is None:
+        return default
+    if isinstance(details, dict):
+        return details.get(key, default)
+    return getattr(details, key, default)
 
 
 def _llm_cost_pre(phase: str, model: str, messages: list) -> None:
-    """Print an estimated cost BEFORE the OpenRouter call (input-side only)."""
+    """Print an INPUT TOKEN ESTIMATE before the OpenRouter call.
+
+    Dollar estimate is intentionally not computed here. The authoritative
+    number arrives in POST as `usage.cost` from OpenRouter directly; pre-call
+    estimates would only ever be a guess against a rate table that has been
+    a source of drift in the past.
+    """
     text = json.dumps(messages)
     est_tokens = len(text) // 4
-    in_rate, _ = _OR_RATES.get(model, (None, None))
-    cost_str = f"~${est_tokens / 1e6 * in_rate:.5f}" if in_rate else "rate unknown"
-    print(f"  [{phase}] PRE  model={model}  est_input≈{est_tokens:,} tok  est_cost={cost_str}")
+    print(f"  [{phase}] PRE  model={model}  est_input≈{est_tokens:,} tok")
 
 
 def _llm_cost_post(phase: str, model: str, usage) -> None:
-    """Print actual cost AFTER the OpenRouter call from response.usage."""
+    """Print actual cost AFTER the OpenRouter call.
+
+    Reads `usage.cost` (total USD) and `usage.cost_details` (input/completion
+    subtotals) populated when the call passed `extra_body=LLM_USAGE_INCLUDE`.
+    If `cost` is missing, prints token counts only with a remediation hint —
+    silent zero-cost is never acceptable.
+    """
     pt = getattr(usage, "prompt_tokens", 0) or 0
     ct = getattr(usage, "completion_tokens", 0) or 0
-    in_rate, out_rate = _OR_RATES.get(model, (None, None))
-    if in_rate:
-        in_cost  = pt / 1e6 * in_rate
-        out_cost = ct / 1e6 * out_rate
-        total    = in_cost + out_cost
-        print(
-            f"  [{phase}] POST model={model}\n"
-            f"           input={pt:,} tok (${in_cost:.5f})  "
-            f"output={ct:,} tok (${out_cost:.5f})  "
-            f"total=${total:.5f}"
-        )
-    else:
-        print(f"  [{phase}] POST model={model}  input={pt:,}  output={ct:,}  (rate unknown)")
+    cost = getattr(usage, "cost", None)
+    if cost is None:
+        print(f"  [{phase}] POST model={model}  input={pt:,}  output={ct:,}  "
+              f"cost NOT REPORTED (caller missing extra_body=LLM_USAGE_INCLUDE)")
+        return
+    details = getattr(usage, "cost_details", None)
+    in_cost  = _cost_details_get(details, "upstream_inference_prompt_cost", 0.0)
+    out_cost = _cost_details_get(details, "upstream_inference_completions_cost", 0.0)
+    print(
+        f"  [{phase}] POST model={model}\n"
+        f"           input={pt:,} tok (${in_cost:.5f})  "
+        f"output={ct:,} tok (${out_cost:.5f})  "
+        f"total=${cost:.5f}"
+    )
 
 
 def _parse_json_response(raw: str, model_cls):
@@ -514,6 +540,7 @@ def plan_node(state: "PipelineState") -> dict:
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
+            extra_body=LLM_USAGE_INCLUDE,
         )
         _llm_cost_post("plan", model, resp.usage)
         tool_plan = _parse_json_response(resp.choices[0].message.content, ToolPlan)
@@ -592,6 +619,7 @@ def extract_node(state: "PipelineState") -> dict:
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
+            extra_body=LLM_USAGE_INCLUDE,
         )
         _llm_cost_post("extract", model, resp.usage)
         # Gemini occasionally emits candidates with `path_hint: null` for
@@ -1410,6 +1438,7 @@ def interpret_node(state: "PipelineState") -> dict:
                 messages=messages,
                 response_format={"type": "json_object"},
                 max_tokens=8000,
+                extra_body=LLM_USAGE_INCLUDE,
             )
             _llm_cost_post("interpret", model, resp.usage)
             raw = resp.choices[0].message.content or ""
