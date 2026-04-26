@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sift Sentinel — Run Viewer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+    --orange: #ffa657;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; height: 100vh; overflow: hidden; }
+
+  /* sidebar */
+  #sidebar { width: 280px; min-width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar h1 { padding: 16px; font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--border); color: var(--accent); letter-spacing: 0.3px; }
+  #sidebar h1 span { color: var(--muted); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
+  #case-list { overflow-y: auto; flex: 1; }
+  .case-group { border-bottom: 1px solid var(--border); }
+  .case-header { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .case-header:hover { background: rgba(255,255,255,0.04); }
+  .run-list { display: none; }
+  .run-list.open { display: block; }
+  .run-item { padding: 8px 14px 8px 24px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .run-item:hover, .run-item.active { background: rgba(88,166,255,0.1); }
+  .run-item.active { border-left: 2px solid var(--accent); }
+
+  /* main */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #topbar { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 54px; }
+  #topbar h2 { font-size: 15px; font-weight: 600; }
+  #topbar .meta { font-size: 12px; color: var(--muted); }
+
+  /* tabs */
+  #tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 20px; }
+  .tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* content */
+  #content { flex: 1; overflow-y: auto; padding: 20px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .empty { color: var(--muted); font-style: italic; padding: 20px 0; }
+
+  /* cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .card h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
+  .card .label { font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.6px; }
+
+  /* findings */
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .finding-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+  .finding-title { font-weight: 600; font-size: 14px; flex: 1; }
+  .finding-meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .finding-value { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 4px; word-break: break-all; margin-bottom: 10px; color: var(--orange); }
+  .finding-notes { font-size: 12px; color: var(--text); line-height: 1.6; }
+  .evidence-ref { display: inline-block; background: rgba(88,166,255,0.15); color: var(--accent); border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 11px; margin: 1px; }
+
+  /* badges */
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-success { background: rgba(63,185,80,0.2); color: var(--green); }
+  .badge-review  { background: rgba(210,153,34,0.2); color: var(--yellow); }
+  .badge-fail    { background: rgba(248,81,73,0.2); color: var(--red); }
+  .badge-incomplete { background: rgba(139,148,158,0.2); color: var(--muted); }
+  .badge-high    { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge-medium  { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .badge-low     { background: rgba(139,148,158,0.15); color: var(--muted); }
+  .badge-attacker { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge-injection { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .badge-c2      { background: rgba(255,166,87,0.15); color: var(--orange); }
+  .badge-legit   { background: rgba(63,185,80,0.1); color: var(--green); }
+
+  /* plan steps */
+  .plan-step { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; font-size: 12px; }
+  .plan-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
+  .step-num { background: var(--accent); color: #000; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .step-tool { color: var(--accent); font-family: monospace; }
+  .step-params { font-family: monospace; font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+
+  /* evidence */
+  .ev-record { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; font-size: 12px; }
+  .ev-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ev-tool { font-family: monospace; font-weight: 600; color: var(--accent); }
+  .ev-fields { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; overflow-x: auto; white-space: pre; color: var(--text); max-height: 200px; overflow-y: auto; }
+
+  /* critic */
+  .critic-event { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; font-size: 12px; }
+  .critic-event.quarantine { border-color: rgba(248,81,73,0.4); }
+  .critic-event.escalate { border-color: rgba(210,153,34,0.4); }
+  .rule-badge { background: rgba(248,81,73,0.15); color: var(--red); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; font-weight: 700; }
+
+  /* overview stats */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* welcome */
+  #welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); text-align: center; gap: 8px; }
+  #welcome h2 { font-size: 20px; color: var(--text); }
+  #welcome p { font-size: 13px; max-width: 360px; line-height: 1.6; }
+
+  /* misc */
+  hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  code { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
+  .attack-tag { font-size: 11px; color: var(--muted); font-family: monospace; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>Sift Sentinel <span>Run Viewer</span></h1>
+  <div id="case-list"><div class="empty" style="padding:16px">Loading cases…</div></div>
+</div>
+
+<div id="main">
+  <div id="topbar"><div id="welcome-top" style="color:var(--muted);font-size:13px">Select a run from the sidebar</div></div>
+  <div id="tabs" style="display:none">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="plan">Plan</div>
+    <div class="tab" data-tab="evidence">Evidence</div>
+    <div class="tab" data-tab="findings">Findings</div>
+    <div class="tab" data-tab="critic">Critic</div>
+  </div>
+  <div id="content">
+    <div id="welcome"><h2>Sift Sentinel</h2><p>Select a case and run from the left sidebar to explore the pipeline output end to end.</p></div>
+    <div class="panel" id="panel-overview"></div>
+    <div class="panel" id="panel-plan"></div>
+    <div class="panel" id="panel-evidence"></div>
+    <div class="panel" id="panel-findings"></div>
+    <div class="panel" id="panel-critic"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentRun = null;
+
+// ── utilities ──────────────────────────────────────────────────────────────
+
+function statusBadge(s) {
+  const map = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
+  const label = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', FAIL:'Failed', INCOMPLETE:'In Progress' };
+  return `<span class="badge ${map[s]||'badge-incomplete'}">${label[s]||s}</span>`;
+}
+
+function confBadge(c) {
+  const map = { high:'badge-high', medium:'badge-medium', low:'badge-low' };
+  return `<span class="badge ${map[c]||''}">${c}</span>`;
+}
+
+function classBadge(c) {
+  if (c.startsWith('attacker_persistence_ai')) return `<span class="badge badge-c2">AI-Assisted Attacker</span>`;
+  if (c === 'attacker_persistence') return `<span class="badge badge-attacker">Attacker Persistence</span>`;
+  if (c === 'process_injection')    return `<span class="badge badge-injection">Process Injection</span>`;
+  if (c === 'c2_beacon')            return `<span class="badge badge-c2">C2 Beacon</span>`;
+  if (c === 'requires_disambiguation') return `<span class="badge badge-review">Needs Review</span>`;
+  return `<span class="badge badge-legit">${c}</span>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmt(obj) { return JSON.stringify(obj, null, 2); }
+
+// ── sidebar ────────────────────────────────────────────────────────────────
+
+async function loadCases() {
+  const res = await fetch(`${API}/api/cases`);
+  const cases = await res.json();
+  const el = document.getElementById('case-list');
+  if (!cases.length) { el.innerHTML = '<div class="empty" style="padding:16px">No runs found.</div>'; return; }
+
+  el.innerHTML = cases.map(c => {
+    const lr = c.latest_run;
+    return `
+    <div class="case-group">
+      <div class="case-header" onclick="toggleCase('${c.case_id}')">
+        <span>${c.case_id}</span>
+        ${statusBadge(lr.status)}
+      </div>
+      <div class="run-list" id="runs-${c.case_id}"></div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleCase(caseId) {
+  const el = document.getElementById(`runs-${caseId}`);
+  if (el.classList.contains('open')) { el.classList.remove('open'); return; }
+  el.classList.add('open');
+  if (el.dataset.loaded) return;
+  el.dataset.loaded = '1';
+  el.innerHTML = '<div class="empty" style="padding:8px 24px">Loading…</div>';
+
+  const res = await fetch(`${API}/api/cases/${caseId}/runs`);
+  const runs = await res.json();
+  el.innerHTML = runs.map(r => `
+    <div class="run-item" id="ri-${r.run_id}" onclick="loadRun('${caseId}','${r.run_id}')">
+      ${statusBadge(r.status)}
+      <span style="flex:1">${r.run_id.split('-').slice(-1)[0]}</span>
+      <span style="color:var(--muted);font-size:11px">${r.finding_count} findings</span>
+    </div>`).join('');
+}
+
+// ── run detail ─────────────────────────────────────────────────────────────
+
+async function loadRun(caseId, runId) {
+  document.querySelectorAll('.run-item').forEach(e => e.classList.remove('active'));
+  const ri = document.getElementById(`ri-${runId}`);
+  if (ri) ri.classList.add('active');
+
+  const res = await fetch(`${API}/api/cases/${caseId}/runs/${runId}`);
+  currentRun = await res.json();
+
+  document.getElementById('welcome').style.display = 'none';
+  document.getElementById('tabs').style.display = 'flex';
+
+  document.getElementById('topbar').innerHTML = `
+    <h2>${runId}</h2>
+    ${statusBadge(currentRun.status)}
+    <span class="meta">${currentRun.findings?.findings?.length ?? 0} findings &nbsp;·&nbsp;
+    ${currentRun.evidence?.length ?? 0} evidence records &nbsp;·&nbsp;
+    ${currentRun.ledger_entry_count} ledger entries</span>
+  `;
+
+  document.querySelectorAll('.tab').forEach(t => { if (t.dataset.tab === 'overview') t.classList.add('active'); else t.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-overview').classList.add('active');
+
+  renderAll();
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+// ── renderers ──────────────────────────────────────────────────────────────
+
+function renderAll() {
+  renderOverview();
+  renderPlan();
+  renderEvidence();
+  renderFindings();
+  renderCritic();
+}
+
+function renderOverview() {
+  const r = currentRun;
+  const findings = r.findings?.findings ?? [];
+  const attackerCount = findings.filter(f => f.classification?.includes('attacker')).length;
+  const memoryCount   = findings.filter(f => ['process_injection','c2_beacon'].includes(f.classification)).length;
+  const criticCount   = r.critic_events?.length ?? 0;
+
+  document.getElementById('panel-overview').innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-num">${findings.length}</div><div class="stat-label">Total Findings</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red)">${attackerCount}</div><div class="stat-label">Attacker Persistence</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--purple)">${memoryCount}</div><div class="stat-label">Memory Findings</div></div>
+      <div class="stat-card"><div class="stat-num">${r.evidence?.length ?? 0}</div><div class="stat-label">Evidence Records</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--yellow)">${criticCount}</div><div class="stat-label">Critic Events</div></div>
+      <div class="stat-card"><div class="stat-num">${r.ledger_entry_count}</div><div class="stat-label">Ledger Entries</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Pipeline Status</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        ${statusBadge(r.status)} ${r.approved ? '<span style="color:var(--green);font-size:12px">Plan approved by human</span>' : ''}
+      </div>
+      ${r.findings?.started_at ? `<div class="label">Started</div><div style="font-size:12px;margin-bottom:8px">${r.findings.started_at}</div>` : ''}
+      ${r.findings?.finished_at ? `<div class="label">Finished</div><div style="font-size:12px">${r.findings.finished_at}</div>` : ''}
+    </div>
+
+    ${r.extract ? `
+    <div class="card">
+      <h3>Extract — Investigation Candidates</h3>
+      <div class="label">Question</div>
+      <div style="font-size:12px;margin-bottom:10px">${escHtml(r.extract.question || '')}</div>
+      ${(r.extract.candidates || []).map(c => `
+        <div style="margin-bottom:6px;font-size:12px">
+          <span style="color:var(--accent);font-family:monospace">${escHtml(c.location || c.path || '')}</span>
+          ${c.reason ? `<span style="color:var(--muted)"> — ${escHtml(c.reason)}</span>` : ''}
+        </div>`).join('')}
+    </div>` : ''}
+  `;
+}
+
+function renderPlan() {
+  const steps = currentRun.plan?.steps ?? [];
+  if (!steps.length) { document.getElementById('panel-plan').innerHTML = '<div class="empty">No plan data.</div>'; return; }
+
+  document.getElementById('panel-plan').innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <h3>Tool Call Plan — ${steps.length} steps</h3>
+      <div style="font-size:12px;color:var(--muted)">Plan digest: <code>${currentRun.plan?.plan_digest?.slice(0,16) ?? 'n/a'}…</code></div>
+    </div>
+    ${steps.map((s, i) => {
+      const params = Object.entries(s).filter(([k]) => !['tool','step','description','depends_on','placeholder'].includes(k));
+      return `
+      <div class="plan-step">
+        <div class="plan-step-header">
+          <div class="step-num">${i+1}</div>
+          <span class="step-tool">${escHtml(s.tool)}</span>
+          ${s.description ? `<span style="color:var(--muted);font-size:11px;flex:1">${escHtml(s.description)}</span>` : ''}
+          ${(s.depends_on||[]).length ? `<span style="font-size:10px;color:var(--muted)">deps: ${s.depends_on.join(', ')}</span>` : ''}
+        </div>
+        ${params.length ? `<div class="step-params">${params.map(([k,v]) => `${k}: ${escHtml(typeof v==='object'?JSON.stringify(v):v)}`).join('\n')}</div>` : ''}
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function renderEvidence() {
+  const ev = currentRun.evidence ?? [];
+  if (!ev.length) { document.getElementById('panel-evidence').innerHTML = '<div class="empty">No evidence records.</div>'; return; }
+
+  document.getElementById('panel-evidence').innerHTML = ev.map((e, i) => {
+    const injFlags = e.injection_flags ?? [];
+    const fields = e.structured_fields;
+    return `
+    <div class="ev-record">
+      <div class="ev-header">
+        <span style="color:var(--muted);font-size:11px">#${i+1}</span>
+        <span class="ev-tool">${escHtml(e.tool ?? '')}</span>
+        ${e.tool_execution_status ? `<span class="badge ${e.tool_execution_status==='ok'?'badge-success':'badge-fail'}" style="font-size:10px">${e.tool_execution_status}</span>` : ''}
+        ${injFlags.length ? `<span class="badge badge-fail" style="font-size:10px">INJECTION FLAG</span>` : ''}
+        ${e.quarantine_severity ? `<span class="badge badge-fail" style="font-size:10px">QUARANTINED</span>` : ''}
+        <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:monospace">${(e.tool_call_id||'').slice(0,8)}…</span>
+      </div>
+      ${fields !== null && fields !== undefined ? `
+        <div class="ev-fields">${escHtml(typeof fields === 'object' ? JSON.stringify(fields, null, 2) : String(fields))}</div>` :
+        `<div style="font-size:11px;color:var(--muted);font-style:italic">Navigation step — structured fields stripped from analysis bundle</div>`}
+      ${injFlags.length ? `<div style="margin-top:8px;font-size:11px;color:var(--red)">Injection patterns: ${injFlags.map(f => `<code>${escHtml(f.pattern_id)}</code>`).join(' ')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderFindings() {
+  const findings = currentRun.findings?.findings ?? [];
+  if (!findings.length) { document.getElementById('panel-findings').innerHTML = '<div class="empty">No findings.</div>'; return; }
+
+  document.getElementById('panel-findings').innerHTML = findings.map((f, i) => {
+    const evLinks = (f.evidence || []).map(e =>
+      `<span class="evidence-ref" title="${escHtml(e.output_excerpt||'')}">[ev:${(e.tool_call_id||'').slice(0,8)}…]</span>`
+    ).join(' ');
+
+    const notesHtml = escHtml(f.notes || '').replace(/\[ev:[^\]]+\]/g, m => `<span class="evidence-ref">${m}</span>`);
+
+    return `
+    <div class="finding">
+      <div class="finding-header">
+        <div>
+          <div class="finding-title">${escHtml(f.mechanism)}</div>
+          <div style="margin-top:4px">${classBadge(f.classification)} ${confBadge(f.confidence)}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="attack-tag">${escHtml(f.attack_id||'')} — ${escHtml(f.attack_name||'')}</div>
+          <div class="attack-tag" style="color:var(--muted)">${escHtml(f.attack_tactic_id||'')} ${escHtml(f.attack_tactic_name||'')}</div>
+        </div>
+      </div>
+      <div class="finding-value">${escHtml(f.value)}</div>
+      <div class="finding-meta">Evidence: ${evLinks || '<span style="color:var(--muted)">none cited</span>'}</div>
+      ${f.notes ? `<div class="finding-notes">${notesHtml}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderCritic() {
+  const events = currentRun.critic_events ?? [];
+  if (!events.length) {
+    document.getElementById('panel-critic').innerHTML = `
+      <div class="card" style="border-color:rgba(63,185,80,0.3)">
+        <h3 style="color:var(--green)">No critic events — all rules passed</h3>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">The deterministic critic verified every finding against all ${16} rules. No issues found.</div>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('panel-critic').innerHTML = events.map(e => {
+    const isQuarantine = e.event === 'INJECTION_QUARANTINE';
+    const failed = e.critic_critique?.rules_failed ?? [];
+    const passed = e.critic_critique?.rules_passed ?? [];
+    const action = e.resolution?.action ?? e.event ?? 'unknown';
+
+    return `
+    <div class="critic-event ${isQuarantine ? 'quarantine' : 'escalate'}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        ${isQuarantine
+          ? `<span class="badge badge-fail">INJECTION QUARANTINE</span>`
+          : `<span class="badge badge-review">Critic Escalation</span>`}
+        ${failed.map(r => `<span class="rule-badge">${escHtml(r.rule_id)}</span>`).join('')}
+        <span style="margin-left:auto;font-size:11px;color:var(--muted)">Action: ${escHtml(action)}</span>
+      </div>
+
+      ${isQuarantine ? `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          Injection scanner fired — evidence quarantined before reaching analysis LLM.
+        </div>
+        ${(e.flags||[]).map(f => `
+          <div style="font-size:11px;margin-bottom:4px">
+            <code>${escHtml(f.pattern_id)}</code>
+            <span style="color:var(--muted)"> in </span><code>${escHtml(f.field_path)}</code>
+          </div>`).join('')}
+      ` : `
+        ${e.original_finding ? `
+          <div style="font-size:12px;margin-bottom:8px">
+            <span style="color:var(--muted)">Finding:</span>
+            <strong>${escHtml(e.original_finding.mechanism||'')}</strong>
+          </div>` : ''}
+        ${failed.map(r => `
+          <div style="font-size:12px;color:var(--red);margin-bottom:4px">
+            <span class="rule-badge">${escHtml(r.rule_id)}</span>
+            <code style="margin-left:6px">${escHtml(r.code)}</code>
+            <span style="color:var(--muted);margin-left:6px">${escHtml(r.detail||'')}</span>
+          </div>`).join('')}
+        ${passed.length ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Passed: ${passed.map(r => `<code>${escHtml(r)}</code>`).join(' ')}</div>` : ''}
+      `}
+    </div>`;
+  }).join('');
+}
+
+// ── init ───────────────────────────────────────────────────────────────────
+loadCases();
+</script>
+</body>
+</html>
