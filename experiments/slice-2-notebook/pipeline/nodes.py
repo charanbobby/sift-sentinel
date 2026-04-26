@@ -464,7 +464,17 @@ Hard rules:
   invent plugin names. Pick the plugin whose expected hive matches the hive you extracted.
 - For per-user persistence (Run keys in NTUSER.DAT), plan one icat_extract per user's
   NTUSER.DAT — use dest_filename like 'NTUSER-<username>.DAT' to keep them distinct.
-  User profile directories live under /Users (Windows 10+) or /Documents and Settings (XP).{memory_rules_block}
+  User profile directories live under /Users (Windows 10+) or /Documents and Settings (XP).
+- NEVER hardcode a specific scheduled-task XML basename (e.g. "At1", "At2", "Adobe
+  Acrobat Update Task", "MicrosoftEdgeUpdateTaskMachineUA") in `scheduled_tasks_parse`
+  or in any `inode_by_name(...)` placeholder. Such names are XP-era atjob residue,
+  vendor-specific, or attacker-specific and DO NOT exist on every Windows host. Plan
+  ONE `fls_list(parent_inode="{{step:N.inode_by_name(Tasks)}}", recurse=true)` step
+  over Windows\\System32\\Tasks\\ to ENUMERATE every task XML actually present on
+  this host. Do NOT add follow-up `scheduled_tasks_parse` calls for guessed names;
+  the listing surfaces every task name and downstream interpretation reviews it.
+  Speculative parses on names that may not exist waste a tool call and a capability-
+  token grant, and were the failure mode that motivated this rule.{memory_rules_block}
 
 Soft rules:
 - Score `confidence` for each step INDEPENDENTLY. Do not default to "high". Rate each
