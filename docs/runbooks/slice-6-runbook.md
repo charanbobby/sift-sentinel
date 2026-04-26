@@ -317,28 +317,40 @@ Run outputs land at `out/runs/<case>/<case>-NNN/` and are tagged in the run bann
 
 ### Row 4 — `classification` field removed from `Finding` schema
 
-**Status:** scoped ✅ 2026-04-26; **branch not yet created.** Code edits would touch `pipeline/nodes.py`, which the parallel memory-channel session is actively editing. Hold until that work lands on main, then create branch `ablation/row-4-no-classification` from current main and apply the deletions below.
+**Status:** code prep ✅ 2026-04-26 (branch `ablation/row-4-no-classification`, commit `12d2dd9`); runs deferred until memory-channel work lands on main (the row-4 branch was cut from current main and does NOT carry the parallel session's `nodes.py` skip-vs-halt WIP — re-running ablation against a more recent main is a re-cut, not a rebase, and is the cleaner path).
 
-**Minimum-edit list (pre-baked from the codebase scan, lines may drift after rebase):**
+**What changed:** `classification: Classification` field deleted from `Finding`; `_tag_attack` validator simplified to drop the classification-driven tactic-override branch (memory-class findings fall back to TA0003 Persistence — that's part of what the ablation measures); R_11 and R_16 stubbed to `return None` and removed from `CRITIC_RULES`; per-classification scorecard tallies dropped from interpret_node Langfuse metadata; classification omitted from the integrity-ledger `finding_committed` event. The INTERPRET prompt is intentionally NOT modified — Pydantic V2 default `extra="ignore"` silently drops the LLM's `classification` field from JSON output, so we measure the structural-validation contribution of the gate without confounding it with a prompt change.
 
-- `pipeline/schemas.py` line 238: delete `classification: Classification` field
-- `pipeline/schemas.py` lines 260–266: replace the `_tag_attack` validator with a static tactic assignment (it currently switches on `classification`)
-- `pipeline/critic.py` lines 375–378, 483–486: delete `_ATTACKER_CLASSIFICATIONS` and `_AI_ANCHOR_REQUIRED_CLASSIFICATIONS` globals
-- `pipeline/critic.py` lines 389–398 (R_11 body), 510–521 (R_16 body): make rules return `None` (no-op)
-- `pipeline/critic.py` lines 553, 929: remove `R_11`, `R_16` from `CRITIC_RULES` and `__all__`
-- `pipeline/nodes.py` line 1522: drop `classification=f.classification,` from scorecard output
-- `score.py` lines 1496, 1499: drop classification-count tallies
-- `INTERPRET_SYSTEM_PROMPT` Hard Rules 3 & 4: remove the classification guidance
-- `tests/test_schemas.py`: remove the classification-literal assertion (added Slice 6 Step 3b)
-- `tests/test_critic.py`: remove R_11 + R_16 test cases
+**Test impact:** 10 R_11 / R_16 tests deleted on this branch; registry test now expects 13 rules instead of 15; pytest 237/237 green on the branch (excluding the parallel session's untracked `test_nodes_executor.py` which depends on their WIP).
 
-**Run procedure once branch exists:** identical to Row 2 above, swapping the branch name and the env var (none needed for row 4 — the change is structural).
+**To run (do NOT do this while the memory-channel session is using the containers):**
+
+```bash
+# 1. Switch onto the ablation branch
+git checkout ablation/row-4-no-classification
+
+# 2. Re-deploy sift-mcp from this branch's code (no env var needed for row 4)
+docker compose -f docker/docker-compose.yaml up -d --force-recreate sift-mcp
+
+# 3. Re-run the staged cases
+for case in srl-2018-base-dc srl-2018-base-file srl-2018-base-rd-02 srl-2018-dmz-ftp srl-2018-wkstn-05 dfirmadness-001-desktop; do
+  echo "=== Row 4 ablation: $case ==="
+  MSYS_NO_PATHCONV=1 docker exec sift-sentinel \
+    /workspace/.venv/bin/python /workspace/run_case.py \
+    --case "$case" --e01 <case-specific-E01-path>
+done
+
+# 4. Restore main + re-deploy
+git checkout main
+docker compose -f docker/docker-compose.yaml up -d --force-recreate sift-mcp
+```
+
+Tag the resulting run folders with `ABLATION_ROW=4` for the scoreboard collator.
 
 ### Scoring
 
-- [ ] Wait for the memory-channel session's `nodes.py` work to land on main, then create `ablation/row-4-no-classification`
-- [ ] Run rows 2 + 4 on all staged cases
-- [ ] Compare rows 1/2/3/4 scorecard_v2 across 2.5 cases + adversarial demo
+- [ ] Run rows 2 + 4 on all staged cases (both branches now exist; runs blocked only on shared-container availability)
+- [ ] Compare rows 1/2/3/4 scorecard_v2 across the 2.5 cases + adversarial demo
 - [ ] Table lands in the Accuracy Report
 
 ---

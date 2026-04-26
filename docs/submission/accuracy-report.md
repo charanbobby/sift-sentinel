@@ -61,9 +61,9 @@ To measure how much each defensive layer contributes to overall accuracy, we ran
 | Row | Configuration | Status |
 |---|---|---|
 | 1 | Slice 2.5 baseline (single-channel free text, no Critic) | Implicit — Slice 2.5 outputs preserved |
-| 2 | Dual-channel + injection scanner, **capability-token verification disabled** | Code prep ✅ on branch `ablation/row-2-no-cap-tokens`, runs **TODO** |
+| 2 | Dual-channel + injection scanner, **capability-token verification disabled** | Code prep ✅ on branch `ablation/row-2-no-cap-tokens` (commit `8f084a1`); runs **TODO** |
 | 3 | Full Slice 5 (dual-channel + injection scanner + capability tokens + Critic) | Implicit — current outputs |
-| 4 | Full Slice 5 with `classification` field **removed** from `Finding` schema | Branch creation deferred until memory-channel work lands on main; runs **TODO** |
+| 4 | Full Slice 5 with `classification` field **removed** from `Finding` schema | Code prep ✅ on branch `ablation/row-4-no-classification` (commit `12d2dd9`); runs **TODO** |
 
 ### 2.6 Tool + model stack
 
