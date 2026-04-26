@@ -44,6 +44,7 @@ from pipeline.schemas import (
     EvidenceRecord,
     Finding,
     Findings,
+    PlannedStep,
     ToolPlan,
 )
 from pipeline.mcp.tokens import compute_plan_digest
@@ -665,9 +666,21 @@ def _status_is_continuable(status: str) -> bool:
     return status in _CONTINUABLE_STATUSES
 
 
+def _is_blocked_by_upstream(step: "PlannedStep", blocked_step_ids: set[int]) -> bool:
+    """True iff any step this one depends on has been marked blocked.
+
+    Lets execute_node skip the transitive descendants of a failed step instead
+    of halting the entire plan. Independent subgraphs (e.g. memory-channel
+    `volatility_run` steps with no disk-channel dependency) survive a failure
+    in an unrelated branch.
+    """
+    return any(d in blocked_step_ids for d in (step.depends_on or []))
+
+
 class ResolverError(RuntimeError):
     """Raised when a placeholder in step.args can't be resolved against
-    upstream evidence. Caller halts execution and labels the failure in the
+    upstream evidence. Caller marks the step blocked and skips its transitive
+    dependents; independent steps run on. The failure is labelled in the
     Langfuse span + evidence.jsonl audit record."""
 
 
@@ -773,15 +786,25 @@ def reissue_token_node(state: "PipelineState") -> dict:
     """
     from pipeline.mcp.tokens import issue_token as _issue_token
     case_id = _require("CASE_ID", CASE_ID)
-    allowed_paths = (
+    # Build the allowed_paths list. Memory-image runs need the dump path
+    # added explicitly: the MCP server's MEMORY_EVIDENCE_ROOTS allowlist is
+    # the file-side gate, but the per-run capability token is the SECOND
+    # gate. Without an entry covering the memory-image path, volatility_run
+    # comes back as `tool_execution_status="capability_denied"` with reason
+    # `path_not_allowed:/home/sansforensics/<image>` and the entire memory
+    # subgraph is lost (observed live as the failure of run-004 on
+    # 2026-04-26). Fix B in lost-WIP recovery, restored 2026-04-26.
+    allowed_paths_list: list[str] = [
         "/mnt/hackathon/",
         "/mnt/derived/",
         f"/home/sansforensics/cases/{case_id}/analysis/extracted/",
-    )
+    ]
+    if MEMORY_IMAGE_PATH:
+        allowed_paths_list.append(MEMORY_IMAGE_PATH)
     token = _issue_token(
         state.tool_plan,
         case_id=case_id,
-        allowed_paths=allowed_paths,
+        allowed_paths=tuple(allowed_paths_list),
         ttl_seconds=3600,
     )
     print(f"  [reissue_token] token_id={token.token_id[:8]}…  plan_digest={token.plan_digest[:16]}…")
@@ -811,6 +834,19 @@ async def execute_node(state: "PipelineState") -> dict:
     the table above `_CONTINUABLE_STATUSES` for the full partition + why.
     Step 8 will relax the `capability_denied` halt via graph edge re-routing
     so the Critic gets a chance to re_plan.
+
+    Skip-vs-halt for placeholder resolution: a `ResolverError` (placeholder
+    references a step that was never executed, or `inode_by_name(...)` finds
+    no match) marks the failing step blocked but does NOT halt the executor.
+    The for-loop continues; subsequent steps whose `depends_on` includes any
+    blocked step are skipped via `_is_blocked_by_upstream` and added to
+    `blocked_step_ids` themselves, propagating the block transitively in
+    topological order. Independent subgraphs (memory-channel `volatility_run`
+    steps with `depends_on=[]` are the canonical case) run regardless. This
+    is intentionally narrower than the non-continuable-status halt: a missing
+    placeholder is a plan/data mismatch the Critic can act on; a tool
+    timeout is an infrastructure condition where downstream behavior is
+    unpredictable.
 
     Requires: `state.tool_plan`, `state.plan_digest`, `state.capability_token`
     populated upstream. The PipelineState dataclass allows them to be None so
@@ -861,6 +897,12 @@ async def execute_node(state: "PipelineState") -> dict:
     evidence_by_step_id: dict[int, EvidenceRecord] = {}
     collected: list[EvidenceRecord] = []
     failed_step: Optional[int] = None
+    # Steps marked "do not run" because their placeholder failed to resolve,
+    # OR because they depend on a previously-blocked step. Propagated through
+    # the for-loop in topological order so a single ResolverError loses only
+    # its transitive descendants, not the entire plan. See the "Skip-vs-halt"
+    # paragraph in this function's docstring.
+    blocked_step_ids: set[int] = set()
 
     with propagate_attributes(
         session_id=state.run_id,
@@ -877,6 +919,17 @@ async def execute_node(state: "PipelineState") -> dict:
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     for step in state.tool_plan.steps:
+                        # Skip transitive descendants of any already-blocked step
+                        # so independent subgraphs (e.g. memory-channel
+                        # volatility_run steps with depends_on=[]) keep running.
+                        if _is_blocked_by_upstream(step, blocked_step_ids):
+                            blocked_step_ids.add(step.step_id)
+                            exec_span.update(
+                                status_message=f"step {step.step_id} skipped (blocked upstream)",
+                            )
+                            print(f"  [execute] step {step.step_id} skipped — depends on blocked upstream")
+                            continue
+
                         try:
                             resolved = _resolve_args(step.args, evidence_by_step_id)
                         except ResolverError as e:
@@ -884,8 +937,13 @@ async def execute_node(state: "PipelineState") -> dict:
                                 level="ERROR",
                                 status_message=f"resolve step {step.step_id}: {e}",
                             )
-                            failed_step = step.step_id
-                            break
+                            # Mark blocked + record first failure, but continue
+                            # the loop so independent subgraphs survive.
+                            blocked_step_ids.add(step.step_id)
+                            if failed_step is None:
+                                failed_step = step.step_id
+                            print(f"  [execute] step {step.step_id} ResolverError: {e} — marking blocked, continuing")
+                            continue
 
                         call_args = {
                             **resolved,
