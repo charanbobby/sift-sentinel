@@ -272,6 +272,34 @@ def test_R_12_bad_not_found_high_with_denied_call(make_plan, make_evidence, make
     assert r is not None and r.code == "ABSENCE_UNSUBSTANTIATED"
 
 
+def test_R_12_skips_memory_class_findings_with_evidence(make_plan, make_evidence, make_finding):
+    """Memory-class classifications (process_injection, c2_beacon) reuse
+    `category="NOT_FOUND"` for tactic-tagging but cite real evidence. R_12
+    must NOT fire on them just because an unrelated disk tool returned
+    parse_error — that triggered an expensive INTERPRET re-plan in
+    srl-2018-wkstn-05 run-005 (P3 follow-up)."""
+    plan = make_plan("regripper_run", "scheduled_tasks_parse")
+    ev_ok = make_evidence("t-malfind", {"hits": [{"pid": 4328}]})
+    ev_parse_error = make_evidence(
+        "t-tasks", {}, tool_execution_status="parse_error",
+    )
+    ctx = CriticContext(plan, [ev_ok, ev_parse_error])
+    # process_injection finding: category=NOT_FOUND, but cites real evidence
+    f = make_finding(
+        category="NOT_FOUND",
+        mechanism="Process injection via PAGE_EXECUTE_READWRITE in WMI-spawned PowerShell",
+        value="powershell.exe PID 4328",
+        confidence="high",
+        classification="process_injection",
+        notes="malfind anchor + corroborating WMI parent. Ruled out CLR JIT.",
+        evidence_refs=[("t-malfind", '"pid": 4328')],
+    )
+    assert R_12(f, ctx) is None, (
+        "R_12 should skip findings that cite evidence — they're not "
+        "absence claims even if category=NOT_FOUND for tactic-tagging"
+    )
+
+
 # ---- R_13 — stub contract --------------------------------------------------
 
 

@@ -407,8 +407,26 @@ def R_12(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     failure signal — includes `capability_denied`, `timeout`,
     `permission_denied`, and `parse_error`. `empty` counts as ok for this
     rule (a tool ran cleanly and legitimately returned nothing; that IS
-    substantiating evidence of absence)."""
+    substantiating evidence of absence).
+
+    Slice 6 Step 5 P3 narrowing (2026-04-26): memory-class classifications
+    (process_injection, c2_beacon) reuse `category="NOT_FOUND"` so the
+    tactic-override path in `Finding._tag_attack` can pin them to TA0005 /
+    TA0011 instead of the default TA0003 Persistence. They are NOT absence
+    claims — they cite real evidence (malfind hits, netscan rows, pslist
+    parent-child entries). The discriminator is `finding.evidence`: a true
+    absence claim cites nothing, while a memory-class positive finding
+    cites the malfind/netscan/pslist tool_call_ids it rests on. Skipping
+    R_12 when evidence is present prevents an unrelated disk-tool
+    `parse_error` from triggering an expensive INTERPRET re-plan on a
+    well-grounded memory finding (observed live in srl-2018-wkstn-05
+    run-005, where a `scheduled_tasks_parse` parse_error forced a re-plan
+    on a process_injection finding with 3 cited memory evidence records).
+    """
     if finding.category != "NOT_FOUND" or finding.confidence != "high":
+        return None
+    # Memory-class findings cite evidence; plain absence claims do not.
+    if finding.evidence:
         return None
     failed = [
         (tcid, rec) for tcid, rec in ctx.evidence.items()
