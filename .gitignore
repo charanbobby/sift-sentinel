@@ -111,5 +111,8 @@ tmp/
 # --- Ephemeral session file (per workflow: _resume.md is rewritten each break) ---
 _resume.md
 
+# --- Project-local Claude Code state (settings + lock files specific to this checkout) ---
+.claude/
+
 # --- Private correspondence drafts (keep locally, don't publish) ---
 docs/onboarding/invite-email.md
