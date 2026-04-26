@@ -149,8 +149,25 @@ CLASSIFICATION_TACTIC_OVERRIDE: dict[str, tuple[str, str, str | None, str | None
 }
 
 # ---- Phase 1 — EXTRACT output ----
+# Slice 6 Step B (2026-04-26): added memory-channel artifact types so EXTRACT
+# can propose live-runtime evidence locations when the case has a staged RAM
+# image. Disk-channel types stay unchanged. Each type maps to the MCP tools
+# that can examine it: registry_hive / scheduled_task_xml / service_config →
+# fls_list + icat_extract + regripper_run + scheduled_tasks_parse; the four
+# memory types → volatility_run with the appropriate plugin (pslist, netscan,
+# malfind, dlllist).
 class ArtifactCandidate(BaseModel):
-    artifact_type: Literal["registry_hive", "scheduled_task_xml", "service_config"]
+    artifact_type: Literal[
+        # Disk channel
+        "registry_hive",
+        "scheduled_task_xml",
+        "service_config",
+        # Memory channel (Slice 6 Step B)
+        "process_anomaly",        # → volatility pslist + cmdline (suspicious PIDs / parent-child / cmdline)
+        "network_connection",     # → volatility netscan (live C2, unexpected outbound)
+        "injected_region",        # → volatility malfind (PAGE_EXECUTE_READWRITE, code-cave injection)
+        "dll_load_anomaly",       # → volatility dlllist (loaded modules in unusual processes)
+    ]
     path_hint: str
     reason: str
     priority: Literal[1, 2, 3]

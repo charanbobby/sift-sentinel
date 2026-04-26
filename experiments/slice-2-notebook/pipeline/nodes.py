@@ -287,6 +287,37 @@ PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
 KNOWN_EXTRACTORS = {"inode_by_name"}
 
 
+def _host_type_of(case_id: str) -> tuple[str, str]:
+    """Derive (host_type, host_description) from a case_id naming convention.
+
+    SRL 2018 hackathon naming: `srl-2018-base-{dc|file|rd-NN}` for the AD core,
+    `srl-2018-{dmz|wkstn}-{ftp|NN}` for endpoints/DMZ. DFIR Madness uses
+    `dfirmadness-NNN-{desktop|workstation}`. Anything unrecognized falls back
+    to `windows_host` with no extra guidance — keeps the prompt sane on a
+    surprise dataset rather than hallucinating role-specific advice.
+
+    Slice 6 Step B (2026-04-26): introduced so EXTRACT can branch on host role
+    instead of treating every host as a generic Windows workstation. Probe-
+    verified 2026-04-26 across wkstn-05 / base-dc / dmz-ftp (Gemini 3 flash).
+    """
+    cid = case_id.lower()
+    if "wkstn" in cid or "desktop" in cid or "workstation" in cid:
+        return ("workstation", "Windows workstation; user-mode persistence is the primary attack surface")
+    if "base-dc" in cid or cid.endswith("-dc"):
+        return ("domain_controller", "Windows Domain Controller; AD-specific compromise vectors apply")
+    if "base-file" in cid or "fileserver" in cid:
+        return ("file_server", "Windows file server; share + replication misuse common")
+    if "base-rd" in cid or "-rd-" in cid or "-rdp" in cid:
+        return ("rdp_gateway", "RDP gateway / Remote Desktop server; logon-screen hijacks + cred caches in scope")
+    if "dmz-ftp" in cid or "-ftp" in cid:
+        return ("ftp_server", "FTP server in DMZ; IIS + web-shell + virtual-directory abuse common")
+    if "dmz" in cid:
+        return ("dmz_host", "DMZ-facing host; web-shell + IIS abuse common")
+    if "mail" in cid:
+        return ("mail_server", "Mail server; transport-rule + Exchange-specific compromise possible")
+    return ("windows_host", "Generic Windows host")
+
+
 def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
     """Return the tool/plugin spec advertised to the PLAN model. `case_id` only
     appears in the `regripper_run.args.hive_path` hint; everything else is
@@ -591,18 +622,142 @@ def plan_node(state: "PipelineState") -> dict:
 
 _EXTRACT_SCHEMA = json.dumps(Candidates.model_json_schema(), indent=2)
 
-_EXTRACT_SYSTEM_PROMPT = f"""You are listing the candidate artifact locations that could contain persistence
-evidence on a Windows host. You are NOT analyzing evidence yet — just enumerating where to look.
+# ---- Slice 6 Step B (2026-04-26): host-type + channel aware EXTRACT ----
+# Replaces the prior single static `_EXTRACT_SYSTEM_PROMPT`. Two architectural
+# gaps closed:
+#   (1) Extract was hardcoded disk-only — memory candidates appeared in PLAN
+#       only because PLAN's prompt template injected them when MEMORY_IMAGE_PATH
+#       was set. EXTRACT is now memory-aware via the `_MEMORY_GUIDANCE` block.
+#   (2) Extract was host-type-agnostic — base-dc got the same 12 user-workstation
+#       persistence candidates as wkstn-05, missing every DC-specific compromise
+#       path (LSA, SECURITY, NTDS, KRBTGT, DirectoryServices tasks). The
+#       `_HOST_GUIDANCE` dict adds role-specific candidate categories per host.
+# Probe-verified 2026-04-26 against `google/gemini-3-flash-preview` on
+# wkstn-05 (workstation+memory), base-dc (DC, disk-only), dmz-ftp (FTP, disk-only).
+_HOST_GUIDANCE: dict[str, str] = {
+    "workstation": """
+Workstation-specific compromise patterns to consider in addition to the universal list:
+- Per-user persistence: HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run keys (NTUSER.DAT for each profile)
+- Browser-launched binaries / DLL hijacks in user app dirs
+- Scheduled tasks under user context
+- Startup folder for the active user
+""",
+    "domain_controller": """
+Domain Controller compromise patterns to consider in addition to the universal list:
+- HKLM\\SECURITY hive: LSA secrets, audit policy tampering, password policy modification
+- HKLM\\SAM hive: krbtgt account state, machine account anomalies (krbtgt password change is rare; recent modification is highly suspicious)
+- HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS: NTDS service configuration, replication metadata
+- DC-specific scheduled tasks: \\System32\\Tasks\\Microsoft\\Windows\\DirectoryServices\\, \\Active Directory Rights Management\\
+- HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa: SSP / Authentication Package abuse for credential theft
+- Service accounts running unusual binaries (KrbtgtAccount, DefaultAccount, etc.)
+- Group Policy preferences with embedded credentials (cpassword leaks)
+""",
+    "file_server": """
+File-server-specific compromise patterns to consider in addition to the universal list:
+- Share configurations (HKLM\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Shares): unauthorized shares, ANONYMOUS_LOGON exposure
+- DFS replication state (HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DFS)
+- File-server-specific scheduled backups (replaceable as persistence vehicles)
+- Service accounts that own shares running unusual binaries
+""",
+    "rdp_gateway": """
+RDP-gateway-specific compromise patterns to consider in addition to the universal list:
+- IFEO debugger hijack on accessibility tools (sethc, utilman, narrator) — gives SYSTEM shell at logon screen
+- Saved RDP credentials (HKLM\\SOFTWARE\\Microsoft\\Terminal Server Client\\Servers)
+- TermService configuration changes (HKLM\\SYSTEM\\CurrentControlSet\\Services\\TermService)
+- RDP-related scheduled tasks
+- Logon-script hooks
+""",
+    "ftp_server": """
+FTP-server / DMZ host compromise patterns to consider in addition to the universal list:
+- IIS application pool configuration (HKLM\\SOFTWARE\\Microsoft\\InetStp)
+- FTP virtual directories pointing to unexpected paths (web-shell upload locations)
+- IIS-related scheduled tasks
+- FTP service config (HKLM\\SYSTEM\\CurrentControlSet\\Services\\FTPSVC)
+- W3SVC configuration if IIS hosts a web frontend
+- Service accounts with elevated privileges
+""",
+    "dmz_host": """
+DMZ-facing host compromise patterns to consider in addition to the universal list:
+- IIS / web-server configuration paths
+- Public-facing service config (FTP, SMTP, etc.)
+- Web shell drop locations under wwwroot or virtual dirs
+- Outbound-only persistence (less reliance on inbound connections)
+""",
+    "mail_server": """
+Mail-server-specific compromise patterns to consider in addition to the universal list:
+- Exchange transport-rule modifications
+- Service accounts with mailbox access rights
+- IIS / Exchange admin endpoints
+- Scheduled tasks under Exchange service contexts
+""",
+    "windows_host": "",
+}
+
+_MEMORY_GUIDANCE = """
+
+MEMORY-CHANNEL EVIDENCE (the case has a staged RAM image, propose memory candidates too):
+Memory is RUNTIME evidence; disk shows what's installed, memory shows what's alive RIGHT NOW.
+Use these artifact_types for memory-channel candidates:
+  - process_anomaly       : live process inventory (volatility pslist + cmdline). Look for suspicious parent-child (PowerShell spawned from WmiPrvSE), unusual process names, processes with no on-disk binary path, command lines with encoded payloads or LLM-API references.
+  - network_connection    : live TCP/UDP sockets (volatility netscan). Look for outbound C2 to unusual ports, connections to LLM API endpoints (api.openai.com, api.anthropic.com), CLOSED/CLOSE_WAIT residue from terminated beacons.
+  - injected_region       : code injection / hollowing (volatility malfind). Look for process memory marked PAGE_EXECUTE_READWRITE, code caves in legitimate processes.
+  - dll_load_anomaly      : loaded modules per process (volatility dlllist). Look for AI-SDK modules (openai, anthropic, langchain) loaded in unusual processes, persistence DLLs in svchost or system processes.
+
+For memory candidates, `path_hint` describes WHAT TO LOOK FOR in memory (not a file path):
+  e.g., "live process tree, parent-child anomalies"
+  e.g., "outbound connections to LLM API endpoints"
+"""
+
+_NO_MEMORY_GUIDANCE = """
+
+DISK-ONLY CASE (no RAM image staged): you MUST NOT propose memory artifact_types
+(process_anomaly, network_connection, injected_region, dll_load_anomaly). Every
+candidate must be a disk-channel artifact_type (registry_hive, scheduled_task_xml,
+service_config). Persistence concepts that "live in memory" still get classified
+under their on-disk launch point (e.g. AppInit_DLLs is a registry_hive entry
+even though it loads code into process memory).
+"""
+
+_BASE_EXTRACT_PROMPT_TEMPLATE = """You are listing the candidate artifact locations that could contain persistence
+or compromise evidence on a Windows host. You are NOT analyzing evidence yet, just enumerating where to look.
+
+HOST TYPE: {host_type} ({host_description})
+EVIDENCE CHANNELS AVAILABLE: {channels}
 
 Return a single JSON object matching exactly this schema (no prose, no markdown fences):
 
-{_EXTRACT_SCHEMA}
+{schema}
+
+Universal Windows persistence locations (always applicable, regardless of host type):
+- HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run, RunOnce, RunOnceEx
+- HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run, RunOnce, RunOnceEx (per-user, in NTUSER.DAT)
+- Scheduled Tasks (\\System32\\Tasks\\, \\Tasks\\)
+- Windows Services (HKLM\\SYSTEM\\CurrentControlSet\\Services)
+- Winlogon Userinit, Shell, Notify (HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon)
+- AppInit_DLLs (HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows)
+- Image File Execution Options (debugger hijack, accessibility tools)
+- WMI event subscriptions (HKLM\\SOFTWARE\\Microsoft\\Wbem)
+- Startup folder (per user)
+{host_guidance}{channel_guidance}
 
 Rules:
-- Windows typically has 8-15 persistence-relevant artifact locations worth checking.
-  Do not exceed 15. If you are tempted to list more, prioritize.
+- Output 8-15 candidates total. Prioritize by likelihood for THIS host type.
+- Each candidate uses exactly one `artifact_type` from the schema.
+- Each candidate MUST have a non-empty `reason` describing why an attacker would put something here on a {host_type}.
 - Do not invent paths. Use canonical Windows paths only.
-- Each candidate MUST have a non-empty `reason`."""
+- For host-specific candidates that are higher-yield than generic ones on this host type, give them P1.
+"""
+
+
+def _build_extract_prompt(host_type: str, host_description: str, has_memory: bool) -> str:
+    return _BASE_EXTRACT_PROMPT_TEMPLATE.format(
+        host_type=host_type,
+        host_description=host_description,
+        channels="disk + memory" if has_memory else "disk only",
+        schema=_EXTRACT_SCHEMA,
+        host_guidance=_HOST_GUIDANCE.get(host_type, ""),
+        channel_guidance=_MEMORY_GUIDANCE if has_memory else _NO_MEMORY_GUIDANCE,
+    )
 
 
 @observe(name="extract")
@@ -614,14 +769,17 @@ def extract_node(state: "PipelineState") -> dict:
     langfuse = _require("LANGFUSE", LANGFUSE)
     model   = _require("EXTRACT_MODEL", EXTRACT_MODEL)
     case_id = _require("CASE_ID", CASE_ID)
+    host_type, host_description = _host_type_of(case_id)
+    has_memory = bool(MEMORY_IMAGE_PATH)
+    extract_system_prompt = _build_extract_prompt(host_type, host_description, has_memory)
     with propagate_attributes(
         session_id=state.run_id,
         user_id=case_id,
-        tags=["phase:extract"],
-        metadata={"phase": "extract"},
+        tags=["phase:extract", f"host_type:{host_type}", f"channels:{'disk+memory' if has_memory else 'disk-only'}"],
+        metadata={"phase": "extract", "host_type": host_type, "has_memory": has_memory},
     ):
         messages = [
-            {"role": "system", "content": _EXTRACT_SYSTEM_PROMPT},
+            {"role": "system", "content": extract_system_prompt},
             {"role": "user",   "content": f"Question: {state.question}"},
         ]
         _llm_cost_pre("extract", model, messages)
@@ -1347,6 +1505,30 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
         ):
             kept = [d for d in sf["dll_entries"] if d.get("pid") in flagged_pids]
             sf = {**sf, "dll_entries": kept}
+        # netscan bloat guard — DC/server hosts accumulate thousands of connection
+        # records (Kerberos, LDAP, DNS, RPC for every domain client). Listening
+        # sockets with foreign_address=="*:*" carry zero C2 signal; strip them.
+        # Cap surviving rows at 300 sorted CLOSE_WAIT-first (beacon residue).
+        # 2026-04-26 incident: base-dc netscan = 2,867 rows = 519 KB = ~130k tokens.
+        if (
+            sf is not None
+            and plan_step.tool == "volatility_run"
+            and sf.get("plugin_name") == "netscan"
+            and sf.get("connections")
+        ):
+            kept = [c for c in sf["connections"] if c.get("foreign_address", "*:*") != "*:*"]
+            kept.sort(key=lambda c: (0 if c.get("state") == "CLOSE_WAIT" else 1, c.get("pid", 0)))
+            sf = {**sf, "connections": kept[:300]}
+        # malfind hex_excerpt strip — raw hex bytes add ~20% to malfind size but
+        # convey no signal the LLM can't get from disasm_excerpt. Keep disasm.
+        if (
+            sf is not None
+            and plan_step.tool == "volatility_run"
+            and sf.get("plugin_name") == "malfind"
+            and sf.get("malfind_hits")
+        ):
+            stripped = [{k: v for k, v in h.items() if k != "hex_excerpt"} for h in sf["malfind_hits"]]
+            sf = {**sf, "malfind_hits": stripped}
         # Untrusted-evidence wrappers (Tier-1 AI-adversary add-on, 2026-04-24).
         # `_untrusted_begin` / `_untrusted_end` sandwich `structured_fields` so
         # the LLM has an explicit visual frame: everything between the markers
