@@ -120,6 +120,15 @@ def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memor
     # findings.SUCCESS may be absent" semantics.
     (case_dir / "latest.txt").write_text(run_id + "\n", encoding="utf-8")
 
+    # Slice 6 Step 7 — ablation-row sidecar marker. Set ABLATION_ROW=2 (row 2,
+    # capability-token verification disabled) or =4 (row 4, classification
+    # field removed) when running on the corresponding ablation branch so
+    # `score_ablation.py` can group runs by configuration without parsing
+    # branch names. Default-unset runs are treated as row 3 (full Slice 5).
+    ablation_row = __import__("os").environ.get("ABLATION_ROW", "").strip()
+    if ablation_row:
+        (out_dir / "ablation_row.txt").write_text(ablation_row + "\n", encoding="utf-8")
+
     print(f"\n{'='*70}")
     print(f"PIPELINE RUN")
     print(f"{'='*70}")
@@ -130,6 +139,8 @@ def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memor
     if memory_image_path:
         print(f"  memory_image   {memory_image_path}")
         print(f"  memory_profile {memory_profile}")
+    if ablation_row:
+        print(f"  ablation_row   {ablation_row}")
     print()
 
     langfuse   = Langfuse()
