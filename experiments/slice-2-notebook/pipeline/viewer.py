@@ -33,6 +33,13 @@ def _terminal_status(run_path: Path) -> str:
     return "INCOMPLETE"
 
 
+def _is_real_run(run_path: Path) -> bool:
+    """True if the run reached a terminal state (SUCCESS / HUMAN_REVIEW / FAIL).
+    Filters out noise: archived-* dirs, pre-step-0 baselines, aborted runs,
+    and crash-mid-flight INCOMPLETE residue."""
+    return _terminal_status(run_path) != "INCOMPLETE"
+
+
 def _read_json(path: Path) -> Any:
     if not path.exists():
         return None
@@ -50,10 +57,17 @@ def _read_jsonl(path: Path) -> list[Any]:
     return lines
 
 
+_MEMORY_CLASSIFICATIONS = {"process_injection", "c2_beacon"}
+
+
 def _run_summary(case_id: str, run_path: Path) -> dict:
     status = _terminal_status(run_path)
     findings_raw = _read_json(run_path / "05_interpret_findings.json")
-    finding_count = len(findings_raw.get("findings", [])) if findings_raw else 0
+    findings = findings_raw.get("findings", []) if findings_raw else []
+    finding_count = len(findings)
+    memory_finding_count = sum(
+        1 for f in findings if f.get("classification") in _MEMORY_CLASSIFICATIONS
+    )
     critic_events = _read_jsonl(run_path / "06_critic_disagreements.jsonl")
     started_at = findings_raw.get("started_at") if findings_raw else None
     finished_at = findings_raw.get("finished_at") if findings_raw else None
@@ -62,6 +76,7 @@ def _run_summary(case_id: str, run_path: Path) -> dict:
         "case_id": case_id,
         "status": status,
         "finding_count": finding_count,
+        "memory_finding_count": memory_finding_count,
         "critic_event_count": len(critic_events),
         "started_at": started_at,
         "finished_at": finished_at,
@@ -86,7 +101,7 @@ def list_cases():
         if not case_dir.is_dir():
             continue
         run_dirs = sorted(
-            [d for d in case_dir.iterdir() if d.is_dir()],
+            [d for d in case_dir.iterdir() if d.is_dir() and _is_real_run(d)],
             key=lambda d: d.name,
         )
         if not run_dirs:
@@ -107,7 +122,7 @@ def list_runs(case_id: str):
     if not case_dir.exists():
         raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found")
     run_dirs = sorted(
-        [d for d in case_dir.iterdir() if d.is_dir()],
+        [d for d in case_dir.iterdir() if d.is_dir() and _is_real_run(d)],
         key=lambda d: d.name,
     )
     return JSONResponse([_run_summary(case_id, r) for r in reversed(run_dirs)])
@@ -121,16 +136,61 @@ def get_run(case_id: str, run_id: str):
 
     ledger = _read_jsonl(run_path / "integrity_ledger.jsonl")
     evidence = _read_jsonl(run_path / "04_execute_evidence.jsonl")
+    plan = _read_json(run_path / "02_plan_tool_plan.json")
+
+    gates = next(
+        (e for e in ledger if e.get("event_type") == "plan_approved"),
+        None,
+    )
+
+    # Evidence rows do not carry the tool name — the executor writes only
+    # tool_call_id. Correlate positionally with the plan (both are in execution
+    # order). If a plan step was skipped/errored, lengths diverge and trailing
+    # rows fall back to "unknown"; the viewer flags this so it is visible.
+    plan_steps = (plan or {}).get("steps", [])
+    for i, row in enumerate(evidence):
+        if i < len(plan_steps):
+            row["_derived_tool"] = plan_steps[i].get("tool", "unknown")
+            row["_plan_step_index"] = i + 1
+        else:
+            row["_derived_tool"] = "unknown"
+            row["_plan_step_index"] = None
+
+    # Same problem for tool_call_completed ledger entries — they only carry
+    # tool_call_id. On a re-iterated run the ledger keeps both batches but
+    # evidence only retains the LATEST (iteration-1) batch, so naive
+    # tool_call_id → evidence lookup leaves earlier-iteration entries unknown.
+    # Strategy: group ledger tool_call entries by token_id (each token batch ≈
+    # one iteration), sort by seq, then position-map each batch to plan.steps.
+    # Verified on wkstn-05-005: positional mapping aligns 22/22 iter-1 entries
+    # with their evidence (sanity check) and gives sensible tool names for the
+    # 23 iter-0 entries that have no surviving evidence row.
+    from collections import defaultdict
+    tc_entries = [e for e in ledger if e.get("event_type") == "tool_call_completed"]
+    by_token = defaultdict(list)
+    for e in tc_entries:
+        by_token[e.get("token_id", "")].append(e)
+    for token, batch in by_token.items():
+        batch.sort(key=lambda e: e.get("seq", 0))
+        for i, e in enumerate(batch):
+            if i < len(plan_steps):
+                e["_derived_tool"] = plan_steps[i].get("tool", "unknown")
+                e["_plan_step_index"] = i + 1
+            else:
+                e["_derived_tool"] = "unknown"
+                e["_plan_step_index"] = None
 
     return JSONResponse({
         "run_id": run_id,
         "case_id": case_id,
         "status": _terminal_status(run_path),
         "extract": _read_json(run_path / "01_extract_candidates.json"),
-        "plan": _read_json(run_path / "02_plan_tool_plan.json"),
+        "plan": plan,
         "approved": (run_path / "03_approve.SUCCESS").exists(),
+        "gates": gates,
         "evidence": evidence,
         "findings": _read_json(run_path / "05_interpret_findings.json"),
         "critic_events": _read_jsonl(run_path / "06_critic_disagreements.jsonl"),
+        "ledger": ledger,
         "ledger_entry_count": len(ledger),
     })

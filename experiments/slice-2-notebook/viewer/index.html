@@ -3,24 +3,39 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sift Sentinel — Run Viewer</title>
+<title>Sift Sentinel - Run Viewer</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --bg: #0d1117; --surface: #161b22; --surface-2: #1c232c; --border: #30363d;
     --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
     --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
-    --orange: #ffa657;
+    --orange: #ffa657; --teal: #56d4dd;
   }
   body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; height: 100vh; overflow: hidden; }
 
   /* sidebar */
-  #sidebar { width: 280px; min-width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar { width: 290px; min-width: 290px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; transition: width 0.2s ease, min-width 0.2s ease, border-right-width 0.2s ease; }
+  .dataset-header { padding: 12px 14px 6px; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.18); }
+  .dataset-header:first-child { border-top: none; }
+  .dataset-header .count { color: var(--accent); font-weight: 600; }
+  .case-header .latest-prefix { font-size: 9px; color: var(--muted); font-weight: 500; text-transform: lowercase; letter-spacing: 0.4px; margin-right: 2px; }
+  .run-time { color: var(--muted); font-size: 10.5px; opacity: 0.85; }
+  #sidebar-footer { border-top: 1px solid var(--border); padding: 8px 14px 12px; flex-shrink: 0; background: rgba(0,0,0,0.15); }
+  #sidebar-footer summary { cursor: pointer; font-size: 10px; color: var(--muted); letter-spacing: 0.6px; text-transform: uppercase; font-weight: 600; padding: 4px 0; list-style: none; }
+  #sidebar-footer summary::-webkit-details-marker { display: none; }
+  #sidebar-footer summary::before { content: '▸ '; }
+  #sidebar-footer details[open] > summary::before { content: '▾ '; }
+  #sidebar-footer .legend-row { display: grid; grid-template-columns: 110px 1fr; gap: 8px; padding: 4px 0; font-size: 11px; line-height: 1.4; }
+  #sidebar-footer .legend-row code { font-size: 10.5px; }
+  body.sidebar-collapsed #sidebar { width: 0; min-width: 0; border-right-width: 0; }
+  #sidebar-toggle { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 9px; border-radius: 4px; font-size: 14px; line-height: 1; user-select: none; transition: color 0.15s, border-color 0.15s; flex-shrink: 0; }
+  #sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
   #sidebar h1 { padding: 16px; font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--border); color: var(--accent); letter-spacing: 0.3px; }
   #sidebar h1 span { color: var(--muted); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
   #case-list { overflow-y: auto; flex: 1; }
   .case-group { border-bottom: 1px solid var(--border); }
-  .case-header { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .case-header { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
   .case-header:hover { background: rgba(255,255,255,0.04); }
   .run-list { display: none; }
   .run-list.open { display: block; }
@@ -30,35 +45,62 @@
 
   /* main */
   #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-  #topbar { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 54px; }
-  #topbar h2 { font-size: 15px; font-weight: 600; }
+
+  /* topbar — investigator answer surface */
+  #topbar { padding: 14px 22px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; min-height: 70px; background: var(--surface); }
+  #topbar .row1 { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #topbar h2 { font-size: 16px; font-weight: 600; }
   #topbar .meta { font-size: 12px; color: var(--muted); }
+  #topbar .row2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .verdict-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); }
+  .verdict-chip .num { font-weight: 700; }
+  .verdict-attacker { color: var(--red); border-color: rgba(248,81,73,0.4); background: rgba(248,81,73,0.08); }
+  .verdict-ai      { color: var(--orange); border-color: rgba(255,166,87,0.4); background: rgba(255,166,87,0.08); }
+  .verdict-memory  { color: var(--purple); border-color: rgba(188,140,255,0.4); background: rgba(188,140,255,0.08); }
+  .verdict-other   { color: var(--muted); border-color: var(--border); }
+  .verdict-clean   { color: var(--green); border-color: rgba(63,185,80,0.4); background: rgba(63,185,80,0.08); }
 
   /* tabs */
-  #tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 20px; }
-  .tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  #tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 22px; }
+  .tab { padding: 12px 18px; cursor: pointer; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
   .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tab .count { color: var(--muted); margin-left: 6px; font-size: 11px; }
+  .tab.active .count { color: var(--accent); }
 
   /* content */
-  #content { flex: 1; overflow-y: auto; padding: 20px; }
+  #content { flex: 1; overflow-y: auto; padding: 20px 22px; }
   .panel { display: none; }
   .panel.active { display: block; }
   .empty { color: var(--muted); font-style: italic; padding: 20px 0; }
 
-  /* cards */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-  .card h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
-  .card .label { font-size: 11px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.6px; }
+  /* findings filter bar */
+  #finding-filters { position: sticky; top: -20px; margin: -20px -22px 16px; padding: 12px 22px; background: var(--bg); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; z-index: 5; }
+  .filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 14px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; user-select: none; }
+  .filter-chip:hover { color: var(--text); border-color: var(--text); }
+  .filter-chip.active { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,0.1); }
+  .filter-chip .badge-num { font-size: 10px; opacity: 0.8; }
+  .filter-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 
   /* findings */
-  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-  .finding-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
-  .finding-title { font-weight: 600; font-size: 14px; flex: 1; }
-  .finding-meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .finding { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; overflow: hidden; display: flex; }
+  .finding-stripe { width: 5px; flex-shrink: 0; background: var(--muted); }
+  .finding.cls-attacker_persistence .finding-stripe { background: var(--red); }
+  .finding.cls-attacker_persistence_ai_assisted_runtime .finding-stripe { background: var(--orange); }
+  .finding.cls-process_injection .finding-stripe { background: var(--purple); }
+  .finding.cls-c2_beacon .finding-stripe { background: var(--orange); }
+  .finding.cls-requires_disambiguation .finding-stripe { background: var(--yellow); }
+  .finding-body { flex: 1; padding: 16px 18px; }
+  .finding-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .finding-mech { font-weight: 600; font-size: 14.5px; flex: 1; min-width: 0; }
+  .finding-attack { font-family: monospace; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .finding-attack strong { color: var(--text); font-weight: 600; }
+  .finding-meta-row { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .finding-value { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 4px; word-break: break-all; margin-bottom: 10px; color: var(--orange); }
-  .finding-notes { font-size: 12px; color: var(--text); line-height: 1.6; }
-  .evidence-ref { display: inline-block; background: rgba(88,166,255,0.15); color: var(--accent); border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 11px; margin: 1px; }
+  .finding-evidence-row { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .finding-notes { font-size: 12.5px; color: var(--text); line-height: 1.6; }
+  .ev-chip { display: inline-block; background: rgba(88,166,255,0.15); color: var(--accent); border-radius: 3px; padding: 1px 6px; font-family: monospace; font-size: 11px; margin: 1px 2px; cursor: pointer; border: 1px solid transparent; }
+  .ev-chip:hover { border-color: var(--accent); background: rgba(88,166,255,0.25); }
 
   /* badges */
   .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
@@ -72,42 +114,124 @@
   .badge-attacker { background: rgba(248,81,73,0.15); color: var(--red); }
   .badge-injection { background: rgba(188,140,255,0.15); color: var(--purple); }
   .badge-c2      { background: rgba(255,166,87,0.15); color: var(--orange); }
+  .badge-ai      { background: rgba(255,166,87,0.15); color: var(--orange); }
   .badge-legit   { background: rgba(63,185,80,0.1); color: var(--green); }
-
-  /* plan steps */
-  .plan-step { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; font-size: 12px; }
-  .plan-step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 600; }
-  .step-num { background: var(--accent); color: #000; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
-  .step-tool { color: var(--accent); font-family: monospace; }
-  .step-params { font-family: monospace; font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .badge-mem     { background: rgba(188,140,255,0.18); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+  .badge-disk    { background: rgba(86,212,221,0.15); color: var(--teal); border: 1px solid rgba(86,212,221,0.3); }
 
   /* evidence */
-  .ev-record { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; font-size: 12px; }
-  .ev-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ev-record { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; font-size: 12px; transition: box-shadow 0.4s, border-color 0.4s; }
+  .ev-record.flash { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,166,255,0.4); }
+  .ev-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .ev-step { background: var(--surface-2); color: var(--muted); border-radius: 3px; padding: 1px 6px; font-family: monospace; font-size: 11px; font-weight: 600; }
   .ev-tool { font-family: monospace; font-weight: 600; color: var(--accent); }
-  .ev-fields { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; overflow-x: auto; white-space: pre; color: var(--text); max-height: 200px; overflow-y: auto; }
+  .ev-id   { font-family: monospace; font-size: 10px; color: var(--muted); margin-left: auto; }
+  .ev-fields { font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 8px; border-radius: 4px; overflow-x: auto; white-space: pre; color: var(--text); max-height: 240px; overflow-y: auto; }
+  .ev-fields-collapsed { font-size: 11px; color: var(--muted); font-style: italic; cursor: pointer; padding: 4px 8px; list-style: none; }
+  .ev-fields-collapsed::-webkit-details-marker { display: none; }
+  .ev-fields-collapsed::before { content: '▸ '; }
+  details[open] .ev-fields-collapsed::before { content: '▾ '; }
+  .ev-fields-collapsed:hover { color: var(--text); }
+  details > .ev-fields { margin-top: 6px; }
 
-  /* critic */
-  .critic-event { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 10px; font-size: 12px; }
-  .critic-event.quarantine { border-color: rgba(248,81,73,0.4); }
-  .critic-event.escalate { border-color: rgba(210,153,34,0.4); }
-  .rule-badge { background: rgba(248,81,73,0.15); color: var(--red); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 11px; font-weight: 700; }
+  /* pipeline tab — single scrolling page, sectioned, each section collapsible */
+  .pipe-section { margin-bottom: 22px; }
+  .pipe-section > summary { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; padding: 4px 0 6px; border-bottom: 1px solid var(--border); cursor: pointer; list-style: none; }
+  .pipe-section > summary::-webkit-details-marker { display: none; }
+  .pipe-section > summary::before { content: '▾'; color: var(--muted); font-size: 10px; min-width: 12px; transition: transform 0.15s; }
+  .pipe-section:not([open]) > summary::before { transform: rotate(-90deg); }
+  .pipe-section > summary:hover { background: rgba(255,255,255,0.02); }
+  .pipe-section-head { display: contents; }
+  .pipe-section-num { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
+  .pipe-section-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .pipe-section-meta { color: var(--muted); font-size: 11px; margin-left: auto; }
 
-  /* overview stats */
-  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; text-align: center; }
-  .stat-num { font-size: 28px; font-weight: 700; color: var(--accent); }
-  .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  /* Pipeline tab top toolbar */
+  #pipeline-toolbar { display: flex; gap: 8px; margin-bottom: 14px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  #pipeline-toolbar button { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 12px; border-radius: 4px; font-size: 11.5px; font-family: inherit; }
+  #pipeline-toolbar button:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* iter-diff block (iter 1 Execute compared to iter 0) */
+  .iter-diff { margin-top: 12px; padding: 10px 12px; background: rgba(86,212,221,0.06); border: 1px dashed rgba(86,212,221,0.3); border-radius: 6px; font-size: 11.5px; }
+  .iter-diff-head { color: var(--teal); font-weight: 600; margin-bottom: 6px; }
+  .iter-diff-row { display: flex; gap: 10px; padding: 3px 0; align-items: baseline; }
+  .iter-diff-row .lbl { min-width: 80px; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .iter-diff-row.retried .lbl { color: var(--green); }
+  .iter-diff-row.dropped .lbl { color: var(--orange); }
+  .iter-diff-row.added .lbl { color: var(--accent); }
+  .iter-diff-row .body { font-family: monospace; font-size: 11px; }
+
+  .pipe-row { display: flex; gap: 8px; padding: 6px 0; font-size: 12px; align-items: baseline; }
+  .pipe-row .k { min-width: 130px; color: var(--muted); }
+  .pipe-row code { word-break: break-all; }
+
+  .candidate-mini { display: flex; gap: 8px; padding: 6px 0; font-size: 12px; align-items: baseline; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .candidate-mini:last-child { border-bottom: none; }
+  .candidate-mini .ctype { font-family: monospace; color: var(--accent); min-width: 130px; font-size: 11px; }
+  .candidate-mini .cprio { color: var(--orange); font-weight: 700; font-size: 10px; min-width: 22px; }
+  .candidate-mini .cpath { font-family: monospace; color: var(--orange); font-size: 11px; }
+  .candidate-mini .creason { color: var(--muted); font-size: 11px; flex: 1; }
+
+  .step-mini { padding: 8px 0; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .step-mini-head { display: flex; gap: 10px; align-items: baseline; }
+  .step-mini .sn { color: var(--muted); font-family: monospace; min-width: 32px; font-size: 11px; }
+  .step-mini .stool { font-family: monospace; color: var(--accent); font-size: 11.5px; font-weight: 600; min-width: 160px; }
+  .step-mini .sargs { font-family: monospace; color: var(--orange); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step-mini .sdeps { color: var(--muted); font-size: 10.5px; font-family: monospace; }
+  .step-mini .sconf { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+  .step-mini .sconf.h { background: rgba(63,185,80,0.12); color: var(--green); }
+  .step-mini .sconf.m { background: rgba(210,153,34,0.12); color: var(--yellow); }
+  .step-mini .sconf.l { background: rgba(139,148,158,0.12); color: var(--muted); }
+  .step-mini .spurpose { color: var(--muted); font-size: 11.5px; margin-top: 4px; padding-left: 42px; line-height: 1.5; }
+
+  /* rule reference flash on jumpToRule */
+  .rule-flash { background: rgba(248,81,73,0.18) !important; transition: background 0.4s; }
+
+  .tool-chip { display: inline-block; background: rgba(88,166,255,0.12); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); border-radius: 4px; padding: 2px 8px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; margin: 2px 4px 2px 0; }
+
+  .summary-tile { display: inline-block; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; margin: 4px 6px 4px 0; min-width: 110px; }
+  .summary-tile .num { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .summary-tile .lbl { font-size: 11px; color: var(--muted); }
+
+  /* ledger / hash chain visualization */
+  .ledger-block { margin-top: 12px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+  .ledger-block-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 11px; color: var(--muted); }
+  .ledger-block-head .chain-icon { color: var(--green); font-size: 13px; }
+  .ledger-block-head .chain-summary { margin-left: auto; font-family: monospace; font-size: 10px; }
+  .ledger-row { display: grid; grid-template-columns: 50px 170px 1fr auto; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--border); margin-left: 8px; font-size: 11px; align-items: center; }
+  .ledger-row + .ledger-row { border-top: 1px dashed rgba(255,255,255,0.04); }
+  .ledger-row:hover { background: rgba(255,255,255,0.03); }
+  .ledger-seq { color: var(--muted); font-family: monospace; font-weight: 600; }
+  .ledger-event { font-family: monospace; color: var(--accent); font-size: 10.5px; }
+  .ledger-extra { color: var(--muted); font-family: monospace; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ledger-hash { font-family: monospace; font-size: 10.5px; color: var(--green); }
+  .ledger-hash .arrow { color: var(--muted); margin: 0 2px; }
+  .iteration-header { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; padding: 4px 8px; background: rgba(210,153,34,0.08); border-left: 3px solid var(--yellow); font-size: 12px; flex-wrap: wrap; }
+  .iteration-header.iter-final { background: rgba(63,185,80,0.08); border-left-color: var(--green); }
+  .iteration-header strong { font-weight: 700; }
+
+  /* loop banner — shown when iterations > 1 */
+  .loop-banner { background: linear-gradient(180deg, rgba(210,153,34,0.10), rgba(210,153,34,0.04)); border: 1px solid rgba(210,153,34,0.4); border-radius: 8px; padding: 14px 16px; margin-bottom: 22px; }
+  .loop-banner-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--yellow); }
+  .loop-banner-head .arrow { font-size: 18px; }
+  .loop-iter { padding: 8px 0 8px 18px; border-left: 2px solid rgba(210,153,34,0.4); position: relative; }
+  .loop-iter::before { content: ''; position: absolute; left: -5px; top: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); }
+  .loop-iter.iter-final { border-left-color: var(--green); }
+  .loop-iter.iter-final::before { background: var(--green); }
+  .loop-iter h4 { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+  .loop-iter .step { display: inline-block; padding: 1px 7px; border-radius: 3px; background: rgba(255,255,255,0.06); font-family: monospace; font-size: 10.5px; color: var(--accent); margin-right: 4px; }
+  .loop-iter .body { color: var(--text); font-size: 12px; line-height: 1.6; margin-bottom: 4px; }
+  .loop-iter .corrective { font-style: italic; color: var(--text); font-size: 12px; padding: 6px 10px; background: rgba(0,0,0,0.25); border-radius: 4px; margin-top: 4px; border-left: 2px solid var(--yellow); }
+  .reentry-arrow { display: flex; align-items: center; gap: 8px; margin: 4px 0 4px 4px; padding: 4px 0; font-size: 12px; color: var(--yellow); font-weight: 600; }
+  .reentry-arrow .glyph { font-size: 18px; line-height: 1; }
 
   /* welcome */
-  #welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); text-align: center; gap: 8px; }
+  #welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); text-align: center; gap: 8px; padding: 20px; }
   #welcome h2 { font-size: 20px; color: var(--text); }
-  #welcome p { font-size: 13px; max-width: 360px; line-height: 1.6; }
+  #welcome p { font-size: 13px; max-width: 420px; line-height: 1.6; }
 
-  /* misc */
+  code { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; color: var(--text); }
   hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-  code { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
-  .attack-tag { font-size: 11px; color: var(--muted); font-family: monospace; }
 </style>
 </head>
 <body>
@@ -115,47 +239,85 @@
 <div id="sidebar">
   <h1>Sift Sentinel <span>Run Viewer</span></h1>
   <div id="case-list"><div class="empty" style="padding:16px">Loading cases…</div></div>
+  <div id="sidebar-footer">
+    <details>
+      <summary>What do these statuses mean?</summary>
+      <div style="margin-top:6px">
+        <div class="legend-row">
+          <span><span class="badge badge-success">Committed</span></span>
+          <span style="color:var(--muted)">Critic passed every finding; analyst sign-off recorded.</span>
+        </div>
+        <div class="legend-row">
+          <span><span class="badge badge-review">Awaiting Review</span></span>
+          <span style="color:var(--muted)">Critic flagged at least one finding for human adjudication.</span>
+        </div>
+        <div class="legend-row">
+          <span><span class="badge badge-fail">Failed</span></span>
+          <span style="color:var(--muted)">Pipeline raised an unrecoverable error.</span>
+        </div>
+        <div class="legend-row">
+          <span><code>NM / ND</code></span>
+          <span style="color:var(--muted)"><strong style="color:var(--purple)">M</strong> = memory-channel findings (volatility) · <strong style="color:var(--teal)">D</strong> = disk-channel findings (sleuthkit + regripper)</span>
+        </div>
+      </div>
+    </details>
+  </div>
 </div>
 
 <div id="main">
-  <div id="topbar"><div id="welcome-top" style="color:var(--muted);font-size:13px">Select a run from the sidebar</div></div>
+  <div id="topbar"><div style="color:var(--muted);font-size:13px">Select a run from the sidebar</div></div>
   <div id="tabs" style="display:none">
-    <div class="tab active" data-tab="overview">Overview</div>
-    <div class="tab" data-tab="plan">Plan</div>
-    <div class="tab" data-tab="evidence">Evidence</div>
-    <div class="tab" data-tab="findings">Findings</div>
-    <div class="tab" data-tab="critic">Critic</div>
+    <div class="tab active" data-tab="findings">Findings<span class="count" id="tabcount-findings"></span></div>
+    <div class="tab" data-tab="evidence">Evidence<span class="count" id="tabcount-evidence"></span></div>
+    <div class="tab" data-tab="pipeline">Pipeline</div>
   </div>
   <div id="content">
-    <div id="welcome"><h2>Sift Sentinel</h2><p>Select a case and run from the left sidebar to explore the pipeline output end to end.</p></div>
-    <div class="panel" id="panel-overview"></div>
-    <div class="panel" id="panel-plan"></div>
-    <div class="panel" id="panel-evidence"></div>
+    <div id="welcome">
+      <h2>Sift Sentinel</h2>
+      <p>Pick a case and run from the sidebar. The viewer opens on the <strong>Findings</strong> tab — what the agent concluded for that host. <strong>Evidence</strong> shows the raw tool outputs that back each finding (click an evidence chip on a finding to jump to it). <strong>Pipeline</strong> shows the audit trail: how the agent got from a blank slate to those findings.</p>
+    </div>
     <div class="panel" id="panel-findings"></div>
-    <div class="panel" id="panel-critic"></div>
+    <div class="panel" id="panel-evidence"></div>
+    <div class="panel" id="panel-pipeline"></div>
   </div>
 </div>
 
 <script>
 const API = '';
 let currentRun = null;
+let activeFilter = 'all';
 
 // ── utilities ──────────────────────────────────────────────────────────────
 
+const STATUS_LABEL = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', FAIL:'Failed', INCOMPLETE:'In Progress' };
+const STATUS_BADGE = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
+
 function statusBadge(s) {
-  const map = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
-  const label = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', FAIL:'Failed', INCOMPLETE:'In Progress' };
-  return `<span class="badge ${map[s]||'badge-incomplete'}">${label[s]||s}</span>`;
+  return `<span class="badge ${STATUS_BADGE[s]||'badge-incomplete'}">${STATUS_LABEL[s]||s}</span>`;
 }
 
 function confBadge(c) {
   const map = { high:'badge-high', medium:'badge-medium', low:'badge-low' };
-  return `<span class="badge ${map[c]||''}">${c}</span>`;
+  return `<span class="badge ${map[c]||'badge-incomplete'}">${c||'unknown'} confidence</span>`;
+}
+
+const MEMORY_CLS = new Set(['process_injection', 'c2_beacon']);
+
+function isMemoryFinding(f) {
+  if (MEMORY_CLS.has(f.classification)) return true;
+  // fallback: tool_call_id might trace back to volatility — but the structured
+  // classifications above are the contract.
+  return false;
+}
+
+function isAiFinding(f) {
+  return (f.classification || '').includes('ai_assisted');
 }
 
 function classBadge(c) {
-  if (c.startsWith('attacker_persistence_ai')) return `<span class="badge badge-c2">AI-Assisted Attacker</span>`;
-  if (c === 'attacker_persistence') return `<span class="badge badge-attacker">Attacker Persistence</span>`;
+  if (!c) return `<span class="badge badge-incomplete">unclassified</span>`;
+  if (c.startsWith('attacker_persistence_ai')) return `<span class="badge badge-ai">AI-Assisted</span>`;
+  if (c === 'attacker_persistence') return `<span class="badge badge-attacker">Attacker</span>`;
   if (c === 'process_injection')    return `<span class="badge badge-injection">Process Injection</span>`;
   if (c === 'c2_beacon')            return `<span class="badge badge-c2">C2 Beacon</span>`;
   if (c === 'requires_disambiguation') return `<span class="badge badge-review">Needs Review</span>`;
@@ -166,7 +328,215 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function fmt(obj) { return JSON.stringify(obj, null, 2); }
+function shortId(s) { return (s || '').slice(0, 8); }
+function shortHash(s) { return (s || '').slice(0, 10); }
+
+// Group cases by dataset source for the sidebar. Datasets here are the ones
+// present in HACKATHON-2026/: DFIR Madness (training image, public) and SRL
+// 2018 (SANS hackathon evidence). Anything else falls in "Other".
+function datasetOf(caseId) {
+  if (!caseId) return 'Other';
+  if (caseId.startsWith('dfirmadness')) return 'DFIR Madness';
+  if (caseId.startsWith('srl-2018')) return 'SRL 2018 (SANS hackathon)';
+  return 'Other';
+}
+const DATASET_ORDER = ['SRL 2018 (SANS hackathon)', 'DFIR Madness', 'Other'];
+
+function relTime(isoStr) {
+  if (!isoStr) return '';
+  const t = Date.parse(isoStr);
+  if (isNaN(t)) return '';
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.round(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff/3600)}h ago`;
+  if (diff < 86400*14) return `${Math.round(diff/86400)}d ago`;
+  return new Date(t).toISOString().slice(0,10);
+}
+
+// Pull the basename of the evidence file (E01 for disk, .img for memory) used
+// by this channel's plan steps. Returns '' when not derivable.
+function evidenceFileFor(steps, channel) {
+  for (const s of steps) {
+    const args = s.args || {};
+    if (channel === 'disk' && args.e01_path) {
+      return (args.e01_path || '').split('/').pop();
+    }
+    if (channel === 'memory' && args.image_path) {
+      return (args.image_path || '').split('/').pop();
+    }
+  }
+  return '';
+}
+
+// Capability-token TTL is set by the orchestrator (nodes.py reissue_token,
+// ttl_seconds=3600). The token's actual expires_at is encoded in the HMAC
+// payload but not stored in the ledger, so the viewer derives it from the
+// issuance timestamp + TTL. Marked "(derived)" in the UI so it does not
+// claim authoritative data.
+const TOKEN_TTL_SECONDS = 3600;
+
+// Disk vs memory evidence channels — added to the pipeline in Slice 6 Step 3a
+// (volatility_run + Vol2 schemas). Disk channel was the original; memory is
+// optional and only fires on cases that have a staged RAM image. The ledger
+// does not record channel directly — viewer derives it from the tool name.
+const MEMORY_TOOLS = new Set(['volatility_run']);
+function channelOf(toolName) { return MEMORY_TOOLS.has(toolName) ? 'memory' : 'disk'; }
+
+function deriveExpiry(issuanceUtcStr) {
+  if (!issuanceUtcStr) return null;
+  const t = new Date(issuanceUtcStr);
+  if (isNaN(t)) return null;
+  const exp = new Date(t.getTime() + TOKEN_TTL_SECONDS * 1000);
+  return exp.toISOString().replace('T', ' ').replace(/\.\d+Z$/, 'Z');
+}
+
+// Critic rules — one-line summaries pulled from pipeline/critic.py docstrings.
+// Used for hover tooltips on rule_id chips and for the "Rule reference"
+// quick-guide panel in the Critic section of the Pipeline tab.
+const RULE_REFERENCE = {
+  R_01: { name: 'EVID_UNRESOLVED',         summary: 'Evidence ref points at a tool_call_id that did not actually run.' },
+  R_02: { name: 'PATH_INCONSISTENCY',      summary: 'Path-like text in mechanism/value disagrees with the cited path.' },
+  R_03: { name: 'TOOL_MISMATCH',           summary: 'Finding cites a tool that was not in the approved plan.' },
+  R_04: { name: 'INVALID_REG_PATH',        summary: 'Registry path is malformed (bad hive prefix or syntax).' },
+  R_05: { name: 'EXCERPT_HALLUCINATION',   summary: 'Quoted excerpt is not literally present in the raw tool output.' },
+  R_06: { name: 'SCOPE_INCOMPLETE',        summary: 'NOT_FOUND finding before every category-required tool has run.' },
+  R_07: { name: 'EMPTY_FINDING_DATA',      summary: 'Finding mechanism or value is empty.' },
+  R_08: { name: 'CONF_OVERSTATED',         summary: 'Confidence claim is not supported by the cited evidence quality.' },
+  R_09: { name: 'EVIDENCE_TOOL_EXIT_NONZERO', summary: 'Finding cites a tool call whose execution failed.' },
+  R_10: { name: 'INJECTION_FLAGGED',       summary: 'Finding cites evidence that was injection-flagged or quarantined.' },
+  R_11: { name: 'CLASSIFICATION_MISSING',  summary: 'Finding has no classification, or classification is invalid.' },
+  R_12: { name: 'ABSENCE_UNSUBSTANTIATED', summary: 'Negative claim made before all tools that could have shown it ran cleanly.' },
+  R_13: { name: '(stub)',                  summary: 'Reserved — wired in a later step once the scorecard needs it.' },
+  R_14: { name: '(reserved)',              summary: 'Reserved — citation gate mechanism present, activation deferred.' },
+  R_15: { name: 'LOW_CONF_AUTO_ESCALATE',  summary: 'Low-confidence finding auto-routed to human_review (Slice 6 L3 rubric).' },
+  R_16: { name: 'AI_ASSIST_ANCHOR_MISSING', summary: 'AI-assisted classification used without a concrete LLM/SDK artifact anchor.' },
+};
+
+function ruleChip(ruleId) {
+  const r = RULE_REFERENCE[ruleId];
+  const tip = r ? `${r.name}: ${r.summary} (click for full reference)` : 'unknown rule';
+  return `<code title="${escHtml(tip)}" style="cursor:pointer;text-decoration:underline dotted;text-decoration-color:rgba(248,81,73,0.5);text-underline-offset:3px" onclick="jumpToRule('${escHtml(ruleId)}')">${escHtml(ruleId)}</code>`;
+}
+
+function toggleSidebar() {
+  document.body.classList.toggle('sidebar-collapsed');
+  const btn = document.getElementById('sidebar-toggle');
+  if (btn) btn.textContent = document.body.classList.contains('sidebar-collapsed') ? '›' : '‹';
+}
+
+function jumpToRule(ruleId) {
+  // Pipeline tab houses the rule reference. Switch + open + scroll + flash.
+  switchTab('pipeline');
+  setTimeout(() => {
+    const details = document.getElementById('rule-reference-details');
+    if (details && !details.open) details.open = true;
+    const target = document.getElementById(`rule-${ruleId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('rule-flash');
+    setTimeout(() => target.classList.remove('rule-flash'), 1800);
+  }, 80);
+}
+
+// Backend now writes `_derived_tool` directly on tool_call_completed ledger
+// entries (position-mapped per token batch to plan steps), so no lookup map
+// is needed here — entries are self-describing.
+
+// Format a plan step's args into a compact, readable inline summary.
+// Per-tool: pull the most differentiating field (plugin / path basename /
+// inode reference). Generic fallback: key=value list, skipping the e01_path
+// noise (same on every step in a run).
+function formatPlanArgs(step) {
+  const args = step.args || {};
+  const tool = step.tool;
+  const parts = [];
+  const basename = (p) => (p || '').split('/').pop() || (p || '');
+
+  if (tool === 'regripper_run') {
+    if (args.plugin) parts.push(`plugin=<b>${escHtml(args.plugin)}</b>`);
+    if (args.hive_path) parts.push(`hive=${escHtml(basename(args.hive_path))}`);
+  } else if (tool === 'fls_list') {
+    if (args.parent_inode == null) parts.push('parent=root');
+    else parts.push(`parent=${escHtml(args.parent_inode)}`);
+    if (args.recurse) parts.push('recurse');
+  } else if (tool === 'icat_extract') {
+    if (args.source_inode != null) parts.push(`inode=${escHtml(args.source_inode)}`);
+    if (args.dest_filename) parts.push(`→ ${escHtml(args.dest_filename)}`);
+  } else if (tool === 'volatility_run') {
+    if (args.plugin) parts.push(`plugin=<b>${escHtml(args.plugin)}</b>`);
+    if (args.image_path) parts.push(`image=${escHtml(basename(args.image_path))}`);
+    if (args.profile) parts.push(`profile=${escHtml(args.profile)}`);
+  } else if (tool === 'fsstat_e01') {
+    if (args.e01_path) parts.push(`image=${escHtml(basename(args.e01_path))}`);
+  } else if (tool === 'scheduled_tasks_parse') {
+    if (args.tasks_dir) parts.push(`tasks_dir=${escHtml(args.tasks_dir)}`);
+    else parts.push('default tasks dir');
+  } else {
+    // Generic fallback — skip e01_path (same on every step)
+    for (const [k, v] of Object.entries(args)) {
+      if (k === 'e01_path') continue;
+      parts.push(`${escHtml(k)}=${escHtml(typeof v === 'object' ? JSON.stringify(v) : String(v))}`);
+    }
+  }
+  return parts.join(' · ') || '<span style="color:var(--muted)">(no args)</span>';
+}
+
+// Compact one-line renderer for ledger entries with a chain-link sidebar.
+function renderLedgerEntries(entries, opts={}) {
+  if (!entries || !entries.length) return '';
+  const showHead = opts.showHead !== false;
+  const lastHash = entries[entries.length - 1].entry_hash || '';
+  const head = showHead
+    ? `<div class="ledger-block-head">
+         <span class="chain-icon">⛓</span>
+         <span>${entries.length} integrity-ledger entr${entries.length===1?'y':'ies'} written here</span>
+         <span class="chain-summary">last hash <code>${escHtml(shortHash(lastHash))}…</code></span>
+       </div>`
+    : '';
+  const rows = entries.map(e => {
+    const seq = e.seq;
+    const ev = e.event_type;
+    let extra = '';
+    if (ev === 'plan_approved') {
+      extra = `<span title="Plan digest">plan ${escHtml(shortHash(e.plan_digest))}</span> · <span title="Capability token id">tok ${escHtml(shortId(e.token_id||''))}</span>`;
+    } else if (ev === 'tool_call_completed') {
+      const toolName = e._derived_tool || 'unknown';
+      const ch = channelOf(toolName);
+      const chBadge = ch === 'memory'
+        ? '<span style="display:inline-block;font-size:9px;font-weight:700;padding:0 5px;border-radius:3px;background:rgba(188,140,255,0.2);color:var(--purple);margin-right:4px">MEM</span>'
+        : '<span style="display:inline-block;font-size:9px;font-weight:700;padding:0 5px;border-radius:3px;background:rgba(86,212,221,0.15);color:var(--teal);margin-right:4px">DISK</span>';
+      extra = `${chBadge}<span style="color:var(--accent);font-weight:600">${escHtml(toolName)}</span> · status <code>${escHtml(e.status||'?')}</code> · tc ${escHtml(shortId(e.tool_call_id||''))} · raw <code>${escHtml(shortHash(e.raw_sha256||''))}</code>`;
+    } else if (ev === 'finding_committed') {
+      extra = `idx ${escHtml(e.finding_index ?? '?')} · ${escHtml(e.classification||'?')} · ${escHtml(e.confidence||'?')}`;
+    } else if (ev === 'critic_decision') {
+      const failed = (e.rules_failed || []).map(r => r.rule_id || r).join(',');
+      extra = `idx ${escHtml(e.finding_index ?? '?')} · iter ${escHtml(e.iteration ?? '?')} · ${escHtml(e.severity||'?')}${failed ? ' · failed: '+failed : ''}`;
+    } else if (ev === 'genesis') {
+      extra = `case start${e.e01_sha256 ? ' · e01 '+escHtml(shortHash(e.e01_sha256)) : ''}`;
+    } else if (ev === 'session_close') {
+      extra = `${escHtml(e.findings_count ?? '?')} findings · ${escHtml(e.evidence_count ?? '?')} evidence`;
+    }
+    return `<div class="ledger-row">
+              <span class="ledger-seq">#${escHtml(seq)}</span>
+              <span class="ledger-event">${escHtml(ev)}</span>
+              <span class="ledger-extra">${extra}</span>
+              <span class="ledger-hash" title="prev: ${escHtml(e.prev_entry_hash||'')}">${escHtml(shortHash(e.entry_hash||''))}…</span>
+            </div>`;
+  }).join('');
+  return `<div class="ledger-block">${head}${rows}</div>`;
+}
+
+// Replace [ev:XXX] markers in a notes string with clickable chips.
+// Notes use either full UUIDs ([ev:e7da265a-764d-...-...]) or 8-char shorts
+// ([ev:1bc68c00]) — handle both, render as 8-char short, link via short anchor.
+function linkifyNotes(notes) {
+  if (!notes) return '';
+  return escHtml(notes).replace(/\[ev:([a-f0-9]{4,}(?:-[a-f0-9]+){0,4})\]/g, (m, p1) => {
+    const short = p1.replace(/-/g, '').slice(0, 8);
+    return `<span class="ev-chip" onclick="jumpToEvidence('${short}')" title="${p1}">[ev:${short}]</span>`;
+  });
+}
 
 // ── sidebar ────────────────────────────────────────────────────────────────
 
@@ -176,16 +546,34 @@ async function loadCases() {
   const el = document.getElementById('case-list');
   if (!cases.length) { el.innerHTML = '<div class="empty" style="padding:16px">No runs found.</div>'; return; }
 
-  el.innerHTML = cases.map(c => {
-    const lr = c.latest_run;
+  // Group by dataset for visual structure.
+  const byDataset = {};
+  for (const c of cases) {
+    const ds = datasetOf(c.case_id);
+    (byDataset[ds] = byDataset[ds] || []).push(c);
+  }
+  const orderedDatasets = DATASET_ORDER.filter(d => byDataset[d]);
+
+  el.innerHTML = orderedDatasets.map(ds => {
+    const groupCases = byDataset[ds];
     return `
-    <div class="case-group">
-      <div class="case-header" onclick="toggleCase('${c.case_id}')">
-        <span>${c.case_id}</span>
-        ${statusBadge(lr.status)}
+      <div class="dataset-header">
+        <span>${escHtml(ds)}</span>
+        <span class="count">${groupCases.length} case${groupCases.length===1?'':'s'}</span>
       </div>
-      <div class="run-list" id="runs-${c.case_id}"></div>
-    </div>`;
+      ${groupCases.map(c => {
+        const lr = c.latest_run;
+        const memOnLatest = (lr.memory_finding_count || 0) > 0;
+        return `
+        <div class="case-group">
+          <div class="case-header" onclick="toggleCase('${c.case_id}')">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${c.case_id}</span>
+            ${memOnLatest ? '<span class="badge badge-mem" style="font-size:9px;padding:1px 5px" title="Latest run includes memory-channel findings">MEM</span>' : ''}
+            <span style="display:inline-flex;align-items:center;gap:3px"><span class="latest-prefix">latest:</span>${statusBadge(lr.status)}</span>
+          </div>
+          <div class="run-list" id="runs-${c.case_id}"></div>
+        </div>`;
+      }).join('')}`;
   }).join('');
 }
 
@@ -199,12 +587,22 @@ async function toggleCase(caseId) {
 
   const res = await fetch(`${API}/api/cases/${caseId}/runs`);
   const runs = await res.json();
-  el.innerHTML = runs.map(r => `
+  el.innerHTML = runs.map(r => {
+    const mem = r.memory_finding_count || 0;
+    const disk = (r.finding_count || 0) - mem;
+    const when = relTime(r.finished_at);
+    return `
     <div class="run-item" id="ri-${r.run_id}" onclick="loadRun('${caseId}','${r.run_id}')">
       ${statusBadge(r.status)}
       <span style="flex:1">${r.run_id.split('-').slice(-1)[0]}</span>
-      <span style="color:var(--muted);font-size:11px">${r.finding_count} findings</span>
-    </div>`).join('');
+      ${when ? `<span class="run-time" title="${escHtml(r.finished_at || '')}">${escHtml(when)}</span>` : ''}
+      <span style="color:var(--muted);font-size:11px;display:flex;align-items:center;gap:4px">
+        ${disk > 0 ? `<span title="${disk} disk-channel finding${disk===1?'':'s'}">${disk}D</span>` : ''}
+        ${mem > 0 ? `<span style="color:var(--purple);font-weight:700" title="${mem} memory-channel finding${mem===1?'':'s'}">${mem}M</span>` : ''}
+        ${disk === 0 && mem === 0 ? `<span>0 findings</span>` : ''}
+      </span>
+    </div>`;
+  }).join('');
 }
 
 // ── run detail ─────────────────────────────────────────────────────────────
@@ -220,210 +618,651 @@ async function loadRun(caseId, runId) {
   document.getElementById('welcome').style.display = 'none';
   document.getElementById('tabs').style.display = 'flex';
 
-  document.getElementById('topbar').innerHTML = `
-    <h2>${runId}</h2>
-    ${statusBadge(currentRun.status)}
-    <span class="meta">${currentRun.findings?.findings?.length ?? 0} findings &nbsp;·&nbsp;
-    ${currentRun.evidence?.length ?? 0} evidence records &nbsp;·&nbsp;
-    ${currentRun.ledger_entry_count} ledger entries</span>
-  `;
-
-  document.querySelectorAll('.tab').forEach(t => { if (t.dataset.tab === 'overview') t.classList.add('active'); else t.classList.remove('active'); });
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('panel-overview').classList.add('active');
-
+  renderTopbar();
+  activeFilter = 'all';
   renderAll();
+
+  // Default to Findings tab
+  switchTab('findings');
 }
 
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
+  // Reset content scroll
+  document.getElementById('content').scrollTop = 0;
 }
 
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
-// ── renderers ──────────────────────────────────────────────────────────────
-
 function renderAll() {
-  renderOverview();
-  renderPlan();
-  renderEvidence();
   renderFindings();
-  renderCritic();
+  renderEvidence();
+  renderPipeline();
+  // Tab counts
+  const r = currentRun;
+  document.getElementById('tabcount-findings').textContent = (r.findings?.findings?.length ?? 0);
+  document.getElementById('tabcount-evidence').textContent = (r.evidence?.length ?? 0);
 }
 
-function renderOverview() {
+// ── topbar ─────────────────────────────────────────────────────────────────
+
+function renderTopbar() {
   const r = currentRun;
   const findings = r.findings?.findings ?? [];
-  const attackerCount = findings.filter(f => f.classification?.includes('attacker')).length;
-  const memoryCount   = findings.filter(f => ['process_injection','c2_beacon'].includes(f.classification)).length;
-  const criticCount   = r.critic_events?.length ?? 0;
 
-  document.getElementById('panel-overview').innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-num">${findings.length}</div><div class="stat-label">Total Findings</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--red)">${attackerCount}</div><div class="stat-label">Attacker Persistence</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--purple)">${memoryCount}</div><div class="stat-label">Memory Findings</div></div>
-      <div class="stat-card"><div class="stat-num">${r.evidence?.length ?? 0}</div><div class="stat-label">Evidence Records</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--yellow)">${criticCount}</div><div class="stat-label">Critic Events</div></div>
-      <div class="stat-card"><div class="stat-num">${r.ledger_entry_count}</div><div class="stat-label">Ledger Entries</div></div>
+  const counts = {
+    attacker: findings.filter(f => (f.classification === 'attacker_persistence')).length,
+    ai:       findings.filter(f => isAiFinding(f)).length,
+    memory:   findings.filter(f => isMemoryFinding(f)).length,
+  };
+
+  let chips = '';
+  if (findings.length === 0) {
+    chips = `<span class="verdict-chip verdict-clean"><span class="num">0</span> findings — host clean (per agent)</span>`;
+  } else {
+    if (counts.attacker) chips += `<span class="verdict-chip verdict-attacker"><span class="num">${counts.attacker}</span> Attacker Persistence</span>`;
+    if (counts.ai)       chips += `<span class="verdict-chip verdict-ai"><span class="num">${counts.ai}</span> AI-Assisted</span>`;
+    if (counts.memory)   chips += `<span class="verdict-chip verdict-memory"><span class="num">${counts.memory}</span> Memory</span>`;
+    const other = findings.length - counts.attacker - counts.ai - counts.memory;
+    if (other > 0)       chips += `<span class="verdict-chip verdict-other"><span class="num">${other}</span> Other</span>`;
+  }
+
+  const criticUnresolved = (r.critic_events ?? []).filter(e => e.event !== 'INJECTION_QUARANTINE').length;
+  const criticIterations = [...new Set((r.ledger || []).filter(e => e.event_type === 'critic_decision').map(e => e.iteration))];
+  const iterChip = criticIterations.length > 1
+    ? ` <a onclick="switchTab('pipeline')" style="cursor:pointer;color:var(--yellow);font-size:11px;text-decoration:underline">· ↻ ${criticIterations.length} iterations</a>`
+    : '';
+  const criticNote = criticUnresolved
+    ? `<span style="color:var(--yellow);font-size:11px">· ${criticUnresolved} critic disagreement${criticUnresolved===1?'':'s'}</span>${iterChip}`
+    : iterChip;
+
+  const collapsed = document.body.classList.contains('sidebar-collapsed');
+  document.getElementById('topbar').innerHTML = `
+    <div class="row1">
+      <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle case list">${collapsed ? '›' : '‹'}</button>
+      <h2>${escHtml(r.case_id)}</h2>
+      <span style="color:var(--muted);font-size:12px">${escHtml(r.run_id)}</span>
+      ${statusBadge(r.status)}
+      <span class="meta" style="margin-left:auto">
+        ${r.findings?.finished_at ? 'finished ' + escHtml(r.findings.finished_at.replace('T',' ').replace('Z','')) : ''}
+      </span>
     </div>
-
-    <div class="card">
-      <h3>Pipeline Status</h3>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-        ${statusBadge(r.status)} ${r.approved ? '<span style="color:var(--green);font-size:12px">Plan approved by human</span>' : ''}
-      </div>
-      ${r.findings?.started_at ? `<div class="label">Started</div><div style="font-size:12px;margin-bottom:8px">${r.findings.started_at}</div>` : ''}
-      ${r.findings?.finished_at ? `<div class="label">Finished</div><div style="font-size:12px">${r.findings.finished_at}</div>` : ''}
-    </div>
-
-    ${r.extract ? `
-    <div class="card">
-      <h3>Extract — Investigation Candidates</h3>
-      <div class="label">Question</div>
-      <div style="font-size:12px;margin-bottom:10px">${escHtml(r.extract.question || '')}</div>
-      ${(r.extract.candidates || []).map(c => `
-        <div style="margin-bottom:6px;font-size:12px">
-          <span style="color:var(--accent);font-family:monospace">${escHtml(c.location || c.path || '')}</span>
-          ${c.reason ? `<span style="color:var(--muted)"> — ${escHtml(c.reason)}</span>` : ''}
-        </div>`).join('')}
-    </div>` : ''}
+    <div class="row2">${chips}${criticNote}</div>
   `;
 }
 
-function renderPlan() {
-  const steps = currentRun.plan?.steps ?? [];
-  if (!steps.length) { document.getElementById('panel-plan').innerHTML = '<div class="empty">No plan data.</div>'; return; }
-
-  document.getElementById('panel-plan').innerHTML = `
-    <div class="card" style="margin-bottom:16px">
-      <h3>Tool Call Plan — ${steps.length} steps</h3>
-      <div style="font-size:12px;color:var(--muted)">Plan digest: <code>${currentRun.plan?.plan_digest?.slice(0,16) ?? 'n/a'}…</code></div>
-    </div>
-    ${steps.map((s, i) => {
-      const params = Object.entries(s).filter(([k]) => !['tool','step','description','depends_on','placeholder'].includes(k));
-      return `
-      <div class="plan-step">
-        <div class="plan-step-header">
-          <div class="step-num">${i+1}</div>
-          <span class="step-tool">${escHtml(s.tool)}</span>
-          ${s.description ? `<span style="color:var(--muted);font-size:11px;flex:1">${escHtml(s.description)}</span>` : ''}
-          ${(s.depends_on||[]).length ? `<span style="font-size:10px;color:var(--muted)">deps: ${s.depends_on.join(', ')}</span>` : ''}
-        </div>
-        ${params.length ? `<div class="step-params">${params.map(([k,v]) => `${k}: ${escHtml(typeof v==='object'?JSON.stringify(v):v)}`).join('\n')}</div>` : ''}
-      </div>`;
-    }).join('')}
-  `;
-}
-
-function renderEvidence() {
-  const ev = currentRun.evidence ?? [];
-  if (!ev.length) { document.getElementById('panel-evidence').innerHTML = '<div class="empty">No evidence records.</div>'; return; }
-
-  document.getElementById('panel-evidence').innerHTML = ev.map((e, i) => {
-    const injFlags = e.injection_flags ?? [];
-    const fields = e.structured_fields;
-    return `
-    <div class="ev-record">
-      <div class="ev-header">
-        <span style="color:var(--muted);font-size:11px">#${i+1}</span>
-        <span class="ev-tool">${escHtml(e.tool ?? '')}</span>
-        ${e.tool_execution_status ? `<span class="badge ${e.tool_execution_status==='ok'?'badge-success':'badge-fail'}" style="font-size:10px">${e.tool_execution_status}</span>` : ''}
-        ${injFlags.length ? `<span class="badge badge-fail" style="font-size:10px">INJECTION FLAG</span>` : ''}
-        ${e.quarantine_severity ? `<span class="badge badge-fail" style="font-size:10px">QUARANTINED</span>` : ''}
-        <span style="font-size:10px;color:var(--muted);margin-left:auto;font-family:monospace">${(e.tool_call_id||'').slice(0,8)}…</span>
-      </div>
-      ${fields !== null && fields !== undefined ? `
-        <div class="ev-fields">${escHtml(typeof fields === 'object' ? JSON.stringify(fields, null, 2) : String(fields))}</div>` :
-        `<div style="font-size:11px;color:var(--muted);font-style:italic">Navigation step — structured fields stripped from analysis bundle</div>`}
-      ${injFlags.length ? `<div style="margin-top:8px;font-size:11px;color:var(--red)">Injection patterns: ${injFlags.map(f => `<code>${escHtml(f.pattern_id)}</code>`).join(' ')}</div>` : ''}
-    </div>`;
-  }).join('');
-}
+// ── FINDINGS ───────────────────────────────────────────────────────────────
 
 function renderFindings() {
-  const findings = currentRun.findings?.findings ?? [];
-  if (!findings.length) { document.getElementById('panel-findings').innerHTML = '<div class="empty">No findings.</div>'; return; }
+  const r = currentRun;
+  const findings = r.findings?.findings ?? [];
+  const el = document.getElementById('panel-findings');
 
-  document.getElementById('panel-findings').innerHTML = findings.map((f, i) => {
-    const evLinks = (f.evidence || []).map(e =>
-      `<span class="evidence-ref" title="${escHtml(e.output_excerpt||'')}">[ev:${(e.tool_call_id||'').slice(0,8)}…]</span>`
-    ).join(' ');
-
-    const notesHtml = escHtml(f.notes || '').replace(/\[ev:[^\]]+\]/g, m => `<span class="evidence-ref">${m}</span>`);
-
-    return `
-    <div class="finding">
-      <div class="finding-header">
-        <div>
-          <div class="finding-title">${escHtml(f.mechanism)}</div>
-          <div style="margin-top:4px">${classBadge(f.classification)} ${confBadge(f.confidence)}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="attack-tag">${escHtml(f.attack_id||'')} — ${escHtml(f.attack_name||'')}</div>
-          <div class="attack-tag" style="color:var(--muted)">${escHtml(f.attack_tactic_id||'')} ${escHtml(f.attack_tactic_name||'')}</div>
-        </div>
-      </div>
-      <div class="finding-value">${escHtml(f.value)}</div>
-      <div class="finding-meta">Evidence: ${evLinks || '<span style="color:var(--muted)">none cited</span>'}</div>
-      ${f.notes ? `<div class="finding-notes">${notesHtml}</div>` : ''}
-    </div>`;
-  }).join('');
-}
-
-function renderCritic() {
-  const events = currentRun.critic_events ?? [];
-  if (!events.length) {
-    document.getElementById('panel-critic').innerHTML = `
-      <div class="card" style="border-color:rgba(63,185,80,0.3)">
-        <h3 style="color:var(--green)">No critic events — all rules passed</h3>
-        <div style="font-size:12px;color:var(--muted);margin-top:6px">The deterministic critic verified every finding against all ${16} rules. No issues found.</div>
-      </div>`;
+  if (findings.length === 0) {
+    el.innerHTML = `<div class="empty">No findings produced for this run.</div>`;
     return;
   }
 
-  document.getElementById('panel-critic').innerHTML = events.map(e => {
-    const isQuarantine = e.event === 'INJECTION_QUARANTINE';
-    const failed = e.critic_critique?.rules_failed ?? [];
-    const passed = e.critic_critique?.rules_passed ?? [];
-    const action = e.resolution?.action ?? e.event ?? 'unknown';
+  // Filter chip counts
+  const counts = {
+    all:       findings.length,
+    attacker:  findings.filter(f => f.classification === 'attacker_persistence').length,
+    ai:        findings.filter(f => isAiFinding(f)).length,
+    memory:    findings.filter(f => isMemoryFinding(f)).length,
+    disk:      findings.filter(f => !isMemoryFinding(f)).length,
+    high:      findings.filter(f => f.confidence === 'high').length,
+    medium:    findings.filter(f => f.confidence === 'medium').length,
+  };
+
+  const chip = (key, label, count) => `
+    <button class="filter-chip ${activeFilter===key?'active':''}" onclick="setFilter('${key}')">
+      ${label} <span class="badge-num">${count}</span>
+    </button>`;
+
+  const filterBar = `
+    <div id="finding-filters">
+      ${chip('all', 'All', counts.all)}
+      <span class="filter-sep"></span>
+      ${chip('attacker', 'Attacker', counts.attacker)}
+      ${chip('ai', 'AI-Assisted', counts.ai)}
+      ${chip('memory', 'Memory', counts.memory)}
+      ${chip('disk', 'Disk', counts.disk)}
+      <span class="filter-sep"></span>
+      ${chip('high', 'High Conf', counts.high)}
+      ${chip('medium', 'Medium Conf', counts.medium)}
+    </div>
+  `;
+
+  // Apply current filter
+  const visible = findings.filter(f => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'attacker') return f.classification === 'attacker_persistence';
+    if (activeFilter === 'ai')       return isAiFinding(f);
+    if (activeFilter === 'memory')   return isMemoryFinding(f);
+    if (activeFilter === 'disk')     return !isMemoryFinding(f);
+    if (activeFilter === 'high')     return f.confidence === 'high';
+    if (activeFilter === 'medium')   return f.confidence === 'medium';
+    return true;
+  });
+
+  if (visible.length === 0) {
+    el.innerHTML = filterBar + `<div class="empty">No findings match the current filter.</div>`;
+    return;
+  }
+
+  el.innerHTML = filterBar + visible.map(f => {
+    const cls = f.classification || 'unknown';
+    const evChips = (f.evidence || []).map(e =>
+      `<span class="ev-chip" onclick="jumpToEvidence('${shortId(e.tool_call_id)}')" title="${escHtml(e.output_excerpt || '')}">[ev:${shortId(e.tool_call_id)}]</span>`
+    ).join(' ');
+
+    const memBadge = isMemoryFinding(f) ? `<span class="badge badge-mem">MEMORY</span>` : `<span class="badge badge-disk">DISK</span>`;
+
+    const attackTxt = (f.attack_id || f.attack_name)
+      ? `<div class="finding-attack"><strong>${escHtml(f.attack_id||'')}</strong>${f.attack_name?' '+escHtml(f.attack_name):''}${f.attack_tactic_id?'<br>'+escHtml(f.attack_tactic_id)+' '+escHtml(f.attack_tactic_name||''):''}</div>`
+      : '';
 
     return `
-    <div class="critic-event ${isQuarantine ? 'quarantine' : 'escalate'}">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        ${isQuarantine
-          ? `<span class="badge badge-fail">INJECTION QUARANTINE</span>`
-          : `<span class="badge badge-review">Critic Escalation</span>`}
-        ${failed.map(r => `<span class="rule-badge">${escHtml(r.rule_id)}</span>`).join('')}
-        <span style="margin-left:auto;font-size:11px;color:var(--muted)">Action: ${escHtml(action)}</span>
-      </div>
-
-      ${isQuarantine ? `
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
-          Injection scanner fired — evidence quarantined before reaching analysis LLM.
+    <div class="finding cls-${cls}">
+      <div class="finding-stripe"></div>
+      <div class="finding-body">
+        <div class="finding-top">
+          <div class="finding-mech">${escHtml(f.mechanism || '(no mechanism)')}</div>
+          ${attackTxt}
         </div>
-        ${(e.flags||[]).map(f => `
-          <div style="font-size:11px;margin-bottom:4px">
-            <code>${escHtml(f.pattern_id)}</code>
-            <span style="color:var(--muted)"> in </span><code>${escHtml(f.field_path)}</code>
-          </div>`).join('')}
-      ` : `
-        ${e.original_finding ? `
-          <div style="font-size:12px;margin-bottom:8px">
-            <span style="color:var(--muted)">Finding:</span>
-            <strong>${escHtml(e.original_finding.mechanism||'')}</strong>
-          </div>` : ''}
-        ${failed.map(r => `
-          <div style="font-size:12px;color:var(--red);margin-bottom:4px">
-            <span class="rule-badge">${escHtml(r.rule_id)}</span>
-            <code style="margin-left:6px">${escHtml(r.code)}</code>
-            <span style="color:var(--muted);margin-left:6px">${escHtml(r.detail||'')}</span>
-          </div>`).join('')}
-        ${passed.length ? `<div style="font-size:11px;color:var(--muted);margin-top:8px">Passed: ${passed.map(r => `<code>${escHtml(r)}</code>`).join(' ')}</div>` : ''}
-      `}
+        <div class="finding-meta-row">
+          ${classBadge(cls)}
+          ${confBadge(f.confidence)}
+          ${memBadge}
+          ${f.category && f.category !== 'NOT_FOUND' ? `<span class="badge badge-incomplete">${escHtml(f.category)}</span>` : ''}
+        </div>
+        <div class="finding-value">${escHtml(f.value || '')}</div>
+        <div class="finding-evidence-row">Evidence: ${evChips || '<span style="color:var(--muted)">none cited</span>'}</div>
+        ${f.notes ? `<div class="finding-notes">${linkifyNotes(f.notes)}</div>` : ''}
+      </div>
     </div>`;
   }).join('');
+}
+
+function setFilter(key) {
+  activeFilter = key;
+  renderFindings();
+}
+
+// ── EVIDENCE ───────────────────────────────────────────────────────────────
+
+function renderEvidence() {
+  const r = currentRun;
+  const ev = r.evidence ?? [];
+  const el = document.getElementById('panel-evidence');
+
+  if (!ev.length) {
+    el.innerHTML = `<div class="empty">No evidence records.</div>`;
+    return;
+  }
+
+  // Tools that contain forensic content (worth expanding by default).
+  // Navigation tools (fls_list, fsstat_e01) are collapsed by default.
+  const ANALYSIS_TOOLS = new Set(['regripper_run', 'scheduled_tasks_parse', 'volatility_run']);
+
+  el.innerHTML = ev.map((e, i) => {
+    const tool   = e._derived_tool || 'unknown';
+    const stepN  = e._plan_step_index;
+    const status = e.tool_execution_status || 'unknown';
+    const flags  = e.injection_flags ?? [];
+    const fields = e.structured_fields;
+    const callId = e.tool_call_id || '';
+    const isAnalysis = ANALYSIS_TOOLS.has(tool);
+    const expandByDefault = isAnalysis;
+
+    let fieldsBlock;
+    if (fields === null || fields === undefined) {
+      fieldsBlock = `<div style="font-size:11px;color:var(--muted);font-style:italic">Navigation step — structured fields stripped from analysis bundle</div>`;
+    } else {
+      const json = typeof fields === 'object' ? JSON.stringify(fields, null, 2) : String(fields);
+      const charCount = json.length;
+      if (expandByDefault || charCount < 600) {
+        fieldsBlock = `<div class="ev-fields">${escHtml(json)}</div>`;
+      } else {
+        fieldsBlock = `
+          <details>
+            <summary class="ev-fields-collapsed">${charCount.toLocaleString()} chars (${escHtml(tool)} navigation output) — click to expand</summary>
+            <div class="ev-fields">${escHtml(json)}</div>
+          </details>`;
+      }
+    }
+
+    const statusBadgeCls = status === 'ok' ? 'badge-success' : (status === 'empty' ? 'badge-incomplete' : 'badge-fail');
+
+    return `
+    <div class="ev-record" id="ev-${shortId(callId)}" data-full-id="${escHtml(callId)}">
+      <div class="ev-header">
+        ${stepN ? `<span class="ev-step">step ${stepN}</span>` : ''}
+        <span class="ev-tool">${escHtml(tool)}</span>
+        <span class="badge ${statusBadgeCls}" style="font-size:10px">${escHtml(status)}</span>
+        ${flags.length ? `<span class="badge badge-fail" style="font-size:10px">INJECTION (${flags.length})</span>` : ''}
+        ${e.quarantine_severity ? `<span class="badge badge-fail" style="font-size:10px">QUARANTINED</span>` : ''}
+        <span class="ev-id">${escHtml(callId)}</span>
+      </div>
+      ${fieldsBlock}
+      ${flags.length ? `<div style="margin-top:8px;font-size:11px;color:var(--red)">Injection patterns: ${flags.map(f => `<code>${escHtml(f.pattern_id||'')}</code>`).join(' ')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function jumpToEvidence(shortIdStr) {
+  switchTab('evidence');
+  setTimeout(() => {
+    const target = document.getElementById(`ev-${shortIdStr}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('flash');
+    setTimeout(() => target.classList.remove('flash'), 1800);
+  }, 60);
+}
+
+// ── PIPELINE ───────────────────────────────────────────────────────────────
+
+function renderPipeline() {
+  const r = currentRun;
+  const el = document.getElementById('panel-pipeline');
+
+  // ── flat timeline build ────────────────────────────────────────────────
+  // Walk the ledger in seq order, grouping consecutive entries of the same
+  // event_type into "phase blocks". Each iteration's steps appear in execution
+  // order — so a re-iterated run shows Execute / Interpret / Critic twice
+  // (or three times), separated by loop arrows. This mirrors what actually
+  // happened on disk rather than collecting iterations as metadata under a
+  // fixed step skeleton.
+  const ledger = r.ledger || [];
+  const blocks = [];   // { kind, phase, iteration, entries:[ledger_entries] }
+  let cur = null;
+  for (const e of ledger) {
+    const ev = e.event_type;
+    let kind, phase;
+    if (ev === 'genesis')              { kind = 'genesis';   phase = 'session start'; }
+    else if (ev === 'plan_approved')   { kind = 'gates';     phase = 'gates'; }
+    else if (ev === 'tool_call_completed') { kind = 'execute';   phase = 'execute'; }
+    else if (ev === 'finding_committed')   { kind = 'interpret'; phase = 'interpret'; }
+    else if (ev === 'critic_decision')     { kind = 'critic';    phase = 'critic'; }
+    else if (ev === 'session_close')   { kind = 'close';     phase = 'session close'; }
+    else                                { kind = 'other';     phase = ev; }
+
+    // For tool_call_completed, split blocks on token_id change (each token
+    // batch is one Execute pass). For critic/interpret, split on iteration
+    // change.
+    let splitKey = null;
+    if (kind === 'execute')   splitKey = e.token_id || '';
+    if (kind === 'critic')    splitKey = String(e.iteration ?? 0);
+    if (kind === 'interpret') {
+      // finding_committed has no iteration field; detect non-monotonic
+      // finding_index as the boundary.
+      splitKey = (cur && cur.kind === 'interpret' && (e.finding_index ?? 0) <= (cur.entries.at(-1).finding_index ?? -1))
+        ? Math.random().toString(36).slice(2,6) // force split
+        : (cur?.splitKey ?? 'a');
+    }
+
+    if (cur && cur.kind === kind && cur.splitKey === splitKey) {
+      cur.entries.push(e);
+    } else {
+      cur = { kind, phase, splitKey, entries: [e] };
+      blocks.push(cur);
+    }
+  }
+
+  // Number iterations for execute/interpret/critic blocks (1st occurrence is
+  // iter 0, 2nd is iter 1, etc.). Different phases get independent counters.
+  const iterCounter = {};
+  for (const b of blocks) {
+    if (b.kind === 'execute' || b.kind === 'interpret' || b.kind === 'critic') {
+      iterCounter[b.kind] = (iterCounter[b.kind] ?? -1) + 1;
+      b.iteration = iterCounter[b.kind];
+    }
+  }
+  const totalIterations = Math.max(0, (iterCounter.critic ?? -1) + 1, (iterCounter.interpret ?? -1) + 1);
+
+  // ── extract block data (extract has no ledger entries; show once at top) ─
+  const ex = r.extract;
+  const candidates = ex?.candidates || [];
+
+  // ── plan block data (one stored plan; on re_plan the iter-1 plan replaces
+  // the iter-0 plan in storage — flag this so the user knows) ────────────
+  const planSteps = r.plan?.steps || [];
+  const planDigest = r.gates?.plan_digest || r.plan?.plan_digest || '';
+
+  // Disagreements (used inline in Critic blocks)
+  const disagreements = (r.critic_events || []).filter(e => e.audit_event === 'critic_disagreement');
+  const STRATEGY_REENTRY = {
+    re_plan:      { step: 2, label: 'PLAN' },
+    re_interpret: { step: 5, label: 'INTERPRET' },
+    human_review: { step: null, label: 'HUMAN_REVIEW' },
+  };
+  // Index disagreements by iteration for inline lookup
+  const disagreementByIter = {};
+  for (const d of disagreements) {
+    const it = d.iteration ?? 0;
+    (disagreementByIter[it] = disagreementByIter[it] || []).push(d);
+  }
+
+  // ── render helpers ─────────────────────────────────────────────────────
+  const reentryArrow = (toStep, label, why) => `
+    <div class="reentry-arrow">
+      <span class="glyph">↺</span>
+      <span>pipeline re-entered at Step ${toStep} (${label}) — ${why}</span>
+    </div>`;
+
+  // ── render block by kind ───────────────────────────────────────────────
+  const phaseSection = (icon, num, name, meta, body) => `
+    <details class="pipe-section" open>
+      <summary>
+        <span style="color:var(--accent);font-size:14px">${icon}</span>
+        <div class="pipe-section-num">Step ${num}</div>
+        <div class="pipe-section-title">${name}</div>
+        <div class="pipe-section-meta">${meta || ''}</div>
+      </summary>
+      ${body}
+    </details>`;
+
+  const renderBlock = (b, blockIndex) => {
+    const isReRun = (b.iteration ?? 0) > 0;
+    const iterTag = isReRun
+      ? `<span style="color:var(--yellow);font-weight:600;margin-left:6px">· iter ${b.iteration} (re-run)</span>`
+      : '';
+
+    // For iter > 0 Execute blocks, compute the diff vs the previous Execute
+    // block (retried, dropped, added, status flips). Position-mapped under
+    // the assumption that both batches followed the SAME plan ordering for
+    // their overlap — confirmed for wkstn-05-005 by direct probe.
+    const computeExecuteDiff = () => {
+      if (b.kind !== 'execute' || !isReRun) return null;
+      const prev = blocks.slice(0, blockIndex).reverse().find(x => x.kind === 'execute');
+      if (!prev) return null;
+      const diff = { retried: [], dropped: [], added: [], statusFlipped: [] };
+      const minLen = Math.min(prev.entries.length, b.entries.length);
+      for (let i = 0; i < minLen; i++) {
+        const e0 = prev.entries[i];
+        const e1 = b.entries[i];
+        const tool = e1._derived_tool || '?';
+        if (e0.status !== 'ok' && e1.status === 'ok') {
+          diff.retried.push(`${tool} (${e0.status} → ok)`);
+        } else if (e0.status === 'ok' && e1.status !== 'ok') {
+          diff.statusFlipped.push(`${tool} (ok → ${e1.status})`);
+        }
+      }
+      // Trailing entries — dropped if prev had more, added if this has more
+      if (prev.entries.length > b.entries.length) {
+        for (let i = b.entries.length; i < prev.entries.length; i++) {
+          diff.dropped.push(prev.entries[i]._derived_tool || '?');
+        }
+      } else if (b.entries.length > prev.entries.length) {
+        for (let i = prev.entries.length; i < b.entries.length; i++) {
+          diff.added.push(b.entries[i]._derived_tool || '?');
+        }
+      }
+      return diff;
+    };
+    const execDiff = computeExecuteDiff();
+
+    if (b.kind === 'genesis') {
+      return `<div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;padding:6px 10px;background:var(--surface);border-left:3px solid var(--green);border-radius:3px">
+        🟢 <strong>Session start</strong> · ${escHtml(b.entries[0].timestamp_utc || '?')}
+        ${b.entries[0].e01_sha256 ? ' · E01 sha256 <code>'+escHtml(b.entries[0].e01_sha256)+'</code>' : ''}
+        ${renderLedgerEntries(b.entries, {showHead: false})}
+      </div>`;
+    }
+
+    if (b.kind === 'gates') {
+      const g = b.entries[0];
+      const expiry = deriveExpiry(g.timestamp_utc);
+      return phaseSection('🔒', 3, 'Gates',
+        r.approved ? '<span style="color:var(--green)">approved</span>' : '<span style="color:var(--muted)">not approved</span>',
+        `
+          <div class="pipe-row"><div class="k">Plan digest</div><code>${escHtml(g.plan_digest || '?')}</code></div>
+          <div class="pipe-row"><div class="k">Capability token (issuance)</div><code>${escHtml(g.token_id || '?')}</code></div>
+          <div class="pipe-row"><div class="k">Step count claimed</div><span style="font-size:12px">${escHtml(g.n_steps ?? '?')}</span></div>
+          <div class="pipe-row"><div class="k">Approved at</div><span style="font-size:12px">${escHtml(g.timestamp_utc || '?')}</span></div>
+          <div class="pipe-row"><div class="k">Token TTL</div><span style="font-size:12px">${TOKEN_TTL_SECONDS}s (1 hour)<span style="color:var(--muted);margin-left:6px">— set by orchestrator <code>reissue_token(ttl_seconds=3600)</code>; encoded in HMAC payload, verified at every tool call</span></span></div>
+          <div class="pipe-row"><div class="k">Token expires (derived)</div><span style="font-size:12px;color:var(--orange)">${escHtml(expiry || '?')}<span style="color:var(--muted);margin-left:6px">— issuance + TTL; actual <code>expires_at</code> lives only in the signed token payload, not the ledger</span></span></div>
+          <div class="pipe-row"><div class="k">Allowed tools</div><div style="flex:1">${(g.allowed_tools||[]).map(t => `<span class="tool-chip">${escHtml(t)}</span>`).join('') || '<span style="color:var(--muted)">none</span>'}</div></div>
+          ${renderLedgerEntries(b.entries)}
+        `);
+    }
+
+    if (b.kind === 'execute') {
+      const tok = b.entries[0].token_id || '?';
+      const tokIssuance = b.entries[0].timestamp_utc;  // first call ≈ token issuance
+      const tokExpiry = deriveExpiry(tokIssuance);
+      const okCount   = b.entries.filter(e => e.status === 'ok').length;
+      const emptyCount = b.entries.filter(e => e.status === 'empty').length;
+      const failCount = b.entries.filter(e => e.status && e.status !== 'ok' && e.status !== 'empty').length;
+      const meta = `<a onclick="switchTab('evidence')" style="cursor:pointer;color:var(--accent)">view evidence →</a>${iterTag}`;
+
+      let diffHtml = '';
+      if (execDiff) {
+        const same = b.entries.length - execDiff.retried.length - execDiff.statusFlipped.length;
+        diffHtml = `
+          <div class="iter-diff">
+            <div class="iter-diff-head">vs iter ${b.iteration - 1}: ${execDiff.retried.length} retried, ${execDiff.dropped.length} dropped${execDiff.added.length ? ', '+execDiff.added.length+' added' : ''}, ${same} unchanged</div>
+            ${execDiff.retried.length ? `<div class="iter-diff-row retried"><span class="lbl">retried</span><span class="body">${execDiff.retried.map(escHtml).join(' · ')}</span></div>` : ''}
+            ${execDiff.dropped.length ? `<div class="iter-diff-row dropped"><span class="lbl">dropped</span><span class="body">${execDiff.dropped.map(escHtml).join(' · ')}</span></div>` : ''}
+            ${execDiff.added.length ? `<div class="iter-diff-row added"><span class="lbl">added</span><span class="body">${execDiff.added.map(escHtml).join(' · ')}</span></div>` : ''}
+            ${execDiff.statusFlipped.length ? `<div class="iter-diff-row dropped"><span class="lbl">regressed</span><span class="body">${execDiff.statusFlipped.map(escHtml).join(' · ')}</span></div>` : ''}
+          </div>`;
+      }
+
+      return phaseSection('⚙️', 4, 'Execute', meta, `
+        ${isReRun ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">↪ re-ran after re_plan; new tool calls dispatched under a fresh capability token</div>` : ''}
+        <div style="margin-bottom:10px">
+          <div class="summary-tile"><div class="num">${b.entries.length}</div><div class="lbl">Tool calls</div></div>
+          <div class="summary-tile"><div class="num" style="color:var(--green)">${okCount}</div><div class="lbl">ok</div></div>
+          ${emptyCount ? `<div class="summary-tile"><div class="num" style="color:var(--muted)">${emptyCount}</div><div class="lbl">empty</div></div>` : ''}
+          ${failCount ? `<div class="summary-tile"><div class="num" style="color:var(--red)">${failCount}</div><div class="lbl">failed</div></div>` : ''}
+        </div>
+        <div class="pipe-row"><div class="k">Capability token used</div><code style="color:var(--teal)">${escHtml(tok)}</code></div>
+        <div class="pipe-row"><div class="k">Token expires (derived)</div><span style="font-size:12px;color:var(--orange)">${escHtml(tokExpiry || '?')}<span style="color:var(--muted);margin-left:6px">— first call at ${escHtml(tokIssuance || '?')} + 1h TTL</span></span></div>
+        ${diffHtml}
+        ${renderLedgerEntries(b.entries)}
+      `);
+    }
+
+    if (b.kind === 'interpret') {
+      return phaseSection('🧠', 5, 'Interpret',
+        `${b.entries.length} finding${b.entries.length===1?'':'s'} produced ${iterTag}`,
+        `
+          ${isReRun ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">↪ re-interpretation after critic disagreement; this batch supersedes the previous one</div>` : ''}
+          ${renderLedgerEntries(b.entries)}
+        `);
+    }
+
+    if (b.kind === 'critic') {
+      const it = b.entries[0].iteration ?? 0;
+      const passes    = b.entries.filter(d => d.severity === 'pass').length;
+      const retries   = b.entries.filter(d => d.severity === 'retry').length;
+      const escalates = b.entries.filter(d => d.severity !== 'pass' && d.severity !== 'retry').length;
+      const allFailedRules = b.entries.flatMap(d => (d.rules_failed || []).map(rf => rf.rule_id || rf));
+      const uniqueFailed = [...new Set(allFailedRules)];
+      const meta = retries || escalates
+        ? `<span style="color:var(--yellow)">${b.entries.length} decisions · ${passes} pass · ${retries} retry · ${escalates} escalate</span>${iterTag}`
+        : `<span style="color:var(--green)">${b.entries.length} decisions · all pass</span>${iterTag}`;
+
+      const myDis = disagreementByIter[it] || [];
+      const disHtml = myDis.map(e => {
+        const failed = e.critic_critique?.rules_failed ?? [];
+        const action = e.resolution?.action ?? '?';
+        const strat = e.resolution?.strategy;
+        const newInst = e.resolution?.new_instruction;
+        const reentry = STRATEGY_REENTRY[strat];
+        const findingMech = e.original_finding?.mechanism || '';
+        return `
+          <div style="border:1px solid rgba(210,153,34,0.4);border-radius:6px;padding:10px 12px;margin-top:10px;font-size:12px;background:rgba(210,153,34,0.04)">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+              <span class="badge badge-review">disagreement</span>
+              ${failed.map(rf => ruleChip(rf.rule_id)).join(' ')}
+              <span style="margin-left:auto;color:var(--muted);font-size:11px">resolution: <code>${escHtml(action)}</code>${strat ? ' · strategy <code>'+escHtml(strat)+'</code>' : ''}${reentry?.step ? ' · → re-enter Step '+reentry.step+' '+reentry.label : ''}</span>
+            </div>
+            ${findingMech ? `<div style="font-size:11.5px;margin-bottom:6px">on finding ${e.critic_critique?.finding_index != null ? '#'+escHtml(e.critic_critique.finding_index)+' ' : ''}<strong>"${escHtml(findingMech.length > 120 ? findingMech.slice(0,120)+'…' : findingMech)}"</strong></div>` : ''}
+            ${failed.map(rf => `<div style="font-size:11px;color:var(--muted);margin:2px 0"><code style="color:var(--red)">${escHtml(rf.code||'')}</code> ${escHtml(rf.detail||'')}</div>`).join('')}
+            ${newInst ? `<div style="font-size:11.5px;margin-top:8px;padding:8px 10px;background:rgba(0,0,0,0.25);border-left:2px solid var(--yellow);border-radius:3px;font-style:italic;color:var(--text);line-height:1.55">↳ corrective instruction sent back to agent: "${escHtml(newInst.length > 600 ? newInst.slice(0,600)+'…' : newInst)}"</div>` : ''}
+          </div>`;
+      }).join('');
+
+      return phaseSection('⚖️', 6, 'Critic', meta, `
+        ${uniqueFailed.length ? `<div style="font-size:12px;margin-bottom:10px">Failed rules in this iteration: ${uniqueFailed.map(ruleChip).join(' ')}</div>` : ''}
+        ${renderLedgerEntries(b.entries)}
+        ${disHtml}
+      `);
+    }
+
+    if (b.kind === 'close') {
+      const c = b.entries[0];
+      return `<div style="font-size:11.5px;color:var(--muted);margin-top:14px;padding:6px 10px;background:var(--surface);border-left:3px solid var(--accent);border-radius:3px">
+        🏁 <strong>Session close</strong> · ${escHtml(c.timestamp_utc || '?')} · ${escHtml(c.findings_count ?? '?')} findings · ${escHtml(c.evidence_count ?? '?')} evidence records
+        ${renderLedgerEntries(b.entries, {showHead: false})}
+      </div>`;
+    }
+
+    return '';
+  };
+
+  // ── compose the timeline ───────────────────────────────────────────────
+  // Always-once preflight blocks (Extract + Plan), then the timeline of
+  // ledger-driven blocks. Loop arrows insert before any block whose kind
+  // matches the previous occurrence (i.e. a re-run).
+  const extractBlock = phaseSection('📋', 1, 'Extract',
+    `${candidates.length} candidate${candidates.length===1?'':'s'} proposed`,
+    `
+      ${ex ? `
+        <div class="pipe-row"><div class="k">Investigation question</div><div style="flex:1">${escHtml(ex.question || '(none)')}</div></div>
+        ${candidates.length ? candidates.map(c => `
+          <div class="candidate-mini">
+            <span class="ctype">${escHtml(c.artifact_type || '')}</span>
+            <span class="cprio">P${escHtml(c.priority ?? '?')}</span>
+            <span class="cpath">${escHtml(c.path_hint || c.location || c.path || '(no path)')}</span>
+            <span class="creason">${escHtml(c.reason || '')}</span>
+          </div>`).join('') : '<div class="empty">No candidates returned.</div>'}
+      ` : '<div class="empty">Extract did not run.</div>'}
+    `);
+
+  // Detect whether re_plan happened (means iter-1 had a NEW plan that wasn't
+  // ledgered separately — flag it so the user knows the plan shown is the
+  // final iteration's).
+  const rePlanned = disagreements.some(d => d.resolution?.strategy === 're_plan');
+
+  // Group plan steps by channel (disk vs memory) so the dual-channel story
+  // is structurally visible. Within each group, preserve plan-step order.
+  const planStepsWithIdx = planSteps.map((s, i) => ({ s, originalIdx: i }));
+  const diskSteps  = planStepsWithIdx.filter(({s}) => channelOf(s.tool) === 'disk');
+  const memorySteps = planStepsWithIdx.filter(({s}) => channelOf(s.tool) === 'memory');
+
+  const renderPlanSteps = (group) => group.map(({s, originalIdx}) => {
+    const conf = (s.confidence || '').toLowerCase();
+    const confCls = conf === 'high' ? 'h' : (conf === 'medium' ? 'm' : 'l');
+    return `
+      <div class="step-mini">
+        <div class="step-mini-head">
+          <span class="sn">${(s.step_id ?? (originalIdx+1))}.</span>
+          <span class="stool">${escHtml(s.tool || '')}</span>
+          <span class="sargs">${formatPlanArgs(s)}</span>
+          ${(s.depends_on||[]).length ? `<span class="sdeps">deps: ${(s.depends_on||[]).join(',')}</span>` : ''}
+          ${conf ? `<span class="sconf ${confCls}">${escHtml(conf)}</span>` : ''}
+        </div>
+        ${s.purpose ? `<div class="spurpose">${escHtml(s.purpose)}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  const channelMeta = `${diskSteps.length} disk · ${memorySteps.length} memory${planDigest ? ' · digest <code>'+escHtml(shortHash(planDigest))+'…</code>' : ''}`;
+
+  const planBlock = phaseSection('📋', 2, 'Plan', channelMeta,
+    `
+      ${rePlanned ? '<div style="font-size:11px;color:var(--yellow);margin-bottom:8px">⚠ This run re-planned. The plan shown below is the FINAL iteration\'s plan; the original iter-0 plan was overwritten and not separately ledgered. The Execute blocks below carry the actual per-iteration tool calls (compare iter 0 vs iter 1 in the diff line on the second Execute block).</div>' : ''}
+      ${planSteps.length ? `
+        <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);flex-wrap:wrap">
+          <span class="badge badge-disk">DISK CHANNEL</span>
+          ${(() => { const f = evidenceFileFor(diskSteps.map(x=>x.s), 'disk'); return f ? `<code style="color:var(--teal);font-size:10.5px">${escHtml(f)}</code>` : ''; })()}
+          <span>${diskSteps.length} step${diskSteps.length===1?'':'s'} · libewf + sleuthkit + regripper</span>
+        </div>
+        ${diskSteps.length ? renderPlanSteps(diskSteps) : '<div class="empty">No disk-channel steps.</div>'}
+        ${memorySteps.length ? `
+          <div style="margin:14px 0 8px;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);flex-wrap:wrap">
+            <span class="badge badge-mem">MEMORY CHANNEL</span>
+            ${(() => { const f = evidenceFileFor(memorySteps.map(x=>x.s), 'memory'); return f ? `<code style="color:var(--purple);font-size:10.5px">${escHtml(f)}</code>` : ''; })()}
+            <span>${memorySteps.length} step${memorySteps.length===1?'':'s'} · volatility${memorySteps[0]?.s?.args?.profile ? ' · profile '+escHtml(memorySteps[0].s.args.profile) : ''}</span>
+          </div>
+          ${renderPlanSteps(memorySteps)}
+        ` : `
+          <div style="margin-top:14px;font-size:11px;color:var(--muted);font-style:italic">No memory-channel steps in this plan (case manifest did not provide a staged RAM image, or all candidates were disk-only).</div>
+        `}
+      ` : '<div class="empty">Plan did not run.</div>'}
+    `);
+
+  // Walk blocks in seq order. Insert a loop arrow before any block whose
+  // kind has appeared earlier in the timeline (i.e. a re-iteration).
+  const seenKinds = new Set();
+  const timelineHtml = blocks.map((b, idx) => {
+    let prefix = '';
+    if ((b.kind === 'execute' || b.kind === 'interpret' || b.kind === 'critic') && seenKinds.has(b.kind)) {
+      const lastCritic = blocks.slice(0, idx).reverse().find(x => x.kind === 'critic');
+      const lastIter = lastCritic ? (lastCritic.entries[0].iteration ?? 0) : 0;
+      const dis = (disagreementByIter[lastIter] || [])[0];
+      const strat = dis?.resolution?.strategy;
+      const reentry = STRATEGY_REENTRY[strat];
+      if (reentry?.step) {
+        prefix = reentryArrow(reentry.step, reentry.label,
+          strat === 're_plan' ? 'agent re-planned and dispatched fresh tool calls' :
+          strat === 're_interpret' ? 're-reading the existing evidence; no new tool calls' :
+          'pipeline state machine looped back');
+      }
+    }
+    seenKinds.add(b.kind);
+    return prefix + renderBlock(b, idx);
+  }).join('');
+
+  // Channel summary — surfaces dual-channel runs at a glance
+  const memoryStepCount = memorySteps.length;
+  const diskStepCount = diskSteps.length;
+  const memoryFindingCount = (r.findings?.findings || []).filter(f => isMemoryFinding(f)).length;
+  const diskFindingCount = (r.findings?.findings || []).filter(f => !isMemoryFinding(f)).length;
+  const channelSummary = `
+    <div style="display:flex;gap:8px;align-items:center;font-size:11.5px;flex-wrap:wrap">
+      <span style="color:var(--muted)">Channels analyzed:</span>
+      <span class="badge badge-disk">DISK</span>
+      <span style="color:var(--muted)">${diskStepCount} planned · ${diskFindingCount} finding${diskFindingCount===1?'':'s'}</span>
+      ${memoryStepCount ? `
+        <span style="color:var(--muted);margin-left:6px">+</span>
+        <span class="badge badge-mem">MEMORY</span>
+        <span style="color:var(--muted)">${memoryStepCount} planned · ${memoryFindingCount} finding${memoryFindingCount===1?'':'s'}</span>
+      ` : `
+        <span style="color:var(--muted);margin-left:6px;font-style:italic">(no memory channel — case had no staged RAM image)</span>
+      `}
+    </div>`;
+
+  // Pipeline tab toolbar — channel summary + collapse/expand all sections
+  const toolbarHtml = `
+    <div id="pipeline-toolbar" style="flex-direction:column;align-items:stretch;gap:10px">
+      ${channelSummary}
+      <div style="display:flex;gap:8px">
+        <button onclick="document.querySelectorAll('#panel-pipeline details.pipe-section').forEach(d => d.open = true)">⊕ Expand all</button>
+        <button onclick="document.querySelectorAll('#panel-pipeline details.pipe-section').forEach(d => d.open = false)">⊖ Collapse all</button>
+      </div>
+    </div>`;
+
+  // Rule reference — moved to bottom (collapsed by default), since rule chips
+  // anywhere in the page jump-link to it.
+  const ruleRefHtml = `
+    <details id="rule-reference-details" style="margin-top:18px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:4px 0">▸ Rule reference (R_01 … R_16) — what each critic rule checks</summary>
+      <div style="margin-top:8px;border-left:2px solid var(--border);padding-left:12px">
+        ${Object.entries(RULE_REFERENCE).map(([rid, rr]) => `
+          <div id="rule-${escHtml(rid)}" style="display:grid;grid-template-columns:60px 220px 1fr;gap:10px;padding:4px 0;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,0.04);border-radius:3px">
+            <code style="font-weight:700">${escHtml(rid)}</code>
+            <span style="color:var(--accent);font-family:monospace;font-size:10.5px">${escHtml(rr.name)}</span>
+            <span style="color:var(--muted)">${escHtml(rr.summary)}</span>
+          </div>`).join('')}
+      </div>
+    </details>`;
+
+  el.innerHTML = toolbarHtml + extractBlock + planBlock + timelineHtml + ruleRefHtml;
 }
 
 // ── init ───────────────────────────────────────────────────────────────────
