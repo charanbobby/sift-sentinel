@@ -667,23 +667,19 @@ MCP_URL_DEFAULT = "http://sift-mcp:8000/mcp"
 # `EvidenceRecord`, no longer parses an `fls -m /` bodyfile from raw stdout.
 _EXEC_PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
 
-# execute_node halt semantics — per ToolExecutionStatus:
-#
-#   CONTINUE                          HALT
-#   --------                          ----
-#   ok            full success        timeout              subprocess killed
-#   empty         legit null finding  permission_denied    subprocess no-access
-#   parse_error   parser degraded     capability_denied    policy refusal
-#                 but exit=0                                (Step 8 will relax)
-#
-# `empty` and `parse_error` produce usable (though degraded) structured_fields
-# and the Critic's R_09 / R_12 / R_06 can reason about them; halting loses
-# independent downstream steps that could succeed. The three HALT statuses
-# represent "tool didn't produce a substantive result" cases where the most
-# likely downstream impact is either a resolver error (if dependents chain
-# through) or more denials of the same kind — halting early surfaces the real
-# problem. Resolver (_resolve_args) keeps a strict "upstream must be ok" rule
-# — chaining semantics are intentionally stricter than halt semantics.
+# Slice 6 Step 5 P4: this set now governs evidence-substantiveness, NOT
+# halt-vs-skip. As of 2026-04-26, execute_node never halts the entire plan
+# — every failure (resolver error or any non-continuable status) marks the
+# failing step blocked and skips its transitive dependents while independent
+# subgraphs run on. `_CONTINUABLE_STATUSES` answers a different question:
+# "did this step produce evidence the Critic should be able to reason
+# about?" `empty` and `parse_error` yield degraded-but-usable
+# structured_fields; the three excluded statuses (timeout / permission_denied
+# / capability_denied) yield denial records that downstream rules
+# (R_09 / R_12 / R_06) treat as non-substantive. The resolver
+# (_resolve_args) keeps a stricter "upstream must be ok" rule for placeholder
+# chaining — chaining semantics are intentionally stricter than skip
+# semantics.
 _CONTINUABLE_STATUSES = frozenset({"ok", "empty", "parse_error"})
 
 
@@ -855,26 +851,27 @@ async def execute_node(state: "PipelineState") -> dict:
       - Placeholder resolver iterates the upstream FlsResult instead of
         parsing an `fls -m /` bodyfile from disk.
 
-    Halt semantics — delegated to `_status_is_continuable`. Continues on
-    `ok` / `empty` / `parse_error` (tool produced a substantive-or-degraded
-    result the Critic can reason about); halts on `timeout` /
-    `permission_denied` / `capability_denied` (tool didn't complete). See
-    the table above `_CONTINUABLE_STATUSES` for the full partition + why.
-    Step 8 will relax the `capability_denied` halt via graph edge re-routing
-    so the Critic gets a chance to re_plan.
+    Skip-vs-halt: any failure (a `ResolverError` from the placeholder
+    resolver, OR a non-continuable `tool_execution_status` like `timeout` /
+    `capability_denied` / `permission_denied`) marks the failing step
+    blocked but does NOT halt the executor. The for-loop continues;
+    subsequent steps whose `depends_on` includes any blocked step are
+    skipped via `_is_blocked_by_upstream` and added to `blocked_step_ids`
+    themselves, propagating the block transitively in topological order.
+    Independent subgraphs (memory-channel `volatility_run` steps with
+    `depends_on=[]` are the canonical case) run regardless. The "ok" /
+    "empty" / "parse_error" partition (`_CONTINUABLE_STATUSES`) still
+    governs whether the step counts as substantive evidence for the
+    Critic's downstream reasoning; non-continuable statuses are allowed
+    to coexist in the evidence list with `ok` results from sibling
+    subgraphs.
 
-    Skip-vs-halt for placeholder resolution: a `ResolverError` (placeholder
-    references a step that was never executed, or `inode_by_name(...)` finds
-    no match) marks the failing step blocked but does NOT halt the executor.
-    The for-loop continues; subsequent steps whose `depends_on` includes any
-    blocked step are skipped via `_is_blocked_by_upstream` and added to
-    `blocked_step_ids` themselves, propagating the block transitively in
-    topological order. Independent subgraphs (memory-channel `volatility_run`
-    steps with `depends_on=[]` are the canonical case) run regardless. This
-    is intentionally narrower than the non-continuable-status halt: a missing
-    placeholder is a plan/data mismatch the Critic can act on; a tool
-    timeout is an infrastructure condition where downstream behavior is
-    unpredictable.
+    Why we don't halt on infrastructure failures (Slice 6 Step 5 P4):
+    every MCP tool call is independent at the server. A timeout on one
+    plugin doesn't poison the next call; capability_denied for one path
+    doesn't necessarily affect calls against other paths. The original
+    halt rationale ("downstream behavior unpredictable") was overly
+    conservative — continuing collects strictly more useful evidence.
 
     Requires: `state.tool_plan`, `state.plan_digest`, `state.capability_token`
     populated upstream. The PipelineState dataclass allows them to be None so
@@ -1003,10 +1000,18 @@ async def execute_node(state: "PipelineState") -> dict:
                                 },
                             )
 
-                            # Halt-vs-continue decision delegated to the
-                            # module-level helper so the probe can unit-test
-                            # the partition against all 6 ToolExecutionStatus
-                            # values. See `_CONTINUABLE_STATUSES` above.
+                            # Slice 6 Step 5 P4: a non-continuable status
+                            # (timeout / capability_denied / permission_denied)
+                            # marks the step blocked but no longer halts the
+                            # plan. Tool calls are independent at the MCP
+                            # layer (no shared per-call state), so a memory
+                            # plugin timeout doesn't taint the next disk
+                            # step. Independent subgraphs continue; transitive
+                            # descendants are skipped via the same
+                            # `_is_blocked_by_upstream` check at loop top.
+                            # Original halt rationale ("downstream behavior
+                            # unpredictable") was too conservative — every
+                            # tool call mints fresh state on the server side.
                             if not _status_is_continuable(ev.tool_execution_status):
                                 tool_span.update(
                                     level="ERROR",
@@ -1016,8 +1021,11 @@ async def execute_node(state: "PipelineState") -> dict:
                                     level="ERROR",
                                     status_message=f"step {step.step_id} status={ev.tool_execution_status}",
                                 )
-                                failed_step = step.step_id
-                                break
+                                blocked_step_ids.add(step.step_id)
+                                if failed_step is None:
+                                    failed_step = step.step_id
+                                print(f"  [execute] step {step.step_id} status={ev.tool_execution_status} — marking blocked, continuing")
+                                continue
 
             non_ok_summary = [
                 (i + 1, e.tool_execution_status)
