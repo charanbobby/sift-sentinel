@@ -75,6 +75,20 @@ from pipeline.mcp import parsers as P  # noqa: E402
 # /fls/icat; only /mnt/hackathon is forensic-integrity-protected at the mount layer.
 EVIDENCE_ROOTS = tuple(p.resolve() for p in (Path("/mnt/hackathon"), Path("/mnt/derived")))
 EVIDENCE_ROOT = EVIDENCE_ROOTS[0]  # retained for backwards-compat where code/errors name the primary root
+# Memory-image read-path allowlist (Slice 6 Step 3b.6). Production target is the
+# named Docker volume `/var/lib/find-evil/memory`; `/tmp` is the dev path during
+# initial Vol2 probing while the volume is being provisioned. Vol2 needs fast
+# container-local reads; bind-mounted memory dumps from `/mnt/hackathon` were
+# measured at ~1.5 MB/s on Windows Docker Desktop, making per-plugin runs unusably
+# slow. Each dump is staged once into MEMORY_EVIDENCE_ROOTS before the pipeline runs.
+MEMORY_EVIDENCE_ROOTS = tuple(
+    p.resolve() for p in (
+        Path("/var/lib/find-evil/memory"),
+        Path("/home/sansforensics"),
+        Path("/tmp"),
+    )
+    if p.exists()
+)
 CASES_ROOT = Path("/home/sansforensics/cases")
 STDOUT_CAP_BYTES = 64 * 1024
 
@@ -156,6 +170,41 @@ def _check_read_path(path_str: str) -> Path:
     if not p.exists():
         raise ValueError(f"read path {p} does not exist")
     return p
+
+
+def _check_memory_image_path(path_str: str) -> Path:
+    """Volatility 2 memory-dump path validator (Slice 6 Step 3b.6). Distinct
+    from `_check_read_path` because memory dumps live in container-fast staging
+    storage, not bind-mounted evidence roots."""
+    p = Path(path_str).resolve()
+    if not MEMORY_EVIDENCE_ROOTS:
+        raise ValueError(
+            "no memory-evidence root mounted; create /var/lib/find-evil/memory "
+            "named volume or stage to /tmp"
+        )
+    if not any(
+        p == root or str(p).startswith(str(root) + os.sep)
+        for root in MEMORY_EVIDENCE_ROOTS
+    ):
+        allowed = ", ".join(str(r) for r in MEMORY_EVIDENCE_ROOTS)
+        raise ValueError(f"memory-image path {p} outside allowlist ({allowed})")
+    if not p.exists():
+        raise ValueError(f"memory-image path {p} does not exist")
+    return p
+
+
+# Volatility 2 profile name validator. Profile flows directly into vol.py argv as
+# `--profile=<X>`; a permissive value would let an attacker-controlled plan smuggle
+# extra flags. Letters / digits / underscore only, length-bounded.
+_VOLATILITY_PROFILE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{1,63}$")
+
+
+def _check_volatility_profile(profile: str) -> str:
+    if not isinstance(profile, str) or not _VOLATILITY_PROFILE_RE.match(profile):
+        raise ValueError(
+            f"profile {profile!r} invalid; must match {_VOLATILITY_PROFILE_RE.pattern}"
+        )
+    return profile
 
 
 def _check_extracted_path(case_id: str, path_str: str) -> Path:
@@ -748,6 +797,70 @@ def scheduled_tasks_parse(
         structured_model=result, parser_status=parser_status,
         free_text_fields=P.scheduled_tasks_free_text_fields(result),
         expected_paths=[str(dest_path), f"inode_{task_xml_inode}"],
+        token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
+    )
+
+
+@mcp.tool()
+def volatility_run(
+    capability_token: str,
+    plan_digest: str,
+    case_id: str,
+    image_path: str,
+    profile: str,
+    plugin: str,
+) -> EvidenceRecord:
+    """Run a Volatility 2 plugin against a staged memory dump.
+
+    Slice 6 Step 3b.6 — memory-evidence triage tool. Wraps `vol.py -f <image>
+    --profile=<profile> <plugin>` for a 5-plugin allowlist. Image MUST be staged
+    under /var/lib/find-evil/memory or /tmp (container-fast storage); bind-mounted
+    dumps from /mnt/hackathon are too slow on Windows Docker Desktop and are
+    rejected by the path validator.
+
+    Args:
+        capability_token: JSON-serialized CapabilityToken; scopes this call.
+        plan_digest: sha256 of the approved ToolPlan; must equal token.plan_digest.
+        case_id: the case this call belongs to.
+        image_path: absolute path to a staged memory dump (.img / .raw).
+        profile: Volatility 2 profile (e.g. Win7SP1x64, Win10x64_17134,
+            Win2008R2SP1x64). Profile is per-host; the case manifest pins it.
+        plugin: one of {pslist, cmdline, netscan, dlllist, malfind}.
+            - pslist:  process tree (PID, PPID, threads, start time)
+            - cmdline: full command-line per process
+            - netscan: TCP/UDP connections (proto, local, foreign, state, owner)
+            - dlllist: loaded modules per process (high volume; trim before LLM)
+            - malfind: memory regions with anomalous protection (PAGE_EXECUTE_
+              READWRITE etc.) — process-injection / unpacker signature
+    """
+    token, denial = _enforce_capability(
+        capability_token, plan_digest, "volatility_run",
+        case_id=case_id, path=image_path,
+    )
+    if denial is not None:
+        return denial
+    image = _check_memory_image_path(image_path)
+    profile_safe = _check_volatility_profile(profile)
+    if plugin not in P.VOLATILITY_PLUGIN_ALLOWLIST:
+        raise ValueError(
+            f"plugin {plugin!r} not in allowlist; "
+            f"allowed: {sorted(P.VOLATILITY_PLUGIN_ALLOWLIST)}"
+        )
+    sub = _run_subprocess(
+        case_id=case_id, tool="volatility_run",
+        argv=["vol.py", "-f", str(image), f"--profile={profile_safe}", plugin],
+        call_args={
+            "image_path": str(image),
+            "profile": profile_safe,
+            "plugin": plugin,
+        },
+    )
+    result, parser_status = P.parse_volatility(sub.raw_bytes, plugin, profile_safe)
+    return _emit_evidence(
+        tool="volatility_run", sub=sub,
+        structured_model=result, parser_status=parser_status,
+        free_text_fields=P.volatility_free_text_fields(result),
+        expected_paths=[str(image), f"profile:{profile_safe}", f"plugin:{plugin}"],
         token_id=token.token_id, plan_digest=plan_digest, case_id=case_id,
     )
 

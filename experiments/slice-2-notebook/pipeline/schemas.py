@@ -108,6 +108,9 @@ PersistenceCategory = Literal[
 Classification = Literal[
     "attacker_persistence",        # confidently malicious
     "attacker_persistence_ai_assisted",  # Slice 6 Step 3b — malicious AND carries concrete AI-tooling artifacts (LLM URL / SDK import / API key in cited evidence). R_16 enforces the anchor.
+    "attacker_persistence_ai_assisted_runtime",  # Slice 6 Step 3b.6 — AI-tooling artifacts observed at runtime (live LLM connection in netscan, AI-SDK module loaded in dlllist, prompt strings in cmdline). R_16 anchor extends to memory artifacts.
+    "process_injection",           # Slice 6 Step 3b.6 — memory-only: PAGE_EXECUTE_READWRITE region with non-PE / shellcode shape (malfind hit). T1055 territory.
+    "c2_beacon",                   # Slice 6 Step 3b.6 — memory-only: outbound connection to known-bad / suspicious endpoint, optionally paired with a suspect process. T1071 / T1095.
     "legitimate_responder_tool",   # DFIR/IR tool installed during response
     "legitimate_vendor_product",   # commercial security/IT product
     "legitimate_windows_default",  # stock Windows component or driver (also used for NOT_FOUND)
@@ -131,6 +134,20 @@ ATTACK_MAPPING: dict[str, tuple[str | None, str | None]] = {
 ATTACK_TACTIC_ID = "TA0003"
 ATTACK_TACTIC_NAME = "Persistence"
 
+# ---- Memory-evidence ATT&CK overrides (Slice 6 Step 3b.6) ----
+# Some memory-class Classifications aren't persistence-tactic findings. When
+# present, the Finding validator overrides the default TA0003 / Persistence
+# pair with the correct tactic. Process-injection and C2-beacon findings keep
+# `category="NOT_FOUND"` (no PersistenceCategory match) but get correct tactic
+# tagging via this override.
+CLASSIFICATION_TACTIC_OVERRIDE: dict[str, tuple[str, str, str | None, str | None]] = {
+    # classification: (tactic_id, tactic_name, attack_id, attack_name)
+    "process_injection": ("TA0005", "Defense Evasion", "T1055", "Process Injection"),
+    "c2_beacon":         ("TA0011", "Command and Control", "T1071", "Application Layer Protocol"),
+    # attacker_persistence_ai_assisted_runtime stays under TA0003 (the AI-using
+    # process is the live face of the persistence mechanism, not a separate tactic).
+}
+
 # ---- Phase 1 — EXTRACT output ----
 class ArtifactCandidate(BaseModel):
     artifact_type: Literal["registry_hive", "scheduled_task_xml", "service_config"]
@@ -151,6 +168,8 @@ class PlannedStep(BaseModel):
     tool: Literal[
         "fsstat_e01", "fls_list", "icat_extract",
         "regripper_run", "scheduled_tasks_parse",
+        # Slice 6 Step 3b.6 — memory-evidence triage (Volatility 2)
+        "volatility_run",
     ]
     args: dict
     purpose: str
@@ -236,6 +255,17 @@ class Finding(BaseModel):
 
     @model_validator(mode="after")
     def _tag_attack(self):
+        # Memory-class Classifications override both technique AND tactic — they
+        # aren't persistence findings and pinning them to TA0003 would mislabel.
+        override = CLASSIFICATION_TACTIC_OVERRIDE.get(self.classification)
+        if override is not None:
+            tactic_id, tactic_name, aid, aname = override
+            self.attack_id = aid
+            self.attack_name = aname
+            self.attack_tactic_id = tactic_id
+            self.attack_tactic_name = tactic_name
+            return self
+        # Default disk/persistence path: derive from category.
         aid, aname = ATTACK_MAPPING.get(self.category, (None, None))
         self.attack_id = aid
         self.attack_name = aname
@@ -429,6 +459,77 @@ class ScheduledTasksResult(BaseModel):
     tasks: list[ScheduledTaskEntry]
 
 
+# ---- Volatility 2 memory-evidence shapes (Slice 6 Step 3b.6) ----
+# Per-plugin structured output for the 5-tool memory triage allowlist:
+# pslist, cmdline, netscan, dlllist, malfind. One VolatilityResult per call;
+# the populated list field is the one matching `plugin_name`.
+
+class VolatilityProcessEntry(BaseModel):
+    offset_v: str = Field(..., max_length=32)
+    name: str = Field(..., max_length=64)
+    pid: int
+    ppid: int
+    threads: int
+    handles: int
+    session: str = Field("", max_length=8)
+    wow64: int
+    start_time: datetime | None = None
+    exit_time: datetime | None = None
+
+
+class VolatilityCmdlineEntry(BaseModel):
+    name: str = Field(..., max_length=64)
+    pid: int
+    command_line_safe: str = Field("", max_length=4000)
+
+
+class VolatilityNetworkEntry(BaseModel):
+    offset_p: str = Field(..., max_length=32)
+    proto: Literal["TCPv4", "TCPv6", "UDPv4", "UDPv6"]
+    local_address: str = Field(..., max_length=64)
+    foreign_address: str = Field(..., max_length=64)
+    state: str = Field("", max_length=16)
+    pid: int
+    owner_safe: str = Field("", max_length=64)
+    created: datetime | None = None
+
+
+class VolatilityDll(BaseModel):
+    base: str = Field(..., max_length=24)
+    size: str = Field(..., max_length=24)
+    load_count: str = Field(..., max_length=24)
+    load_time: datetime | None = None
+    path_safe: str = Field(..., max_length=512)
+
+
+class VolatilityDllEntry(BaseModel):
+    process_name: str = Field(..., max_length=64)
+    pid: int
+    command_line_safe: str = Field("", max_length=4000)
+    dlls: list[VolatilityDll] = []
+
+
+class VolatilityMalfindEntry(BaseModel):
+    process_name: str = Field(..., max_length=64)
+    pid: int
+    address: str = Field(..., max_length=24)
+    vad_tag: str = Field("", max_length=16)
+    protection: str = Field("", max_length=64)
+    flags: str = Field("", max_length=128)
+    hex_excerpt: str = Field("", max_length=2000)
+    disasm_excerpt: str = Field("", max_length=2000)
+
+
+class VolatilityResult(BaseModel):
+    plugin_name: Literal["pslist", "cmdline", "netscan", "dlllist", "malfind"]
+    profile: str = Field(..., max_length=64)
+    processes: list[VolatilityProcessEntry] = []
+    cmdlines: list[VolatilityCmdlineEntry] = []
+    connections: list[VolatilityNetworkEntry] = []
+    dll_entries: list[VolatilityDllEntry] = []
+    malfind_hits: list[VolatilityMalfindEntry] = []
+
+
 __all__ = [
     # Literals
     "Confidence", "PersistenceCategory", "Classification", "RuleId", "FailureCode",
@@ -457,4 +558,8 @@ __all__ = [
     "IcatResult",
     "RegripperEntry", "RegripperResult",
     "ScheduledTaskEntry", "ScheduledTasksResult",
+    # Slice 6 Step 3b.6 — memory-evidence (Volatility 2) shapes
+    "VolatilityProcessEntry", "VolatilityCmdlineEntry", "VolatilityNetworkEntry",
+    "VolatilityDll", "VolatilityDllEntry", "VolatilityMalfindEntry",
+    "VolatilityResult",
 ]

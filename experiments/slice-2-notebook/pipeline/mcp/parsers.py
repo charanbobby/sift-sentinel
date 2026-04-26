@@ -38,6 +38,9 @@ from pipeline.schemas import (
     IcatResult,
     RegripperEntry, RegripperResult,
     ScheduledTaskEntry, ScheduledTasksResult,
+    VolatilityCmdlineEntry, VolatilityDll, VolatilityDllEntry,
+    VolatilityMalfindEntry, VolatilityNetworkEntry, VolatilityProcessEntry,
+    VolatilityResult,
 )
 
 
@@ -536,6 +539,251 @@ def scheduled_tasks_free_text_fields(r: ScheduledTasksResult) -> list[tuple[str,
     return out
 
 
+# --- Volatility 2 (memory-evidence) parsers --------------------------------
+# Slice 6 Step 3b.6. Per-plugin output of `vol.py -f <img> --profile=<P> <plugin>`.
+# 5-plugin allowlist: pslist, cmdline, netscan, dlllist, malfind.
+# Vol2 wraps each run with import-failure warnings for community plugins we
+# don't have; `_strip_volatility_warnings` drops those before parsing.
+
+VOLATILITY_PLUGIN_ALLOWLIST: frozenset[str] = frozenset({
+    "pslist", "cmdline", "netscan", "dlllist", "malfind",
+})
+
+_VOL_DT_FMT = "%Y-%m-%d %H:%M:%S"
+_VOL_DT_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+_VOL_BLOCK_SEP = re.compile(r"^\*{60,}\s*$", re.MULTILINE)
+_VOL_PROC_HEADER = re.compile(r"^(\S+)\s+pid:\s+(\d+)\s*$", re.MULTILINE)
+_VOL_DLL_ROW = re.compile(
+    r"^(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+(\S+)\s+"
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\S+)\s+(.+)$"
+)
+_VOL_MALFIND_HEADER = re.compile(
+    r"^Process:\s+(\S+)\s+Pid:\s+(\d+)\s+Address:\s+(0x[0-9a-fA-F]+)\s*$",
+    re.MULTILINE,
+)
+
+
+def _vol_parse_dt(s: str) -> datetime | None:
+    if not s:
+        return None
+    m = _VOL_DT_RE.search(s)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), _VOL_DT_FMT)
+    except ValueError:
+        return None
+
+
+def _strip_volatility_warnings(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if line.startswith("*** Failed to import"):
+            continue
+        if line.startswith("Volatility Foundation Volatility Framework"):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _parse_vol_pslist(text: str, profile: str) -> tuple[VolatilityResult, str]:
+    rows: list[VolatilityProcessEntry] = []
+    in_data = False
+    for ln in text.splitlines():
+        if not ln.strip():
+            continue
+        if ln.startswith("Offset(V)"):
+            continue
+        if ln.startswith("--"):
+            in_data = True
+            continue
+        if not in_data:
+            continue
+        parts = ln.split()
+        if len(parts) < 8:
+            continue
+        try:
+            dts = _VOL_DT_RE.findall(" ".join(parts[8:]))
+            rows.append(VolatilityProcessEntry(
+                offset_v=parts[0], name=parts[1],
+                pid=int(parts[2]), ppid=int(parts[3]),
+                threads=int(parts[4]), handles=int(parts[5]),
+                session=parts[6], wow64=int(parts[7]),
+                start_time=_vol_parse_dt(dts[0]) if len(dts) >= 1 else None,
+                exit_time=_vol_parse_dt(dts[1]) if len(dts) >= 2 else None,
+            ))
+        except (ValueError, IndexError):
+            continue
+    if not rows:
+        return VolatilityResult(plugin_name="pslist", profile=profile), "parse_error"
+    return VolatilityResult(plugin_name="pslist", profile=profile, processes=rows), "ok"
+
+
+def _parse_vol_cmdline(text: str, profile: str) -> tuple[VolatilityResult, str]:
+    rows: list[VolatilityCmdlineEntry] = []
+    for blk in _VOL_BLOCK_SEP.split(text):
+        blk = blk.strip()
+        if not blk:
+            continue
+        hdr = _VOL_PROC_HEADER.search(blk)
+        if not hdr:
+            continue
+        cmd_match = re.search(r"^Command line\s*:\s*(.*)$", blk, re.MULTILINE)
+        cmd = cmd_match.group(1).strip() if cmd_match else ""
+        rows.append(VolatilityCmdlineEntry(
+            name=hdr.group(1), pid=int(hdr.group(2)),
+            command_line_safe=cmd[:4000],
+        ))
+    if not rows:
+        return VolatilityResult(plugin_name="cmdline", profile=profile), "parse_error"
+    return VolatilityResult(plugin_name="cmdline", profile=profile, cmdlines=rows), "ok"
+
+
+def _parse_vol_netscan(text: str, profile: str) -> tuple[VolatilityResult, str]:
+    rows: list[VolatilityNetworkEntry] = []
+    for ln in text.splitlines():
+        if not ln.strip():
+            continue
+        if ln.startswith("Offset(P)"):
+            continue
+        parts = ln.split()
+        if len(parts) < 6:
+            continue
+        proto = parts[1] if len(parts) > 1 else ""
+        if proto not in ("TCPv4", "TCPv6", "UDPv4", "UDPv6"):
+            continue
+        try:
+            idx = 4
+            state = ""
+            if proto.startswith("TCP"):
+                state = parts[idx]
+                idx += 1
+            try:
+                pid = int(parts[idx])
+            except ValueError:
+                continue
+            idx += 1
+            owner = parts[idx] if idx < len(parts) else ""
+            idx += 1
+            rows.append(VolatilityNetworkEntry(
+                offset_p=parts[0], proto=proto,  # type: ignore[arg-type]
+                local_address=parts[2], foreign_address=parts[3],
+                state=state, pid=pid, owner_safe=owner,
+                created=_vol_parse_dt(" ".join(parts[idx:])),
+            ))
+        except (ValueError, IndexError):
+            continue
+    if not rows:
+        return VolatilityResult(plugin_name="netscan", profile=profile), "parse_error"
+    return VolatilityResult(plugin_name="netscan", profile=profile, connections=rows), "ok"
+
+
+def _parse_vol_dlllist(text: str, profile: str) -> tuple[VolatilityResult, str]:
+    rows: list[VolatilityDllEntry] = []
+    for blk in _VOL_BLOCK_SEP.split(text):
+        blk = blk.strip()
+        if not blk:
+            continue
+        hdr = _VOL_PROC_HEADER.search(blk)
+        if not hdr:
+            continue
+        cmd_match = re.search(r"^Command line\s*:\s*(.*)$", blk, re.MULTILINE)
+        cmd = cmd_match.group(1).strip() if cmd_match else ""
+        dlls: list[VolatilityDll] = []
+        for ln in blk.splitlines():
+            m = _VOL_DLL_ROW.match(ln)
+            if m:
+                dlls.append(VolatilityDll(
+                    base=m.group(1), size=m.group(2),
+                    load_count=m.group(3),
+                    load_time=_vol_parse_dt(m.group(4)),
+                    path_safe=m.group(5).strip()[:512],
+                ))
+        rows.append(VolatilityDllEntry(
+            process_name=hdr.group(1), pid=int(hdr.group(2)),
+            command_line_safe=cmd[:4000], dlls=dlls,
+        ))
+    if not rows:
+        return VolatilityResult(plugin_name="dlllist", profile=profile), "parse_error"
+    return VolatilityResult(plugin_name="dlllist", profile=profile, dll_entries=rows), "ok"
+
+
+def _parse_vol_malfind(text: str, profile: str) -> tuple[VolatilityResult, str]:
+    headers = list(_VOL_MALFIND_HEADER.finditer(text))
+    if not headers:
+        if not text.strip():
+            return VolatilityResult(plugin_name="malfind", profile=profile), "empty"
+        return VolatilityResult(plugin_name="malfind", profile=profile), "parse_error"
+    rows: list[VolatilityMalfindEntry] = []
+    for i, h in enumerate(headers):
+        start = h.start()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        blk = text[start:end]
+        vad_match = re.search(r"^Vad Tag:\s+(\S+)\s+Protection:\s+(.+)$", blk, re.MULTILINE)
+        flags_match = re.search(r"^Flags:\s+(.+)$", blk, re.MULTILINE)
+        hex_lines: list[str] = []
+        disasm_lines: list[str] = []
+        for ln in blk.splitlines():
+            if re.match(r"^0x[0-9a-fA-F]+\s+(?:[0-9a-fA-F]{2}\s+){4,}", ln):
+                hex_lines.append(ln)
+            elif re.match(r"^0x[0-9a-fA-F]+\s+[0-9a-fA-F]+\s+[A-Z]+", ln):
+                disasm_lines.append(ln)
+        rows.append(VolatilityMalfindEntry(
+            process_name=h.group(1), pid=int(h.group(2)), address=h.group(3),
+            vad_tag=vad_match.group(1) if vad_match else "",
+            protection=(vad_match.group(2).strip() if vad_match else "")[:64],
+            flags=(flags_match.group(1).strip() if flags_match else "")[:128],
+            hex_excerpt="\n".join(hex_lines)[:2000],
+            disasm_excerpt="\n".join(disasm_lines)[:2000],
+        ))
+    return VolatilityResult(plugin_name="malfind", profile=profile, malfind_hits=rows), "ok"
+
+
+_VOL_DISPATCH = {
+    "pslist": _parse_vol_pslist,
+    "cmdline": _parse_vol_cmdline,
+    "netscan": _parse_vol_netscan,
+    "dlllist": _parse_vol_dlllist,
+    "malfind": _parse_vol_malfind,
+}
+
+
+def parse_volatility(stdout: bytes, plugin: str, profile: str) -> tuple[VolatilityResult, str]:
+    if plugin not in _VOL_DISPATCH:
+        return VolatilityResult(plugin_name=plugin, profile=profile), "parse_error"  # type: ignore[arg-type]
+    if not stdout:
+        return VolatilityResult(plugin_name=plugin, profile=profile), "empty"  # type: ignore[arg-type]
+    text = _strip_volatility_warnings(stdout.decode("utf-8", errors="replace"))
+    if not text.strip():
+        return VolatilityResult(plugin_name=plugin, profile=profile), "empty"  # type: ignore[arg-type]
+    return _VOL_DISPATCH[plugin](text, profile)
+
+
+def volatility_free_text_fields(r: VolatilityResult) -> list[tuple[str, str]]:
+    """Surface fields the injection scanner should examine. Hex/disasm excerpts
+    are excluded — they're not natural-language attack surface."""
+    out: list[tuple[str, str]] = []
+    for i, p in enumerate(r.processes):
+        if p.name:
+            out.append((f"processes[{i}].name", p.name))
+    for i, c in enumerate(r.cmdlines):
+        if c.command_line_safe:
+            out.append((f"cmdlines[{i}].command_line_safe", c.command_line_safe))
+    for i, n in enumerate(r.connections):
+        if n.owner_safe:
+            out.append((f"connections[{i}].owner_safe", n.owner_safe))
+    for i, d in enumerate(r.dll_entries):
+        if d.command_line_safe:
+            out.append((f"dll_entries[{i}].command_line_safe", d.command_line_safe))
+        for j, dll in enumerate(d.dlls):
+            if dll.path_safe:
+                out.append((f"dll_entries[{i}].dlls[{j}].path_safe", dll.path_safe))
+    for i, m in enumerate(r.malfind_hits):
+        if m.process_name:
+            out.append((f"malfind_hits[{i}].process_name", m.process_name))
+    return out
+
+
 __all__ = [
     "parse_fsstat", "fsstat_free_text_fields",
     "parse_fls", "fls_free_text_fields",
@@ -543,4 +791,6 @@ __all__ = [
     "parse_regripper", "regripper_free_text_fields",
     "regripper_expected_paths", "REGRIPPER_EXPECTED_PATHS",
     "parse_scheduled_tasks", "scheduled_tasks_free_text_fields",
+    "parse_volatility", "volatility_free_text_fields",
+    "VOLATILITY_PLUGIN_ALLOWLIST",
 ]
