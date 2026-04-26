@@ -36,6 +36,10 @@ from pathlib import Path
 
 sys.path.insert(0, "/workspace")
 
+from pipeline.output_layout import CRITIC_DISAGREEMENTS_JSONL
+
+sys.path.insert(0, "/workspace")
+
 import pipeline.nodes as _nodes
 from pipeline.nodes import (
     _build_interpret_bundle,
@@ -275,7 +279,7 @@ def main() -> int:
         f"(from {len(state.findings.findings)} findings)"
     )
 
-    audit_path = out_dir / "critic_disagreements.jsonl"
+    audit_path = out_dir / CRITIC_DISAGREEMENTS_JSONL
     audit_lines = audit_path.read_text().splitlines() if audit_path.exists() else []
     quarantine_audit = [
         json.loads(l) for l in audit_lines

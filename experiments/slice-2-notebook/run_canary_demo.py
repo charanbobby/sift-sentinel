@@ -11,7 +11,7 @@ What this demo shows:
   3. `_check_canary_leak` scans the LLM response after it returns:
      - Clean response → no action, run proceeds.
      - Response echoes the canary → `CANARY_LEAK` audit entry written to
-       critic_disagreements.jsonl; `interpret_node` raises RuntimeError
+       06_critic_disagreements.jsonl; `interpret_node` raises RuntimeError
        halting the run. The attempt itself is a high-confidence forensic
        finding: adversarial prompt-injection targeting defender AI.
 
@@ -131,7 +131,7 @@ def main() -> int:
 
     print("  _check_canary_leak() -> audit-entry dict")
     print()
-    print("  interpret_node writes this entry to out/critic_disagreements.jsonl:")
+    print("  interpret_node writes this entry to out/06_critic_disagreements.jsonl:")
     print()
     for line in json.dumps(leaked_audit, indent=2).splitlines():
         print(f"    {line}")

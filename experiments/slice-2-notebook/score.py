@@ -1,5 +1,6 @@
-"""Slice 2.5 + 5 scorer: findings.json + ground_truth.json → precision / recall
-/ hallucinations, plus Slice-5 `scorecard_v2` with injection + capability metrics.
+"""Slice 2.5 + 5 scorer: 05_interpret_findings.json + ground_truth.json →
+precision / recall / hallucinations, plus Slice-5 `scorecard_v2` with
+injection + capability metrics.
 
 Run from the project root:
 
@@ -11,10 +12,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from pipeline.output_layout import (
+    EXECUTE_EVIDENCE_JSONL,
+    INTERPRET_FINDINGS,
+)
+
 RUNS_DIR = Path(__file__).parent / "out" / "runs"
-ROOT_OUT_DIR = Path(__file__).parent / "out"  # Slice 5 writes evidence.jsonl here
+ROOT_OUT_DIR = Path(__file__).parent / "out"  # Slice 5 writes evidence here
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -33,7 +41,7 @@ _NA = {
 
 
 def compute_slice5_metrics(evidence_jsonl: Path) -> dict:
-    """Slice-5-specific metrics derived from `evidence.jsonl` (EvidenceRecord
+    """Slice-5-specific metrics derived from `04_execute_evidence.jsonl` (EvidenceRecord
     per line). Returns N/A (None) values when the file doesn't exist, so the
     scorecard degrades gracefully on pre-Slice-5 runs.
 
@@ -69,14 +77,15 @@ def compute_slice5_metrics(evidence_jsonl: Path) -> dict:
 
 
 def _locate_evidence_jsonl(case_dir: Path) -> Path:
-    """Per-case evidence.jsonl (Slice-5 canonical location). No root fallback:
-    the root `out/evidence.jsonl` is a dev artifact whose case_id is ambiguous,
+    """Per-case 04_execute_evidence.jsonl (Slice-5 canonical location). No root
+    fallback: the root `out/04_execute_evidence.jsonl` is a dev artifact whose
+    case_id is ambiguous,
     and showing it under a case whose data it doesn't describe is misleading."""
-    return case_dir / "evidence.jsonl"
+    return case_dir / EXECUTE_EVIDENCE_JSONL
 
 
 def score_case(case_dir: Path) -> dict:
-    findings = json.loads((case_dir / "findings.json").read_text(encoding="utf-8"))
+    findings = json.loads((case_dir / INTERPRET_FINDINGS).read_text(encoding="utf-8"))
     ground_truth = json.loads((case_dir / "ground_truth.json").read_text(encoding="utf-8"))
     raw_by_tcid = {e["tool_call_id"]: e for e in load_jsonl(case_dir / "raw_results.jsonl")}
 
@@ -167,7 +176,7 @@ def print_scorecard(card: dict) -> None:
             f"capability_denials={_fmt_int(s5['capability_bypass_denials'])}"
         )
     else:
-        print(f"  [slice5] no evidence.jsonl — pre-Slice-5 artifacts (N/A)")
+        print(f"  [slice5] no 04_execute_evidence.jsonl — pre-Slice-5 artifacts (N/A)")
 
 
 def print_summary(cards: list[dict]) -> None:
