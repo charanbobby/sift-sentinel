@@ -87,6 +87,12 @@ class PipelineState(BaseModel):
     # to manipulate defender AI. Empty string disables the check (legacy-probe compat).
     canary: str = ""
 
+    # Terminal-state marker. Set by human_review_node on the escalate path
+    # ("escalated" or "quarantined"); stays None on the commit path. Read by
+    # run_case.py to decide which findings.* sentinel file to write so the
+    # filesystem reports the actual route, not just "findings exist".
+    decision: Optional[str] = None
+
 
 # ---- Helpers (moved from notebook C4) ----
 # `plan_hash` is the `compute_plan_digest` import above. Accepts a `ToolPlan`;

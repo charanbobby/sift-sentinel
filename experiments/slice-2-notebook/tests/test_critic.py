@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from pipeline.output_layout import CRITIC_DISAGREEMENTS_JSONL
 from pipeline.critic import (
     AI_ASSIST_ANCHORS,
     CRITIC_RULES,
@@ -89,6 +90,49 @@ def test_R_05_good_excerpt_literally_in_structured_fields(make_plan, make_eviden
         [make_evidence("t-0", {"entries": [{"value_data_safe": "C:\\malware.exe"}]})],
     )
     f = make_finding(evidence_refs=[("t-0", "C:\\\\malware.exe")])
+    assert R_05(f, ctx) is None
+
+
+def test_R_05_tolerant_to_unescaped_backslash(make_plan, make_evidence, make_finding):
+    """LLM unescapes JSON `\\\\` back to `\\` when reproducing a Windows path
+    in `output_excerpt`. R_05 must accept the unescaped form."""
+    ctx = CriticContext(
+        make_plan("regripper_run"),
+        [make_evidence("t-0", {"entries": [{"value_data_safe": "C:\\malware.exe"}]})],
+    )
+    # Excerpt uses single literal backslash (LLM stripped the JSON escape).
+    f = make_finding(evidence_refs=[("t-0", "C:\\malware.exe")])
+    assert R_05(f, ctx) is None
+
+
+def test_R_05_tolerant_to_collapsed_whitespace(make_plan, make_evidence, make_finding):
+    """LLM joins JSON-pretty-printed fields onto one line with `, ` separators
+    instead of the haystack's `,\\n  ` indent. R_05 must accept that."""
+    ctx = CriticContext(
+        make_plan("regripper_run"),
+        [make_evidence("t-0", {"entries": [
+            {"value_name": "Debugger", "value_type": "unknown",
+             "value_data_safe": "C:\\Windows\\System32\\cmd.exe"},
+        ]})],
+    )
+    # Excerpt is one-line — haystack would be multi-line with indent.
+    needle = ('"value_name": "Debugger", "value_type": "unknown", '
+              '"value_data_safe": "C:\\\\Windows\\\\System32\\\\cmd.exe"')
+    f = make_finding(evidence_refs=[("t-0", needle)])
+    assert R_05(f, ctx) is None
+
+
+def test_R_05_tolerant_to_unescaped_quotes(make_plan, make_evidence, make_finding):
+    """JSON-pretty form encodes embedded `"` as `\\"`; LLM tends to keep the
+    bare `"`. R_05 must accept the unescaped quote form."""
+    ctx = CriticContext(
+        make_plan("regripper_run"),
+        [make_evidence("t-0", {"entries": [
+            # Stored value contains literal `"` characters
+            {"value_data_safe": 'powershell -c "iex(...)"'},
+        ]})],
+    )
+    f = make_finding(evidence_refs=[("t-0", 'powershell -c "iex(...)"')])
     assert R_05(f, ctx) is None
 
 
@@ -361,8 +405,47 @@ def test_R_16_good_ai_assisted_with_api_key_env(make_plan, make_evidence, make_f
     assert R_16(f, ctx) is None
 
 
+def test_R_16_bad_ai_assisted_runtime_without_anchor(make_plan, make_evidence, make_finding):
+    """attacker_persistence_ai_assisted_runtime (memory channel) must enforce
+    the same anchor discipline as the disk classification — Slice 6 Step 3b.6."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted_runtime",
+        notes="Ruled out legitimate AI tooling.",
+        evidence_refs=[("t-0", "powershell.exe pid 4328 with PAGE_EXECUTE_READWRITE region")],
+    )
+    r = R_16(f, ctx)
+    assert r is not None
+    assert r.code == "AI_ASSIST_ANCHOR_MISSING"
+
+
+def test_R_16_good_ai_assisted_runtime_with_netscan_llm_url(make_plan, make_evidence, make_finding):
+    """Runtime classification with a live LLM-API connection in netscan satisfies R_16."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted_runtime",
+        notes="Ruled out sanctioned Copilot daemons.",
+        evidence_refs=[("t-0", "netscan: pid=4328 owner=powershell.exe foreign=api.openai.com:443 state=ESTABLISHED")],
+    )
+    assert R_16(f, ctx) is None
+
+
+def test_R_16_good_ai_assisted_runtime_with_dlllist_sdk(make_plan, make_evidence, make_finding):
+    """Runtime classification with a loaded AI-SDK DLL satisfies R_16."""
+    ctx = CriticContext(make_plan("regripper_run"),
+                        [make_evidence("t-0", {})])
+    f = make_finding(
+        classification="attacker_persistence_ai_assisted_runtime",
+        notes="Ruled out enterprise data-science workstations.",
+        evidence_refs=[("t-0", "dlllist for pid=4328: C:\\Python\\Lib\\site-packages\\openai\\__init__.py loaded; cmdline mentions import openai")],
+    )
+    assert R_16(f, ctx) is None
+
+
 def test_R_16_noop_on_plain_attacker_persistence(make_plan, make_evidence, make_finding):
-    """R_16 is scope-limited to attacker_persistence_ai_assisted — plain
+    """R_16 is scope-limited to the ai_assisted classifications — plain
     attacker_persistence with no AI anchor must NOT fire R_16."""
     ctx = CriticContext(make_plan("regripper_run"),
                         [make_evidence("t-0", {})])
@@ -777,7 +860,7 @@ def test_critic_node_quarantine_pre_check_forces_escalate(
     ))
     assert [r.severity for r in delta["critique_results"]] == ["escalate"]
 
-    audit_path = tmp_path / "critic_disagreements.jsonl"
+    audit_path = tmp_path / CRITIC_DISAGREEMENTS_JSONL
     entries = [json.loads(l) for l in audit_path.read_text().splitlines() if l.strip()]
     quarantine = [e for e in entries if e.get("event") == "INJECTION_QUARANTINE"]
     assert len(quarantine) == 1

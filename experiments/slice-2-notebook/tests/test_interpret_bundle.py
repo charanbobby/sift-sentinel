@@ -280,3 +280,113 @@ def test_system_prompt_mentions_safe_fields():
 def test_system_prompt_attacker_controlled_framing():
     from pipeline.nodes import INTERPRET_SYSTEM_PROMPT
     assert "attacker-controlled data" in INTERPRET_SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# 7. Volatility / dlllist trim (Slice 6 Step 3b.6)
+# ---------------------------------------------------------------------------
+
+
+def test_volatility_run_structured_fields_pass_through(monkeypatch, make_evidence, make_plan):
+    """volatility_run is a forensic-evidence tool — its structured_fields must
+    survive bundle build (was being stripped to None pre-Slice-6.3b.6 fix)."""
+    sf = {
+        "plugin_name": "pslist", "profile": "Win7SP1x64",
+        "processes": [{"pid": 4328, "name": "powershell.exe", "ppid": 1234,
+                       "threads": 5, "handles": 100, "session": "1", "wow64": 0,
+                       "offset_v": "0xffffe00001234560"}],
+    }
+    bundle = _bundle_for(
+        monkeypatch, make_evidence, make_plan, "volatility_run",
+        evidence_overrides=[{"structured_fields": sf}],
+    )
+    step = bundle["steps"][0]
+    assert step["structured_fields"] is not None, (
+        "volatility_run sf was stripped — must be in _INTERPRET_EVIDENCE_TOOLS"
+    )
+    assert step["structured_fields"]["plugin_name"] == "pslist"
+
+
+def test_dlllist_trim_filters_to_malfind_pids(monkeypatch, make_evidence, make_plan):
+    """Bundle filter — dlllist's dll_entries are restricted to PIDs that appear
+    in any malfind_hits in the same bundle. Same-bundle malfind serves as the
+    'flagged PIDs' set for the cost-guard trim."""
+    sf_malfind = {
+        "plugin_name": "malfind", "profile": "Win7SP1x64",
+        "malfind_hits": [
+            {"pid": 4328, "process_name": "powershell.exe",
+             "address": "0xf60000", "vad_tag": "VadS",
+             "protection": "PAGE_EXECUTE_READWRITE", "flags": "PrivateMemory: 1",
+             "hex_excerpt": "", "disasm_excerpt": ""},
+        ],
+    }
+    sf_dlllist = {
+        "plugin_name": "dlllist", "profile": "Win7SP1x64",
+        "dll_entries": [
+            {"process_name": "powershell.exe", "pid": 4328, "command_line_safe": "",
+             "dlls": [{"base": "0x1", "size": "0x1", "load_count": "0x1",
+                       "path_safe": "C:\\\\Windows\\\\System32\\\\kernel32.dll"}]},
+            {"process_name": "explorer.exe", "pid": 9999, "command_line_safe": "",
+             "dlls": [{"base": "0x2", "size": "0x2", "load_count": "0x2",
+                       "path_safe": "C:\\\\Windows\\\\System32\\\\user32.dll"}]},
+        ],
+    }
+    bundle = _bundle_for(
+        monkeypatch, make_evidence, make_plan,
+        "volatility_run", "volatility_run",
+        evidence_overrides=[
+            {"tool_call_id": "tc-malfind", "structured_fields": sf_malfind},
+            {"tool_call_id": "tc-dlllist", "structured_fields": sf_dlllist},
+        ],
+    )
+    dl_step = bundle["steps"][1]
+    kept = dl_step["structured_fields"]["dll_entries"]
+    kept_pids = {e["pid"] for e in kept}
+    assert kept_pids == {4328}, (
+        f"dlllist trim should keep only flagged-PID entries; got {kept_pids}"
+    )
+
+
+def test_dlllist_trim_drops_all_when_no_malfind(monkeypatch, make_evidence, make_plan):
+    """When the bundle has dlllist but no malfind, the flagged-PID set is empty
+    — trim drops every dll_entry (defense-in-depth against blanket dlllist
+    sweeps that slip past the PLAN-prompt guard)."""
+    sf_dlllist = {
+        "plugin_name": "dlllist", "profile": "Win7SP1x64",
+        "dll_entries": [
+            {"process_name": "explorer.exe", "pid": 1234, "command_line_safe": "",
+             "dlls": []},
+            {"process_name": "svchost.exe", "pid": 5678, "command_line_safe": "",
+             "dlls": []},
+        ],
+    }
+    bundle = _bundle_for(
+        monkeypatch, make_evidence, make_plan, "volatility_run",
+        evidence_overrides=[{"structured_fields": sf_dlllist}],
+    )
+    dl_step = bundle["steps"][0]
+    assert dl_step["structured_fields"]["dll_entries"] == [], (
+        "no-malfind bundle should leave dll_entries empty after trim"
+    )
+
+
+def test_dlllist_trim_only_applies_to_dlllist_plugin(monkeypatch, make_evidence, make_plan):
+    """The trim is plugin-specific — pslist / cmdline / netscan / malfind
+    structured_fields must pass through unchanged regardless of malfind set."""
+    sf_pslist = {
+        "plugin_name": "pslist", "profile": "Win7SP1x64",
+        "processes": [
+            {"pid": 1, "name": "System", "ppid": 0, "threads": 1, "handles": 1,
+             "session": "", "wow64": 0, "offset_v": "0x1"},
+            {"pid": 2, "name": "smss.exe", "ppid": 1, "threads": 1, "handles": 1,
+             "session": "", "wow64": 0, "offset_v": "0x2"},
+        ],
+    }
+    bundle = _bundle_for(
+        monkeypatch, make_evidence, make_plan, "volatility_run",
+        evidence_overrides=[{"structured_fields": sf_pslist}],
+    )
+    step = bundle["steps"][0]
+    assert len(step["structured_fields"]["processes"]) == 2, (
+        "pslist trim should not be applied — only dlllist gets the PID filter"
+    )

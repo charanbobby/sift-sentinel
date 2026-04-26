@@ -135,6 +135,7 @@ class CriticContext:
 
 # ---- Helpers used by multiple rules ----
 _PATH_SEP_RE = re.compile(r"[\\/]")
+_WS_RE = re.compile(r"\s+")
 
 
 def _path_tokens(s: str) -> set[str]:
@@ -142,6 +143,38 @@ def _path_tokens(s: str) -> set[str]:
     if not s:
         return set()
     return {t for t in _PATH_SEP_RE.split(s) if len(t) >= 3}
+
+
+def _normalize_for_match(s: str) -> str:
+    r"""Format-tolerant normalization for R_05 substring comparison.
+
+    Three systematic ways the LLM's `output_excerpt` diverges from the
+    JSON-pretty `structured_fields` haystack while still being faithful to
+    the underlying values:
+
+      1. **Backslash runs.** Haystack stores Windows paths as `\\` (one layer
+         of JSON escape) or `\\\\` (when the originating tool already
+         JSON-escaped — `value_data_safe` from RegRipper does this for named
+         pipes). The LLM normalizes inconsistently. Collapsing any run of
+         backslashes to a single one handles N-layer encoding uniformly.
+      2. **Quote escapes.** Embedded literal `"` characters appear as `\"`
+         in JSON-pretty form; the LLM tends to drop the escape.
+      3. **Whitespace.** json.dumps(..., indent=2) places `,\n  ` between
+         fields; the LLM joins them onto one line with `, `. Even when the
+         values are byte-perfect, the separators differ.
+
+    Applied to both needle and haystack. Idempotent.
+
+    Trade-off: this can let through a fabricated excerpt that happens to
+    share a normalized substring with real evidence (e.g. injecting extra
+    backslashes or whitespace). R_01 (cite-an-unknown-tool) and R_02
+    (path-tokens-not-in-evidence) are the upstream catches for true
+    fabrication; R_05 is the quote-fidelity layer.
+    """
+    s = re.sub(r"\\+", r"\\", s)   # collapse any run of `\` to one `\`
+    s = s.replace('\\"', '"')      # unescape JSON quote escapes
+    s = _WS_RE.sub(" ", s)         # collapse whitespace runs
+    return s.strip()
 
 
 # ---- Rule implementations (R_01 — R_13) ----
@@ -224,7 +257,10 @@ def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
         if not needle:
             continue  # empty excerpt is R_07 territory
         haystack = ctx.agent_visible_text(ev.tool_call_id)
-        if needle in haystack:
+        # Format-tolerant check: the LLM's output_excerpt may unescape JSON
+        # backslashes and re-flow whitespace even when faithfully reproducing
+        # the value. _normalize_for_match collapses both differences.
+        if _normalize_for_match(needle) in _normalize_for_match(haystack):
             continue
         return RuleFailure(
             rule_id="R_05", code="EXCERPT_HALLUCINATION",
@@ -444,21 +480,34 @@ def _contains_ai_anchor(text: str) -> bool:
     return any(anchor in text for anchor in AI_ASSIST_ANCHORS)
 
 
-def R_16(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
-    """AI-assisted anchor check (Slice 6 Step 3b).
+_AI_ANCHOR_REQUIRED_CLASSIFICATIONS: frozenset[str] = frozenset({
+    "attacker_persistence_ai_assisted",          # Slice 6 Step 3b — disk artifacts
+    "attacker_persistence_ai_assisted_runtime",  # Slice 6 Step 3b.6 — memory artifacts (same anchor discipline per INTERPRET prompt)
+})
 
-    When a finding is classified as `attacker_persistence_ai_assisted`, the
-    supporting evidence must contain at least one concrete anchor — an LLM
-    API endpoint URL, an AI-SDK import line, or a known AI API-key env var
-    name. Forces grounding in recoverable forensic artifacts rather than
+
+def R_16(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
+    """AI-assisted anchor check (Slice 6 Step 3b + 3b.6).
+
+    When a finding is classified as `attacker_persistence_ai_assisted` (disk
+    channel) or `attacker_persistence_ai_assisted_runtime` (memory channel),
+    the supporting evidence must contain at least one concrete anchor — an
+    LLM API endpoint URL, an AI-SDK import line, or a known AI API-key env
+    var name. Forces grounding in recoverable forensic artifacts rather than
     stylometric guessing. Routes to `re_interpret`: the model either finds
     the anchor in a different excerpt or downgrades classification to plain
     `attacker_persistence`.
 
+    Both classifications share the same anchor list because the artifact
+    surface is the same — what differs is where it was observed (dormant on
+    disk vs loaded/connected at runtime). The INTERPRET prompt at the
+    `attacker_persistence_ai_assisted_runtime` site reads "same anchor
+    discipline as `attacker_persistence_ai_assisted`"; R_16 honors that.
+
     Scope is narrow by design: the rule is a no-op for every other
     classification so it doesn't second-guess findings where the anchor
     concept doesn't apply."""
-    if finding.classification != "attacker_persistence_ai_assisted":
+    if finding.classification not in _AI_ANCHOR_REQUIRED_CLASSIFICATIONS:
         return None
     joined = " ".join(ev.output_excerpt for ev in finding.evidence)
     if _contains_ai_anchor(joined):

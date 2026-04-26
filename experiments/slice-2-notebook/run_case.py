@@ -1,10 +1,10 @@
 """Autonomous pipeline runner — replaces the notebook workflow.
 
 Runs the full pipeline (extract → plan → execute → interpret → critic) for a
-single case and saves outputs to out/runs/<case_id>/<run_id>/. Each invocation
-gets its own isolated subfolder so re-runs never overwrite prior runs (needed
-for Step 7 ablation and general audit-trail integrity). A `latest.txt` file at
-the case level holds the most recent run_id for convenience.
+single case and saves outputs to out/runs/<case_id>/<case_id>-NNN/. Each
+invocation gets its own zero-padded sequential subfolder (`-001`, `-002`, ...)
+so re-runs never overwrite prior runs and a directory listing sorts by run
+order. `latest.txt` at the case level points at the most recent run_id.
 
 No interactive cells, no Jupyter, no human approval prompt for the capability
 token — this is the "u can do it" path where the orchestrator auto-issues the
@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, "/workspace")
@@ -34,6 +34,14 @@ from langfuse.openai import OpenAI as LangfuseOpenAI
 import pipeline.nodes as _nodes
 from pipeline.graph import PipelineState, build_graph, compute_thread_id, mint_canary
 from pipeline.mcp.tokens import issue_token
+from pipeline.output_layout import (
+    PLAN_TOOL_PLAN,
+    APPROVE_SENTINEL,
+    INTERPRET_FINDINGS,
+    EXECUTE_EVIDENCE_JSONL,
+    INTEGRITY_LEDGER_JSONL,
+    terminal_marker_for,
+)
 
 MODELS = {
     "extract":   "google/gemini-3-flash-preview",
@@ -53,20 +61,57 @@ ALLOWED_PATHS_TEMPLATE = (
 )
 
 
-def _configure_nodes(case_id: str, e01_path: str, out_dir: Path, langfuse, llm_client) -> None:
-    _nodes.LLM_CLIENT      = llm_client
-    _nodes.LANGFUSE        = langfuse
-    _nodes.EXTRACT_MODEL   = MODELS["extract"]
-    _nodes.PLAN_MODEL      = MODELS["plan"]
-    _nodes.INTERPRET_MODEL = MODELS["interpret"]
-    _nodes.CASE_ID         = case_id
-    _nodes.E01_PATH        = e01_path
-    _nodes.OUT_DIR         = out_dir
+def _configure_nodes(
+    case_id: str,
+    e01_path: str,
+    out_dir: Path,
+    langfuse,
+    llm_client,
+    memory_image_path: str | None = None,
+    memory_profile: str | None = None,
+) -> None:
+    _nodes.LLM_CLIENT         = llm_client
+    _nodes.LANGFUSE            = langfuse
+    _nodes.EXTRACT_MODEL       = MODELS["extract"]
+    _nodes.PLAN_MODEL          = MODELS["plan"]
+    _nodes.INTERPRET_MODEL     = MODELS["interpret"]
+    _nodes.CASE_ID             = case_id
+    _nodes.E01_PATH            = e01_path
+    _nodes.OUT_DIR             = out_dir
+    _nodes.MEMORY_IMAGE_PATH   = memory_image_path
+    _nodes.MEMORY_PROFILE      = memory_profile
 
 
-def run(case_id: str, e01_path: str) -> int:
-    run_id = f"{case_id}-{uuid.uuid4().hex[:8]}"
+_RUN_ID_RE = re.compile(r"^.+-(\d{3,})$")
+
+
+def _next_run_id(case_dir: Path, case_id: str) -> str:
+    """Allocate the next sequential run_id under `case_dir`.
+
+    Scans for sibling subdirectories named `<case_id>-NNN` (3+ digits) and
+    returns `<case_id>-<N+1, zero-padded to 3>`. Folders that don't match
+    the pattern (archived snapshots, pre-step-0, latest.txt) are ignored.
+    Replaces the prior `uuid.uuid4().hex[:8]` random suffix so a directory
+    listing sorts by run order.
+    """
+    if not case_dir.exists():
+        return f"{case_id}-001"
+    highest = 0
+    for child in case_dir.iterdir():
+        if not child.is_dir():
+            continue
+        m = _RUN_ID_RE.match(child.name)
+        if not m:
+            continue
+        n = int(m.group(1))
+        if n > highest:
+            highest = n
+    return f"{case_id}-{highest + 1:03d}"
+
+
+def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memory_profile: str | None = None) -> int:
     case_dir = Path("/workspace/out/runs") / case_id
+    run_id = _next_run_id(case_dir, case_id)
     out_dir = case_dir / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
     # Update the case-level pointer to the most recent run. Written before any
@@ -78,10 +123,13 @@ def run(case_id: str, e01_path: str) -> int:
     print(f"\n{'='*70}")
     print(f"PIPELINE RUN")
     print(f"{'='*70}")
-    print(f"  case_id   {case_id}")
-    print(f"  e01_path  {e01_path}")
-    print(f"  run_id    {run_id}")
-    print(f"  out_dir   {out_dir}")
+    print(f"  case_id        {case_id}")
+    print(f"  e01_path       {e01_path}")
+    print(f"  run_id         {run_id}")
+    print(f"  out_dir        {out_dir}")
+    if memory_image_path:
+        print(f"  memory_image   {memory_image_path}")
+        print(f"  memory_profile {memory_profile}")
     print()
 
     langfuse   = Langfuse()
@@ -90,7 +138,9 @@ def run(case_id: str, e01_path: str) -> int:
         base_url="https://openrouter.ai/api/v1",
     )
 
-    _configure_nodes(case_id, e01_path, out_dir, langfuse, llm_client)
+    _configure_nodes(case_id, e01_path, out_dir, langfuse, llm_client,
+                     memory_image_path=memory_image_path,
+                     memory_profile=memory_profile)
 
     # Slice 6 Step 4b — genesis entry for the integrity ledger. Written once
     # per case; idempotent across resume via LedgerWriter.append_genesis.
@@ -147,12 +197,12 @@ def run(case_id: str, e01_path: str) -> int:
     print(f"  token_id={token.token_id[:8]}…  tools={sorted(token.allowed_tools)}")
     print()
 
-    # Save tool_plan.json to out_dir (mirrors notebook C6 behaviour)
-    (out_dir / "tool_plan.json").write_text(
+    # Save the tool_plan to out_dir (mirrors notebook C6 behaviour).
+    (out_dir / PLAN_TOOL_PLAN).write_text(
         state_with_token.tool_plan.model_dump_json(indent=2), encoding="utf-8"
     )
-    # Write APPROVED sentinel so any code checking for it doesn't block
-    (out_dir / "tool_plan.APPROVED").touch()
+    # Approve sentinel — any code checking for it won't block.
+    (out_dir / APPROVE_SENTINEL).touch()
 
     # Slice 6 Step 4b — plan_approved ledger entry.
     _nodes._ledger_append(
@@ -172,7 +222,11 @@ def run(case_id: str, e01_path: str) -> int:
     ))
     print()
 
-    # Persist findings
+    # Persist findings. Marker filename reflects the actual route the graph
+    # took: 07_terminal.SUCCESS only on commit; .HUMAN_REVIEW or .QUARANTINED
+    # on escalate. human_review_node sets state.decision; commit leaves it None.
+    marker_name = terminal_marker_for(final.get("decision"))
+
     findings = final.get("findings")
     if findings:
         from pipeline.schemas import Findings as FindingsModel
@@ -180,21 +234,25 @@ def run(case_id: str, e01_path: str) -> int:
             findings_obj = FindingsModel.model_validate(findings)
         else:
             findings_obj = findings
-        (out_dir / "findings.json").write_text(
+        (out_dir / INTERPRET_FINDINGS).write_text(
             findings_obj.model_dump_json(indent=2), encoding="utf-8"
         )
-        (out_dir / "findings.SUCCESS").touch()
-        print(f"findings written: {len(findings_obj.findings)} finding(s)")
+        (out_dir / marker_name).touch()
+        print(f"findings written: {len(findings_obj.findings)} finding(s) [{marker_name}]")
         for f in findings_obj.findings:
             print(f"  [{f.confidence}] {f.category}  {f.value}")
     else:
-        print("  no findings object in final state")
+        # No findings can still mean any of the three routes; preserve the
+        # marker so audit tools can distinguish a no-findings commit from a
+        # no-findings escalate.
+        (out_dir / marker_name).touch()
+        print(f"  no findings object in final state [{marker_name}]")
 
     # Persist all evidence records accumulated across all graph passes
     evidence_list = final.get("evidence") or []
     if evidence_list:
         from pipeline.schemas import EvidenceRecord as _EvidenceRecord
-        ev_path = out_dir / "evidence.jsonl"
+        ev_path = out_dir / EXECUTE_EVIDENCE_JSONL
         with ev_path.open("w", encoding="utf-8") as _f:
             for _ev in evidence_list:
                 if isinstance(_ev, dict):
@@ -216,7 +274,7 @@ def run(case_id: str, e01_path: str) -> int:
     # during the run (infrastructure problem worth catching before downstream
     # consumers read from it).
     from pipeline.ledger import verify_ledger
-    ledger_path = out_dir / "integrity_ledger.jsonl"
+    ledger_path = out_dir / INTEGRITY_LEDGER_JSONL
     ok, entries, err = verify_ledger(ledger_path)
     if ok:
         print(f"\nIntegrity ledger: {entries} entries, chain verifies clean.")
@@ -233,8 +291,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--case", required=True, help="case_id, e.g. srl-2018-base-dc")
     ap.add_argument("--e01",  required=True, help="disk image path inside sift-mcp")
+    ap.add_argument("--memory-image", default=None, dest="memory_image",
+                    help="Memory dump path inside sift-mcp (optional)")
+    ap.add_argument("--memory-profile", default=None, dest="memory_profile",
+                    help="Volatility 2 profile string, e.g. Win2012R2x64 (optional)")
     args = ap.parse_args()
-    return run(args.case, args.e01)
+    return run(args.case, args.e01,
+               memory_image_path=args.memory_image,
+               memory_profile=args.memory_profile)
 
 
 if __name__ == "__main__":
