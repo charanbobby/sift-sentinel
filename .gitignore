@@ -62,6 +62,7 @@ experiments/*/out/*
 experiments/*/out/runs/*/*
 !experiments/*/out/runs/*/ground_truth.json
 !experiments/*/out/runs/*/ground_truth.md
+!experiments/*/out/runs/*/sampled_review.md
 !experiments/*/out/runs/*/pre-step-0/
 experiments/*/out/runs/*/pre-step-0/*
 !experiments/*/out/runs/*/pre-step-0/ground_truth.json

@@ -261,16 +261,18 @@ Per carried item 9 in PLAN.md: **linear hash-chained** ledger, not plain append-
 
 ---
 
-## Step 6 — Optional sampled-review protocol
+## Step 6 — Optional sampled-review protocol ✅ 2026-04-26
 
-For the ~4 cases without full GT, apply a lightweight post-hoc reviewer audit.
+For the 3 Slice-5 cases without full GT (`srl-2018-base-file`, `srl-2018-base-rd-02`, `srl-2018-dmz-ftp`) — applied lightweight post-hoc reviewer audit.
 
-- [ ] Sampling rate (Step 0 decision): e.g., audit N findings per case + M random evidence records
-- [ ] Audit template: reviewer marks each sampled finding as "plausible / suspicious / known wrong" + cross-references cited structured_fields
-- [ ] Per-case optional-review report: `out/runs/<case>/sampled_review.md`
-- [ ] Aggregate optional-review notes for the Accuracy Report appendix
+- [x] Sampling rate (Step 0 decision): all findings per case (each had ≤3) + 2 random evidence records (Python `random.seed(20260426)`)
+- [x] Audit template: reviewer marks each sampled finding as "plausible / suspicious / known wrong", verifies cited tool_call_id resolves in `04_execute_evidence.jsonl`, spot-checks excerpts against structured fields
+- [x] Per-case optional-review report: `out/runs/<case>/sampled_review.md` for each of the 3 cases
+- [x] Aggregate optional-review notes: [docs/submission/sampled-review-aggregate.md](../submission/sampled-review-aggregate.md) — feeds the Accuracy Report appendix
 
-**Framing:** this is a *research artifact*, not a deployment-readiness claim. The Accuracy Report must be explicit about recall-blind-spot: we don't know FNs on non-GT cases.
+**Headline:** 6/6 sampled findings plausible, 6/6 cited tool_call_ids resolved, 6/6 random evidence records clean. All 3 cases terminated HUMAN_REVIEW under the now-fixed R_05 normalize bug (commit `90d4ffd`); regression-gate re-run will confirm post-fix terminals.
+
+**Framing:** research artifact, not a deployment-readiness claim. The Accuracy Report must be explicit about recall-blind-spot — we don't know FNs on non-GT cases.
 
 ---
 
