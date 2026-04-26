@@ -278,11 +278,66 @@ For the 3 Slice-5 cases without full GT (`srl-2018-base-file`, `srl-2018-base-rd
 
 ## Step 7 — 4-row ablation runs (rows 2 + 4 if committed in Step 0)
 
-Rows 1 + 3 are already implicit (row 1 = Slice 2.5 baseline; row 3 = full Slice 5). If Step 0 committed to rows 2 + 4:
+Rows 1 + 3 are already implicit (row 1 = Slice 2.5 baseline; row 3 = full Slice 5). Step 0 committed to running rows 2 + 4 on all staged cases.
 
-- [ ] Row 2: dual-channel only (no capability tokens). Disable capability-token verification in the MCP server, keep structured-field extraction + injection scanner. Re-run on all staged cases.
-- [ ] Row 4: full Slice 5 with `classification` field removed from the `Finding` schema. Re-run.
+### Row 2 — capability-token verification disabled
 
+**Status:** code prep ✅ 2026-04-26 (branch `ablation/row-2-no-cap-tokens`, commit `8f084a1`); runs deferred until memory-channel work in `pipeline/nodes.py` lands on main (concurrent edits would collide).
+
+**What changed:** A single `SKIP_CAPABILITY_VERIFY` env var on `mcp_server/server.py`. When set to `true`, `_enforce_capability` still parses the JSON token (so `token.token_id` continues to flow into audit records) but skips all six scope checks in `verify_token` (signature, expiry, case_id, tool, path, plan_digest). Structured-field extraction and the injection scanner remain operational. Default unset → identical behavior to main.
+
+**Probe:** `d:/tmp/probe_skip_capability_verify.py` (PASS — default mode denies a deliberate scope mismatch; ablation mode permits the same call).
+
+**To run (do NOT do this while the memory-channel session is using the containers):**
+
+```bash
+# 1. Switch the MCP server onto the ablation branch
+git checkout ablation/row-2-no-cap-tokens
+
+# 2. Restart sift-mcp with the bypass env var set
+SKIP_CAPABILITY_VERIFY=true docker compose -f docker/docker-compose.yaml up -d --force-recreate sift-mcp
+
+# 3. Sanity-check the env var landed
+docker exec sift-mcp env | grep SKIP_CAPABILITY_VERIFY
+
+# 4. Re-run the staged cases (one at a time; numbered run IDs auto-increment)
+for case in srl-2018-base-dc srl-2018-base-file srl-2018-base-rd-02 srl-2018-dmz-ftp srl-2018-wkstn-05 dfirmadness-001-desktop; do
+  echo "=== Row 2 ablation: $case ==="
+  MSYS_NO_PATHCONV=1 docker exec sift-sentinel \
+    /workspace/.venv/bin/python /workspace/run_case.py \
+    --case "$case" --e01 <case-specific-E01-path>
+done
+
+# 5. Restore main + re-deploy MCP without the bypass
+git checkout main
+docker compose -f docker/docker-compose.yaml up -d --force-recreate sift-mcp
+```
+
+Run outputs land at `out/runs/<case>/<case>-NNN/` and are tagged in the run banner with the active env vars. Annotate the resulting run folders with `ABLATION_ROW=2` in their respective `_resume.md`-style notes so the scoreboard collator can find them.
+
+### Row 4 — `classification` field removed from `Finding` schema
+
+**Status:** scoped ✅ 2026-04-26; **branch not yet created.** Code edits would touch `pipeline/nodes.py`, which the parallel memory-channel session is actively editing. Hold until that work lands on main, then create branch `ablation/row-4-no-classification` from current main and apply the deletions below.
+
+**Minimum-edit list (pre-baked from the codebase scan, lines may drift after rebase):**
+
+- `pipeline/schemas.py` line 238: delete `classification: Classification` field
+- `pipeline/schemas.py` lines 260–266: replace the `_tag_attack` validator with a static tactic assignment (it currently switches on `classification`)
+- `pipeline/critic.py` lines 375–378, 483–486: delete `_ATTACKER_CLASSIFICATIONS` and `_AI_ANCHOR_REQUIRED_CLASSIFICATIONS` globals
+- `pipeline/critic.py` lines 389–398 (R_11 body), 510–521 (R_16 body): make rules return `None` (no-op)
+- `pipeline/critic.py` lines 553, 929: remove `R_11`, `R_16` from `CRITIC_RULES` and `__all__`
+- `pipeline/nodes.py` line 1522: drop `classification=f.classification,` from scorecard output
+- `score.py` lines 1496, 1499: drop classification-count tallies
+- `INTERPRET_SYSTEM_PROMPT` Hard Rules 3 & 4: remove the classification guidance
+- `tests/test_schemas.py`: remove the classification-literal assertion (added Slice 6 Step 3b)
+- `tests/test_critic.py`: remove R_11 + R_16 test cases
+
+**Run procedure once branch exists:** identical to Row 2 above, swapping the branch name and the env var (none needed for row 4 — the change is structural).
+
+### Scoring
+
+- [ ] Wait for the memory-channel session's `nodes.py` work to land on main, then create `ablation/row-4-no-classification`
+- [ ] Run rows 2 + 4 on all staged cases
 - [ ] Compare rows 1/2/3/4 scorecard_v2 across 2.5 cases + adversarial demo
 - [ ] Table lands in the Accuracy Report
 
