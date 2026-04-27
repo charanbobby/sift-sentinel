@@ -28,6 +28,7 @@ two flags, because the two signals corroborate and Critic should see both).
 """
 from __future__ import annotations
 
+import base64
 import re
 from typing import Iterable
 from urllib.parse import unquote
@@ -58,14 +59,22 @@ _ROLE_MARKERS = (
 
 # 3. Base64 block ≥120 chars with alphabet-class diversity as an entropy proxy.
 #    A real Shannon-entropy check would cost ~O(len) per match; the ≥3-of-4
-#    character classes test catches intentional payloads without the cost. False
-#    positives on actual base64-encoded data in the evidence (images in registry,
-#    certificates) get info-severity rather than quarantine via the severity map.
+#    character classes test catches intentional payloads without the cost. After
+#    2026-04-27 recalibration, the regex match is necessary but not sufficient
+#    for a quarantine: we decode the blob and only quarantine if the decoded
+#    text contains actual prompt-injection patterns (imperative-ignore, role
+#    markers). Pre-LLM-era attacker base64 (PowerShell -EncodedCommand stagers,
+#    common since Windows 7) decodes to shell payloads with no LLM-targeting
+#    language and now drops to info severity so the run is not held.
 _BASE64_LONG = re.compile(r"[A-Za-z0-9+/]{120,}={0,2}")
 _B64_CHARCLASSES = (
     re.compile(r"[A-Z]"), re.compile(r"[a-z]"),
     re.compile(r"[0-9]"), re.compile(r"[+/]"),
 )
+# Skip decode for blobs > 50 KB. DC registry hives can contain cert chains as
+# very long base64 strings; decoding 100s of those per scan adds real cost
+# without changing the verdict (cert bytes are binary and never trip patterns).
+_B64_DECODE_CAP_BYTES = 50 * 1024
 
 # 4. URL-encoded imperatives: if a run of %XX escapes decodes to text containing
 #    imperative verbs, flag it. Catches the `%69%67%6e%6f%72%65...` family.
@@ -116,6 +125,56 @@ _EXCERPT_MAX = 128
 _EXCERPT_CTX = 20  # chars of context each side of the match
 
 
+def _try_b64_decode(blob: str) -> str | None:
+    """Best-effort base64 decode for the recalibrated INJ_BASE64_LONG check.
+
+    Returns decoded text (UTF-8 or UTF-16-LE, whichever fits) or None if the
+    decode fails, the result is binary noise (encryption keys, cert bytes, image
+    data), or the blob is larger than the per-blob cap. None is the "no signal"
+    answer, equivalent to "treat as info-severity, do not quarantine."
+
+    UTF-16-LE detection: PowerShell `-EncodedCommand` is the dominant source of
+    UTF-16-LE base64 in attacker tradecraft. We sniff for it by checking the
+    null-byte density at odd offsets in the decoded raw bytes.
+    """
+    if len(blob) > _B64_DECODE_CAP_BYTES:
+        return None
+    try:
+        padded = blob + "=" * (-len(blob) % 4)
+        raw = base64.b64decode(padded, validate=False)
+    except Exception:
+        return None
+    # UTF-16-LE sniff: most ASCII content stored as UTF-16-LE has a null at
+    # every odd byte. >25% null density is a strong signal it is not raw bytes.
+    if len(raw) >= 4 and raw[1::2].count(0) > len(raw) // 4:
+        try:
+            return raw.decode("utf-16-le", errors="replace")
+        except Exception:
+            return None
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None
+
+
+def _classify_decoded_b64(text: str) -> str:
+    """Severity assignment for the decoded contents of a long base64 blob.
+
+    Returns one of `quarantine`, `warn`, `info` matching the wider scanner's
+    severity map. Logic mirrors the per-pattern severities applied to plaintext
+    in `scan_text`, applied to the decoded text instead.
+    """
+    if _IMPERATIVE_IGNORE.search(text):
+        return "quarantine"
+    for marker in _ROLE_MARKERS:
+        if marker in text:
+            return "quarantine"
+    if len(text) <= _IMPERATIVE_DENSITY_MAX_LEN:
+        if len(_IMPERATIVE_VERBS.findall(text)) >= _IMPERATIVE_DENSITY_MIN:
+            return "warn"
+    return "info"
+
+
 def _safe_excerpt(text: str, start: int, end: int) -> str:
     """Slice out the match plus a small context window, escape control chars,
     and truncate to the schema's max_length so downstream JSON logs stay clean.
@@ -159,17 +218,26 @@ def scan_text(text: str, *, field_path: str) -> list[InjectionFlag]:
                 severity="quarantine",
             ))
 
-    # 3. INJ_BASE64_LONG
+    # 3. INJ_BASE64_LONG — recalibrated 2026-04-27 (decode-then-scan).
+    # Pre-recalibration, ANY long base64 with class diversity quarantined the
+    # entire run. That fired on every PowerShell `-EncodedCommand` since
+    # Win7-era attacker tradecraft, making QUARANTINED meaningless on pre-LLM
+    # datasets (the 2018 SANS data is full of legitimate attacker base64). New
+    # logic: decode the blob and only quarantine if the DECODED content
+    # contains injection patterns. See memory/project_injection_guard_recalibration.md.
     for m in _BASE64_LONG.finditer(text):
         blob = m.group(0)
         classes_seen = sum(1 for cls in _B64_CHARCLASSES if cls.search(blob))
-        if classes_seen >= 3:
-            flags.append(InjectionFlag(
-                pattern_id="INJ_BASE64_LONG",
-                excerpt=_safe_excerpt(text, m.start(), m.end()),
-                field_path=field_path,
-                severity="quarantine",
-            ))
+        if classes_seen < 3:
+            continue
+        decoded = _try_b64_decode(blob)
+        severity = "info" if decoded is None else _classify_decoded_b64(decoded)
+        flags.append(InjectionFlag(
+            pattern_id="INJ_BASE64_LONG",
+            excerpt=_safe_excerpt(text, m.start(), m.end()),
+            field_path=field_path,
+            severity=severity,
+        ))
 
     # 4. INJ_URL_ENCODED_INSTR — decode each %XX run, flag if result has imperatives
     for m in _URL_ENCODED_RUN.finditer(text):

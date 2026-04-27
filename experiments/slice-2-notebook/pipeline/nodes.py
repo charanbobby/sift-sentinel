@@ -1497,11 +1497,14 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
         # Slice 6 Step 3b.6 — dlllist PID trim. Applies after quarantine filter so
         # quarantined dlllist evidence is already None-stripped. Copy-on-write:
         # we mutate a shallow copy so we don't taint state.evidence.
+        # Set ABLATION_NO_DLLLIST_TRIM=1 to bypass — used for the 2026-04-27
+        # coverage-gap diff experiment documented in docs/submission/known-limitations.md.
         if (
             sf is not None
             and plan_step.tool == "volatility_run"
             and (sf.get("plugin_name") == "dlllist")
             and sf.get("dll_entries")
+            and not __import__("os").environ.get("ABLATION_NO_DLLLIST_TRIM")
         ):
             kept = [d for d in sf["dll_entries"] if d.get("pid") in flagged_pids]
             sf = {**sf, "dll_entries": kept}

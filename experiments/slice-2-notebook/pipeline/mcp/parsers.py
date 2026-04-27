@@ -82,8 +82,12 @@ _FSSTAT_CLUSTER = re.compile(r"^Cluster Size:\s*(\d+)\s*$", re.MULTILINE)
 
 
 def parse_fsstat(stdout: bytes) -> tuple[FsstatResult, str]:
+    # 2026-04-27: empty stdout is parse_error, not empty. fsstat always prints
+    # filesystem metadata on success (FS Type, Cluster Size, MFT location).
+    # Silent stdout means the tool crashed or could not read the image.
+    # Same pattern as the regripper fix — see docs/submission/known-limitations.md.
     if not stdout:
-        return FsstatResult(fs_type="unknown", block_size=0), "empty"
+        return FsstatResult(fs_type="unknown", block_size=0), "parse_error"
     text = stdout.decode("utf-8", errors="replace")
     fs_match = _FSSTAT_FS_TYPE.search(text)
     if not fs_match:
@@ -328,8 +332,15 @@ def _parse_services_plugin(text: str) -> list[RegripperEntry]:
 
 
 def parse_regripper(stdout: bytes, plugin: str) -> tuple[RegripperResult, str]:
+    # 2026-04-27: empty stdout is parse_error, not empty. rip.pl always prints
+    # at least its plugin banner on a successful invocation, so silent stdout
+    # means the plugin crashed, rip.pl was not on PATH, or the hive was
+    # unreadable. Critic R_06 / R_12 must see those as failures, not as
+    # "legitimate evidence of absence." Caught 6/6 demo runs where winlogon_tln
+    # against the SOFTWARE hive was silently producing no output.
+    # See docs/submission/known-limitations.md for the full incident.
     if not stdout:
-        return RegripperResult(plugin_name=plugin, hive_type="unknown", entries=[]), "empty"
+        return RegripperResult(plugin_name=plugin, hive_type="unknown", entries=[]), "parse_error"
     text = stdout.decode("utf-8", errors="replace")
 
     hive_match = _RIP_HIVE_FROM_HEADER.search(text)
@@ -747,15 +758,25 @@ _VOL_DISPATCH = {
     "malfind": _parse_vol_malfind,
 }
 
+# 2026-04-27: per-plugin classification of "what does empty stdout mean."
+# pslist / cmdline / dlllist always print on success against any real memory
+# dump (System process always exists, every process has DLLs loaded). Silent
+# stdout from those means the tool crashed.
+# malfind / netscan can legitimately produce zero rows (clean host with no
+# shellcode / no open sockets). For those, empty stays empty.
+_VOL_EMPTY_LEGITIMATE = {"malfind", "netscan"}
+
 
 def parse_volatility(stdout: bytes, plugin: str, profile: str) -> tuple[VolatilityResult, str]:
     if plugin not in _VOL_DISPATCH:
         return VolatilityResult(plugin_name=plugin, profile=profile), "parse_error"  # type: ignore[arg-type]
     if not stdout:
-        return VolatilityResult(plugin_name=plugin, profile=profile), "empty"  # type: ignore[arg-type]
+        status = "empty" if plugin in _VOL_EMPTY_LEGITIMATE else "parse_error"
+        return VolatilityResult(plugin_name=plugin, profile=profile), status  # type: ignore[arg-type]
     text = _strip_volatility_warnings(stdout.decode("utf-8", errors="replace"))
     if not text.strip():
-        return VolatilityResult(plugin_name=plugin, profile=profile), "empty"  # type: ignore[arg-type]
+        status = "empty" if plugin in _VOL_EMPTY_LEGITIMATE else "parse_error"
+        return VolatilityResult(plugin_name=plugin, profile=profile), status  # type: ignore[arg-type]
     return _VOL_DISPATCH[plugin](text, profile)
 
 

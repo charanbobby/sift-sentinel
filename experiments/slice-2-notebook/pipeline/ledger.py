@@ -57,12 +57,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 LedgerEventType = Literal[
-    "genesis",              # case initialization — anchors chain with e01_sha256
-    "plan_approved",        # tool plan finalized + capability token issued
-    "tool_call_completed",  # one EvidenceRecord written; raw_sha256 included
-    "finding_committed",    # one Finding entered findings.json
-    "critic_decision",      # Critic severity decision (pass / retry / escalate)
-    "session_close",        # pipeline run ended cleanly
+    "genesis",                  # case initialization — anchors chain with e01_sha256
+    "plan_approved",            # tool plan finalized + capability token issued
+    "tool_call_completed",      # one EvidenceRecord written; raw_sha256 included
+    "finding_committed",        # one Finding entered findings.json
+    "critic_decision",          # Critic severity decision (pass / retry / escalate)
+    "session_close",            # pipeline run ended cleanly
+    "human_review_completed",   # human adjudicated a HUMAN_REVIEW/QUARANTINED run; decision doc co-located in 08_human_decision.json
 ]
 
 

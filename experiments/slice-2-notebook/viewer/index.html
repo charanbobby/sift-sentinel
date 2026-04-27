@@ -33,6 +33,11 @@
   #sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
   #sidebar h1 { padding: 16px; font-size: 15px; font-weight: 700; border-bottom: 1px solid var(--border); color: var(--accent); letter-spacing: 0.3px; }
   #sidebar h1 span { color: var(--muted); font-weight: 400; font-size: 12px; display: block; margin-top: 2px; }
+  #view-toggle { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; font-size: 11px; background: rgba(0,0,0,0.12); }
+  #view-toggle .vt-label { color: var(--muted); letter-spacing: 0.4px; text-transform: uppercase; font-weight: 600; font-size: 10px; }
+  #view-toggle .vt-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 3px 9px; border-radius: 10px; cursor: pointer; font-size: 11px; font-family: inherit; }
+  #view-toggle .vt-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(88,166,255,0.08); }
+  #view-toggle .vt-btn:hover { color: var(--text); }
   #case-list { overflow-y: auto; flex: 1; }
   .case-group { border-bottom: 1px solid var(--border); }
   .case-header { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
@@ -98,7 +103,12 @@
   .finding-meta-row { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
   .finding-value { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 4px; word-break: break-all; margin-bottom: 10px; color: var(--orange); }
   .finding-evidence-row { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
-  .finding-notes { font-size: 12.5px; color: var(--text); line-height: 1.6; }
+  .finding-notes { font-size: 13.5px; color: var(--text); line-height: 1.7; max-width: 78ch; margin-top: 10px; padding-top: 12px; border-top: 1px dashed var(--border); letter-spacing: 0.1px; }
+  .finding-notes p { margin: 0 0 9px 0; padding-left: 12px; border-left: 2px solid rgba(255,255,255,0.06); }
+  .finding-notes p:first-child { border-left-color: rgba(88,166,255,0.45); }
+  .finding-notes p:last-child { margin-bottom: 0; border-left-color: rgba(63,185,80,0.45); }
+  .finding-notes p:only-child { border-left-color: rgba(255,255,255,0.06); }
+  .finding-notes .ev-chip { font-size: 10.5px; padding: 0 5px; margin: 0 1px; vertical-align: baseline; }
   .ev-chip { display: inline-block; background: rgba(88,166,255,0.15); color: var(--accent); border-radius: 3px; padding: 1px 6px; font-family: monospace; font-size: 11px; margin: 1px 2px; cursor: pointer; border: 1px solid transparent; }
   .ev-chip:hover { border-color: var(--accent); background: rgba(88,166,255,0.25); }
 
@@ -106,6 +116,7 @@
   .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
   .badge-success { background: rgba(63,185,80,0.2); color: var(--green); }
   .badge-review  { background: rgba(210,153,34,0.2); color: var(--yellow); }
+  .badge-quarantine { background: rgba(188,140,255,0.2); color: var(--purple); }
   .badge-fail    { background: rgba(248,81,73,0.2); color: var(--red); }
   .badge-incomplete { background: rgba(139,148,158,0.2); color: var(--muted); }
   .badge-high    { background: rgba(248,81,73,0.15); color: var(--red); }
@@ -193,11 +204,48 @@
   .summary-tile .num { font-size: 22px; font-weight: 700; color: var(--accent); }
   .summary-tile .lbl { font-size: 11px; color: var(--muted); }
 
-  /* ledger / hash chain visualization */
+  /* inline findings + critic decisions inside Pipeline phase blocks */
+  .phase-finding-list { margin: 10px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+  .phase-finding-row { display: grid; grid-template-columns: 36px auto auto 1fr; gap: 8px; padding: 8px 10px; background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 4px; align-items: center; font-size: 12px; }
+  .phase-finding-row.cls-attacker_persistence { border-left-color: var(--red); }
+  .phase-finding-row.cls-attacker_persistence_ai_assisted_runtime { border-left-color: var(--orange); }
+  .phase-finding-row.cls-process_injection { border-left-color: var(--purple); }
+  .phase-finding-row.cls-c2_beacon { border-left-color: var(--orange); }
+  .phase-finding-row.cls-requires_disambiguation { border-left-color: var(--yellow); }
+  .phase-finding-row .idx { color: var(--muted); font-family: monospace; font-weight: 600; font-size: 11px; }
+  .phase-finding-row .mech { font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .phase-finding-row .val { grid-column: 1 / -1; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; color: var(--orange); padding: 4px 8px; background: rgba(0,0,0,0.3); border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .phase-critic-list { margin: 10px 0 12px; display: flex; flex-direction: column; gap: 4px; }
+  .phase-critic-row { display: grid; grid-template-columns: 70px 70px 1fr auto; gap: 10px; padding: 6px 10px; background: rgba(0,0,0,0.12); border-radius: 4px; font-size: 11.5px; align-items: center; border-left: 2px solid var(--border); }
+  .phase-critic-row.pass { border-left-color: var(--green); }
+  .phase-critic-row.retry { border-left-color: var(--yellow); background: rgba(210,153,34,0.05); }
+  .phase-critic-row.escalate { border-left-color: var(--red); background: rgba(248,81,73,0.05); }
+  .phase-critic-row.human_review { border-left-color: var(--yellow); background: rgba(210,153,34,0.05); }
+  .phase-critic-row .ref { color: var(--muted); font-family: monospace; font-size: 10.5px; }
+  .phase-critic-row .sev { font-family: monospace; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .phase-critic-row.pass .sev { color: var(--green); }
+  .phase-critic-row.retry .sev { color: var(--yellow); }
+  .phase-critic-row.escalate .sev { color: var(--red); }
+  .phase-critic-row.human_review .sev { color: var(--yellow); }
+  .phase-critic-row .mech { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .phase-critic-row .rules { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .phase-section-label { font-size: 10.5px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600; margin: 4px 0 2px 2px; }
+
+  /* ledger / hash chain visualization — collapsed by default, summary stays visible */
   .ledger-block { margin-top: 12px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
-  .ledger-block-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 11px; color: var(--muted); }
+  details.ledger-block[open] { padding-bottom: 10px; }
+  .ledger-block-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0; font-size: 11px; color: var(--muted); }
+  details.ledger-block[open] > .ledger-block-head { margin-bottom: 8px; }
+  summary.ledger-block-head { cursor: pointer; user-select: none; list-style: none; outline: none; }
+  summary.ledger-block-head::-webkit-details-marker { display: none; }
+  summary.ledger-block-head::before { content: '▸'; color: var(--muted); margin-right: 4px; font-size: 10px; display: inline-block; width: 10px; }
+  details[open] > summary.ledger-block-head::before { content: '▾'; }
+  summary.ledger-block-head:hover { color: var(--text); }
+  summary.ledger-block-head:hover .chain-icon { color: var(--green); }
   .ledger-block-head .chain-icon { color: var(--green); font-size: 13px; }
   .ledger-block-head .chain-summary { margin-left: auto; font-family: monospace; font-size: 10px; }
+  .ledger-block-head .audit-hint { font-size: 10px; color: var(--muted); opacity: 0.7; font-style: italic; margin-left: 6px; }
   .ledger-row { display: grid; grid-template-columns: 50px 170px 1fr auto; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--border); margin-left: 8px; font-size: 11px; align-items: center; }
   .ledger-row + .ledger-row { border-top: 1px dashed rgba(255,255,255,0.04); }
   .ledger-row:hover { background: rgba(255,255,255,0.03); }
@@ -238,6 +286,11 @@
 
 <div id="sidebar">
   <h1>Sift Sentinel <span>Run Viewer</span></h1>
+  <div id="view-toggle">
+    <span class="vt-label">View</span>
+    <button class="vt-btn active" id="vt-good" onclick="setViewMode('good')" title="Show only the curated demo runs from keep_runs.json">Good runs</button>
+    <button class="vt-btn" id="vt-all" onclick="setViewMode('all')" title="Show every run that reached a terminal state">All runs</button>
+  </div>
   <div id="case-list"><div class="empty" style="padding:16px">Loading cases…</div></div>
   <div id="sidebar-footer">
     <details>
@@ -250,6 +303,10 @@
         <div class="legend-row">
           <span><span class="badge badge-review">Awaiting Review</span></span>
           <span style="color:var(--muted)">Critic flagged at least one finding for human adjudication.</span>
+        </div>
+        <div class="legend-row">
+          <span><span class="badge badge-quarantine">Quarantined</span></span>
+          <span style="color:var(--muted)">Injection guard caught a suspect pattern in raw evidence (possible prompt-injection bait). Findings held until a human signs off.</span>
         </div>
         <div class="legend-row">
           <span><span class="badge badge-fail">Failed</span></span>
@@ -286,11 +343,23 @@
 const API = '';
 let currentRun = null;
 let activeFilter = 'all';
+// 'good' = filter via keep_runs.json (default dashboard view); 'all' = bypass.
+let viewMode = 'good';
+
+function setViewMode(mode) {
+  if (mode === viewMode) return;
+  viewMode = mode;
+  document.getElementById('vt-good').classList.toggle('active', mode === 'good');
+  document.getElementById('vt-all').classList.toggle('active', mode === 'all');
+  loadCases();
+}
+
+function viewParam() { return viewMode === 'all' ? '?all=1' : ''; }
 
 // ── utilities ──────────────────────────────────────────────────────────────
 
-const STATUS_LABEL = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', FAIL:'Failed', INCOMPLETE:'In Progress' };
-const STATUS_BADGE = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
+const STATUS_LABEL = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', QUARANTINED:'Quarantined', FAIL:'Failed', INCOMPLETE:'In Progress' };
+const STATUS_BADGE = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', QUARANTINED:'badge-quarantine', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
 
 function statusBadge(s) {
   return `<span class="badge ${STATUS_BADGE[s]||'badge-incomplete'}">${STATUS_LABEL[s]||s}</span>`;
@@ -482,18 +551,70 @@ function formatPlanArgs(step) {
   return parts.join(' · ') || '<span style="color:var(--muted)">(no args)</span>';
 }
 
+// Render the actual findings produced inside an Interpret phase block, so the
+// reader can see *what* the agent concluded without bouncing to the Findings
+// tab. `entries` are finding_committed ledger rows; `allFindings` is the
+// canonical findings list (r.findings.findings) used for mechanism/value lookup.
+function renderInterpretFindings(entries, allFindings) {
+  if (!entries || !entries.length) return '';
+  const list = (allFindings && Array.isArray(allFindings)) ? allFindings : [];
+  const rows = entries.map(e => {
+    const idx = e.finding_index;
+    const f = (typeof idx === 'number') ? list[idx] : null;
+    if (!f) {
+      // Earlier-iteration finding that the final list no longer carries.
+      return `<div class="phase-finding-row">
+        <span class="idx">#${escHtml(idx ?? '?')}</span>
+        ${classBadge(e.classification || '')}
+        ${confBadge(e.confidence || '')}
+        <span class="mech" style="color:var(--muted);font-style:italic">superseded by later iteration</span>
+      </div>`;
+    }
+    const cls = f.classification || 'unknown';
+    const mechFull = f.mechanism || '(no mechanism)';
+    const val = f.value || '';
+    return `<div class="phase-finding-row cls-${escHtml(cls)}">
+      <span class="idx">#${escHtml(idx)}</span>
+      ${classBadge(cls)}
+      ${confBadge(f.confidence)}
+      <span class="mech" title="${escHtml(mechFull)}">${escHtml(mechFull)}</span>
+      ${val ? `<span class="val" title="${escHtml(val)}">${escHtml(val)}</span>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="phase-section-label">Findings produced</div><div class="phase-finding-list">${rows}</div>`;
+}
+
+// Render each critic decision inline so the reader sees pass / retry / escalate
+// per finding without expanding the hash chain. Failed-rule chips link to the
+// rule reference. Disagreement detail (resolution + corrective instruction)
+// continues to be rendered separately by the Critic block.
+function renderCriticDecisions(entries, allFindings) {
+  if (!entries || !entries.length) return '';
+  const list = (allFindings && Array.isArray(allFindings)) ? allFindings : [];
+  const rows = entries.map(e => {
+    const idx = e.finding_index;
+    const sev = (e.severity || 'unknown').toLowerCase();
+    const f = (typeof idx === 'number') ? list[idx] : null;
+    const mech = f?.mechanism || '(superseded by later iteration)';
+    const failed = (e.rules_failed || []).map(rf => ruleChip(rf.rule_id || rf)).join(' ');
+    return `<div class="phase-critic-row ${escHtml(sev)}">
+      <span class="ref">finding #${escHtml(idx ?? '?')}</span>
+      <span class="sev">${escHtml(sev)}</span>
+      <span class="mech" title="${escHtml(mech)}">${escHtml(mech)}</span>
+      <span class="rules">${failed}</span>
+    </div>`;
+  }).join('');
+  return `<div class="phase-section-label">Critic decisions</div><div class="phase-critic-list">${rows}</div>`;
+}
+
 // Compact one-line renderer for ledger entries with a chain-link sidebar.
+// When showHead is true (default), the entry rows are hidden inside a <details>
+// element so the chain summary stays visible as a one-liner without dominating
+// the phase block. Click to expand and audit individual hashes.
 function renderLedgerEntries(entries, opts={}) {
   if (!entries || !entries.length) return '';
   const showHead = opts.showHead !== false;
   const lastHash = entries[entries.length - 1].entry_hash || '';
-  const head = showHead
-    ? `<div class="ledger-block-head">
-         <span class="chain-icon">⛓</span>
-         <span>${entries.length} integrity-ledger entr${entries.length===1?'y':'ies'} written here</span>
-         <span class="chain-summary">last hash <code>${escHtml(shortHash(lastHash))}…</code></span>
-       </div>`
-    : '';
   const rows = entries.map(e => {
     const seq = e.seq;
     const ev = e.event_type;
@@ -524,24 +645,45 @@ function renderLedgerEntries(entries, opts={}) {
               <span class="ledger-hash" title="prev: ${escHtml(e.prev_entry_hash||'')}">${escHtml(shortHash(e.entry_hash||''))}…</span>
             </div>`;
   }).join('');
-  return `<div class="ledger-block">${head}${rows}</div>`;
+  if (!showHead) {
+    return `<div class="ledger-block">${rows}</div>`;
+  }
+  return `<details class="ledger-block">
+            <summary class="ledger-block-head">
+              <span class="chain-icon">⛓</span>
+              <span>${entries.length} integrity-ledger entr${entries.length===1?'y':'ies'} written here</span>
+              <span class="audit-hint">click to audit hashes</span>
+              <span class="chain-summary">last hash <code>${escHtml(shortHash(lastHash))}…</code></span>
+            </summary>
+            ${rows}
+          </details>`;
 }
 
-// Replace [ev:XXX] markers in a notes string with clickable chips.
+// Replace [ev:XXX] markers in a notes string with clickable chips, and split
+// the prose into one <p> block per sentence so the reasoning steps are scannable
+// instead of one wall of text.
 // Notes use either full UUIDs ([ev:e7da265a-764d-...-...]) or 8-char shorts
-// ([ev:1bc68c00]) — handle both, render as 8-char short, link via short anchor.
+// ([ev:1bc68c00]); handle both, render as 8-char short, link via short anchor.
 function linkifyNotes(notes) {
   if (!notes) return '';
-  return escHtml(notes).replace(/\[ev:([a-f0-9]{4,}(?:-[a-f0-9]+){0,4})\]/g, (m, p1) => {
-    const short = p1.replace(/-/g, '').slice(0, 8);
-    return `<span class="ev-chip" onclick="jumpToEvidence('${short}')" title="${p1}">[ev:${short}]</span>`;
-  });
+  const escaped = escHtml(notes);
+  // Sentence boundary: period followed by whitespace followed by a capital
+  // letter or quote. Lookbehind/lookahead so the punctuation stays attached
+  // to its sentence. Parenthetical "etc.)" is safe because ")" is not [A-Z'"].
+  const parts = escaped.split(/(?<=\.)\s+(?=[A-Z'"])/);
+  return parts.map(s => {
+    const linked = s.replace(/\[ev:([a-f0-9]{4,}(?:-[a-f0-9]+){0,4})\]/g, (m, p1) => {
+      const short = p1.replace(/-/g, '').slice(0, 8);
+      return `<span class="ev-chip" onclick="jumpToEvidence('${short}')" title="${p1}">[ev:${short}]</span>`;
+    });
+    return `<p>${linked}</p>`;
+  }).join('');
 }
 
 // ── sidebar ────────────────────────────────────────────────────────────────
 
 async function loadCases() {
-  const res = await fetch(`${API}/api/cases`);
+  const res = await fetch(`${API}/api/cases${viewParam()}`);
   const cases = await res.json();
   const el = document.getElementById('case-list');
   if (!cases.length) { el.innerHTML = '<div class="empty" style="padding:16px">No runs found.</div>'; return; }
@@ -569,6 +711,7 @@ async function loadCases() {
           <div class="case-header" onclick="toggleCase('${c.case_id}')">
             <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${c.case_id}</span>
             ${memOnLatest ? '<span class="badge badge-mem" style="font-size:9px;padding:1px 5px" title="Latest run includes memory-channel findings">MEM</span>' : ''}
+            ${(viewMode === 'good' && c.run_count > c.kept_count) ? `<span style="font-size:10px;color:var(--muted)" title="${c.kept_count} of ${c.run_count} runs shown — toggle 'All runs' to see the rest">${c.kept_count}/${c.run_count}</span>` : ''}
             <span style="display:inline-flex;align-items:center;gap:3px"><span class="latest-prefix">latest:</span>${statusBadge(lr.status)}</span>
           </div>
           <div class="run-list" id="runs-${c.case_id}"></div>
@@ -585,7 +728,7 @@ async function toggleCase(caseId) {
   el.dataset.loaded = '1';
   el.innerHTML = '<div class="empty" style="padding:8px 24px">Loading…</div>';
 
-  const res = await fetch(`${API}/api/cases/${caseId}/runs`);
+  const res = await fetch(`${API}/api/cases/${caseId}/runs${viewParam()}`);
   const runs = await res.json();
   el.innerHTML = runs.map(r => {
     const mem = r.memory_finding_count || 0;
@@ -689,7 +832,41 @@ function renderTopbar() {
       </span>
     </div>
     <div class="row2">${chips}${criticNote}</div>
+    ${quarantineBanner(r)}
   `;
+}
+
+// Build a banner that explains a QUARANTINED run: which injection-guard
+// pattern fired, on which tool's output, and what the human reviewer's job
+// is. Returns empty string when the run was not quarantined.
+function quarantineBanner(r) {
+  if (r.status !== 'QUARANTINED') return '';
+  const events = (r.critic_events || []).filter(e => e.event === 'INJECTION_QUARANTINE');
+  if (!events.length) return '';
+  const flagRows = [];
+  for (const ev of events) {
+    for (const f of (ev.flags || [])) {
+      const excerpt = (f.excerpt || '').slice(0, 140);
+      flagRows.push(`
+        <div style="font-size:11.5px;line-height:1.5;margin-top:4px">
+          <code style="color:var(--purple)">${escHtml(f.pattern_id || 'unknown')}</code>
+          <span style="color:var(--muted)">in</span>
+          <code>${escHtml(f.field_path || '?')}</code>
+          <div style="margin-top:3px;color:var(--muted);font-family:monospace;font-size:10.5px;background:rgba(0,0,0,0.25);padding:4px 6px;border-radius:3px;white-space:pre-wrap;word-break:break-all">${escHtml(excerpt)}${(f.excerpt||'').length>140?'…':''}</div>
+        </div>`);
+    }
+  }
+  return `
+    <div style="margin-top:8px;padding:10px 14px;background:rgba(188,140,255,0.08);border:1px solid rgba(188,140,255,0.4);border-radius:6px;font-size:12px;line-height:1.5">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--purple)">
+        <span style="font-size:14px">🛡</span> Injection guard fired (${flagRows.length} flag${flagRows.length===1?'':'s'})
+      </div>
+      <div style="color:var(--text);margin-top:4px">
+        Run held because raw tool output matched a pattern that could be a prompt-injection attempt against the analysis LLM.
+        Review the matched excerpt below. If it is a real attacker artifact (not LLM-targeting), commit via <code>approve_run.py</code>; if it is a genuine injection attempt, reject.
+      </div>
+      ${flagRows.join('')}
+    </div>`;
 }
 
 // ── FINDINGS ───────────────────────────────────────────────────────────────
@@ -1071,6 +1248,7 @@ function renderPipeline() {
         `${b.entries.length} finding${b.entries.length===1?'':'s'} produced ${iterTag}`,
         `
           ${isReRun ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">↪ re-interpretation after critic disagreement; this batch supersedes the previous one</div>` : ''}
+          ${renderInterpretFindings(b.entries, r.findings?.findings)}
           ${renderLedgerEntries(b.entries)}
         `);
     }
@@ -1109,6 +1287,7 @@ function renderPipeline() {
 
       return phaseSection('⚖️', 6, 'Critic', meta, `
         ${uniqueFailed.length ? `<div style="font-size:12px;margin-bottom:10px">Failed rules in this iteration: ${uniqueFailed.map(ruleChip).join(' ')}</div>` : ''}
+        ${renderCriticDecisions(b.entries, r.findings?.findings)}
         ${renderLedgerEntries(b.entries)}
         ${disHtml}
       `);
@@ -1164,7 +1343,7 @@ function renderPipeline() {
           <span class="sn">${(s.step_id ?? (originalIdx+1))}.</span>
           <span class="stool">${escHtml(s.tool || '')}</span>
           <span class="sargs">${formatPlanArgs(s)}</span>
-          ${(s.depends_on||[]).length ? `<span class="sdeps">deps: ${(s.depends_on||[]).join(',')}</span>` : ''}
+          ${(s.depends_on||[]).length ? `<span class="sdeps">depends on step${(s.depends_on||[]).length===1?'':'s'} ${(s.depends_on||[]).join(', ')}</span>` : ''}
           ${conf ? `<span class="sconf ${confCls}">${escHtml(conf)}</span>` : ''}
         </div>
         ${s.purpose ? `<div class="spurpose">${escHtml(s.purpose)}</div>` : ''}
