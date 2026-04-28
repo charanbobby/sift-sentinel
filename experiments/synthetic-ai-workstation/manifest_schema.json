@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic Workstation Manifest",
+  "description": "Spec for a daily-loop manifest. Defines the base disk to plant on, the categories of threats to plant, and the per-artifact expected pipeline behavior. The build script reads this and produces a planted raw NTFS image; the score script reads pipeline output and compares against this manifest to produce a per-artifact pass/fail report.",
+  "type": "object",
+  "required": ["manifest_id", "base", "categories"],
+  "properties": {
+    "manifest_id": {
+      "type": "string",
+      "description": "Date-stamped manifest identifier, e.g. '2026-04-28'.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}(-[a-z0-9]+)?$"
+    },
+    "intel_window_days": {
+      "type": "integer",
+      "description": "How many days back the research agent searched.",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "intel_sources": {
+      "type": "array",
+      "description": "URLs the research agent cited when constructing this manifest.",
+      "items": {"type": "string", "format": "uri"}
+    },
+    "base": {
+      "type": "object",
+      "description": "The known-positive disk that planted artifacts overlay onto. The base's known findings must be re-detected by the pipeline; if they regress, the build is invalid.",
+      "required": ["case_id", "raw_path", "expected_baseline_findings"],
+      "properties": {
+        "case_id": {"type": "string"},
+        "raw_path": {"type": "string"},
+        "windows_partition_index": {
+          "type": "integer",
+          "description": "Which partition on the raw disk holds the Windows install. Defaults to 1 (first NTFS partition).",
+          "default": 1
+        },
+        "expected_baseline_findings": {
+          "type": "array",
+          "description": "Findings already known on the base disk (regression assertion target). Pipeline must re-find every one.",
+          "items": {
+            "type": "object",
+            "required": ["id", "category", "description"],
+            "properties": {
+              "id": {"type": "string"},
+              "category": {"type": "string"},
+              "description": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "categories": {
+      "type": "array",
+      "description": "Threat categories to plant on top of the base disk. Each category groups artifacts thematically.",
+      "items": {
+        "type": "object",
+        "required": ["name", "rationale", "artifacts"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "ai_attacker",
+              "ransomware_persistence",
+              "supply_chain",
+              "exploited_cves_in_wild",
+              "lolbin_abuse",
+              "apt_specific_ttp"
+            ]
+          },
+          "rationale": {"type": "string"},
+          "artifacts": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/Artifact"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Artifact": {
+      "type": "object",
+      "required": ["id", "type", "expected_detection", "rationale"],
+      "discriminator": {"propertyName": "type"},
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique within manifest.",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "registry_run_key",
+            "registry_service",
+            "registry_binary_value",
+            "scheduled_task_xml",
+            "file_drop",
+            "file_drop_sqlite_chrome_history"
+          ]
+        },
+        "expected_detection": {
+          "type": "string",
+          "description": "What the pipeline should classify this as.",
+          "enum": [
+            "attacker_persistence",
+            "attacker_persistence_ai_assisted",
+            "requires_disambiguation",
+            "tradecraft_signal",
+            "expected_miss_documented_gap"
+          ]
+        },
+        "expected_quarantine": {
+          "type": "boolean",
+          "description": "True if the injection scanner should fire on this artifact.",
+          "default": false
+        },
+        "rationale": {
+          "type": "string",
+          "description": "Why this artifact is in the manifest (which scanner / classifier behavior it tests)."
+        },
+        "source_url": {
+          "type": "string",
+          "description": "Threat-intel source that motivated planting this artifact.",
+          "format": "uri"
+        },
+        "hive": {
+          "type": "string",
+          "enum": ["SOFTWARE", "SYSTEM", "NTUSER.DAT"],
+          "description": "Required for registry_* types."
+        },
+        "key_path": {
+          "type": "string",
+          "description": "Registry key path within the hive. Required for registry_* types. Use single backslash."
+        },
+        "value_name": {
+          "type": "string",
+          "description": "Required for registry_run_key, registry_binary_value."
+        },
+        "value_data": {
+          "type": "string",
+          "description": "Plain string value. For registry_run_key, the command line."
+        },
+        "value_binary_b64": {
+          "type": "string",
+          "description": "Base64-encoded binary value. For registry_binary_value."
+        },
+        "service_name": {
+          "type": "string",
+          "description": "Required for registry_service."
+        },
+        "service_image_path": {"type": "string"},
+        "service_description": {"type": "string"},
+        "service_display_name": {"type": "string"},
+        "service_start_type": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4],
+          "description": "0=boot, 1=system, 2=auto, 3=manual, 4=disabled"
+        },
+        "task_xml": {
+          "type": "string",
+          "description": "Required for scheduled_task_xml. Full Task XML body."
+        },
+        "task_install_path": {
+          "type": "string",
+          "description": "Path within Windows\\System32\\Tasks\\ where the task XML is dropped."
+        },
+        "file_path": {
+          "type": "string",
+          "description": "Required for file_drop and file_drop_sqlite_chrome_history. Absolute path under the planted Windows root, e.g. 'Users/analyst/AppData/Roaming/.huggingface/token'."
+        },
+        "file_content_text": {
+          "type": "string",
+          "description": "For file_drop with text content."
+        },
+        "file_content_b64": {
+          "type": "string",
+          "description": "For file_drop with binary content."
+        },
+        "chrome_history_entries": {
+          "type": "array",
+          "description": "For file_drop_sqlite_chrome_history. Each entry becomes a row in the urls table.",
+          "items": {
+            "type": "object",
+            "required": ["url", "title", "visit_count"],
+            "properties": {
+              "url": {"type": "string"},
+              "title": {"type": "string"},
+              "visit_count": {"type": "integer"},
+              "last_visit_offset_seconds": {
+                "type": "integer",
+                "description": "Seconds before manifest_id at midnight UTC (negative = earlier)."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

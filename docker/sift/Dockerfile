@@ -3,15 +3,20 @@ FROM digitalsleuth/sift-docker:jammy
 USER root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        libhivex-dev libhivex0 libhivex-bin python3-hivex \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
     && uv --version
 
+# regipy: read-side hive parsing for verify_planted.py + score.py
+# python3-hivex (apt above): write-side hive editing for build.py
 RUN uv pip install --system --no-cache \
       mcp \
-      pydantic
+      pydantic \
+      regipy
 
 # Fix shipped RegRipper: line 75 of /usr/local/bin/rip.pl is the ":" branch of a ternary
 # whose "?" branch is commented out (see comment block above it). Perl sees an orphan
