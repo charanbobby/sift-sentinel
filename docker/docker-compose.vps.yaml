@@ -1,0 +1,30 @@
+# VPS override for docker-compose.yaml — replaces Windows-dev volume paths
+# with the Linux paths used on the Hetzner VPS (sri@46.62.255.66).
+#
+# Usage on VPS:
+#   cd /opt/find-evil/repo/docker
+#   docker compose -f docker-compose.yaml -f docker-compose.vps.yaml up -d
+#
+# The base file defines services, networks, and build config.
+# This file only overrides volumes so the two container services see the
+# right host paths. Also adds /mnt/working so sift-mcp can read the
+# synthetic disk images produced by the daily loop's build phase.
+
+services:
+  sift-mcp:
+    volumes:
+      - sift-home:/home/sansforensics
+      - "/opt/find-evil/source:/mnt/hackathon:ro"
+      - "/opt/find-evil/derived:/mnt/derived:rw"
+      - "/opt/find-evil/repo/experiments/slice-2-notebook/mcp_server:/opt/mcp:ro"
+      - "/opt/find-evil/repo/experiments/slice-2-notebook/pipeline:/opt/pipeline:ro"
+      # Synthetic workstation daily-loop images written by build.py
+      - "/opt/find-evil/working:/mnt/working:ro"
+
+  sift-sentinel:
+    volumes:
+      - "/opt/find-evil/repo/experiments/slice-2-notebook:/workspace"
+      - "sift-home:/home/sansforensics:ro"
+    ports:
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:8080:8080"

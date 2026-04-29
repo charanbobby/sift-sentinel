@@ -23,7 +23,6 @@ import argparse
 import datetime
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -285,24 +284,51 @@ def phase_d_verify(run_dir: Path, manifest_path: Path, working_raw: Path) -> Non
 # ---------------------------------------------------------------------------
 
 def phase_e_pipeline(run_dir: Path, working_raw: Path) -> Path:
-    info("=== Phase E: pipeline run ===")
+    info("=== Phase E: pipeline run (sift-sentinel) ===")
     pipeline_out = run_dir / "pipeline_output"
     pipeline_out.mkdir(parents=True, exist_ok=True)
 
-    # TODO: wire up sift-mcp + sift-sentinel run against working_raw.
-    # Until that's done (Day-1 next session), skip this phase and emit a
-    # placeholder findings.json so the score phase can run sanity check.
-    placeholder = pipeline_out / "findings.json"
-    placeholder.write_text(json.dumps({
-        "_placeholder": True,
-        "_message": "Pipeline integration pending. Wire up sift-mcp + sentinel here.",
-        "findings": [],
-    }))
-    info(f"pipeline integration TODO; placeholder: {placeholder}")
-    check_pass(11, "pipeline run exit 0", "PLACEHOLDER (pipeline integration pending)")
-    check_pass(12, "findings.json valid", "PLACEHOLDER (empty findings)")
+    case_id = f"synthetic-{today_str()}"
+    # sift-mcp sees the working dir at /mnt/working (docker-compose.vps.yaml mount)
+    container_image_path = f"/mnt/working/{working_raw.name}"
 
-    return placeholder
+    # CHECK 11: run pipeline inside the live sift-sentinel container
+    try:
+        run([
+            "docker", "exec", "sift-sentinel",
+            "bash", "-c",
+            f"cd /workspace && uv run python run_case.py --case {case_id} --e01 {container_image_path}",
+        ])
+    except subprocess.CalledProcessError as e:
+        check_fail(11, "pipeline run", f"docker exec exit {e.returncode}")
+
+    # run_case.py writes findings to /workspace/out/runs/{case_id}/{run_id}/05_interpret_findings.json
+    # /workspace inside the container maps to:
+    #   /opt/find-evil/repo/experiments/slice-2-notebook  (via docker-compose.vps.yaml)
+    workspace_host = CFG.REPO_ROOT / "experiments/slice-2-notebook"
+    case_dir = workspace_host / "out" / "runs" / case_id
+    latest_txt = case_dir / "latest.txt"
+    if not latest_txt.exists():
+        check_fail(11, "pipeline run", f"latest.txt not found at {latest_txt} — run_case.py may have crashed")
+    run_id = latest_txt.read_text().strip()
+    check_pass(11, "pipeline run exit 0", f"case={case_id} run_id={run_id}")
+
+    # CHECK 12: findings file is present and valid JSON
+    findings_src = case_dir / run_id / "05_interpret_findings.json"
+    if not findings_src.exists():
+        check_fail(12, "findings.json valid", f"05_interpret_findings.json not found at {findings_src}")
+
+    findings_dst = pipeline_out / "findings.json"
+    shutil.copy2(str(findings_src), str(findings_dst))
+    try:
+        f = json.loads(findings_dst.read_text())
+    except Exception as e:
+        check_fail(12, "findings.json valid", f"invalid JSON: {e}")
+
+    n = len(f.get("findings", []))
+    check_pass(12, "findings.json valid", f"{n} findings, run_dir={case_dir / run_id}")
+
+    return findings_dst
 
 
 # ---------------------------------------------------------------------------

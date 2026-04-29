@@ -57,6 +57,7 @@ QUESTION = (
 ALLOWED_PATHS_TEMPLATE = (
     "/mnt/hackathon/",
     "/mnt/derived/",
+    "/mnt/working/",    # synthetic workstation daily-loop images
     "/home/sansforensics/cases/{case_id}/analysis/extracted/",
 )
 
