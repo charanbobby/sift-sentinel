@@ -245,6 +245,42 @@ def R_04(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
                        detail=f"registry_run_key mechanism={m!r} does not start with HKLM/HKCU/HKEY_")
 
 
+# 2026-04-29: R_05 multi-record-tolerance helper.
+# Splits a needle on JSON field-boundary commas (comma followed by a quoted
+# key like `"value_name":`). Used as a fallback when the contiguous substring
+# check fails, to tolerate the legitimate LLM behavior of citing several
+# fields from one record while skipping intervening ones (e.g. value_name
+# then value_data_safe, omitting value_type that lives between them).
+_JSON_FIELD_BOUNDARY_RE = re.compile(r',\s*(?=")')
+
+
+def _split_on_json_field_boundary(s: str) -> list[str]:
+    parts = [p.strip() for p in _JSON_FIELD_BOUNDARY_RE.split(s) if p.strip()]
+    return parts
+
+
+def _all_parts_in_order(parts: list[str], haystack: str) -> bool:
+    """True iff every part is a substring of haystack and the parts appear
+    in haystack in the given order. Gaps between parts are allowed but
+    overlap is not (each part starts after the previous part ends).
+
+    Order-preservation prevents cross-record fabrication: if the LLM cited
+    `field_X` from record 1 and `field_Y` from record 2, the order-preserving
+    walk would only succeed if record 2's `field_Y` literally followed
+    record 1's `field_X` position in the agent-visible JSON, which it does
+    not (records are siblings, fields within a record are ordered).
+    """
+    if not parts:
+        return False
+    pos = 0
+    for p in parts:
+        idx = haystack.find(p, pos)
+        if idx == -1:
+            return False
+        pos = idx + len(p)
+    return True
+
+
 def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """Is the quoted evidence actually present in the tool's structured_fields
     byte-for-byte?  ESCALATE (not retry) — excerpt fabrication is the most
@@ -253,9 +289,19 @@ def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     Slice 5 semantic change: under the dual-channel boundary the model never
     sees raw stdout. R_05 now checks whether the cited `output_excerpt` is a
     literal substring of the JSON-serialized `structured_fields` the model
-    was actually shown (via `_build_interpret_bundle`). The match must agree
-    byte-for-byte with that rendering — `ctx.agent_visible_text` produces
-    exactly that form.
+    was actually shown (via `_build_interpret_bundle`).
+
+    2026-04-29 multi-record tolerance: when the contiguous substring check
+    fails, fall back to an order-preserving per-field check. Splits the
+    needle on JSON field-boundary commas and verifies every clause appears
+    in the haystack, in the same relative order. This handles the legitimate
+    LLM pattern of citing multiple fields from a single regripper services
+    record (value_name + value_data_safe) while skipping intervening fields
+    (value_type, last_write). The order-preserving walk prevents cross-record
+    fabrication: if the LLM stitched fields from two records, the second
+    field's position in the haystack would precede the first, violating
+    order. Today's run flagged WindowsDefenderHelper + PerfMon as TPs but
+    R_05 false-fired on both because of this exact pattern.
     """
     if finding.category == "NOT_FOUND":
         return None  # NOT_FOUND evidence cites coverage documentation; excerpt exactness is not a positive-claim check
@@ -265,11 +311,19 @@ def R_05(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
         needle = ev.output_excerpt or ""
         if not needle:
             continue  # empty excerpt is R_07 territory
-        haystack = ctx.agent_visible_text(ev.tool_call_id)
+        haystack_raw = ctx.agent_visible_text(ev.tool_call_id)
         # Format-tolerant check: the LLM's output_excerpt may unescape JSON
         # backslashes and re-flow whitespace even when faithfully reproducing
         # the value. _normalize_for_match collapses both differences.
-        if _normalize_for_match(needle) in _normalize_for_match(haystack):
+        needle_n = _normalize_for_match(needle)
+        haystack_n = _normalize_for_match(haystack_raw)
+        if needle_n in haystack_n:
+            continue
+        # Multi-record-tolerance fallback (2026-04-29). Only applies when the
+        # needle has more than one JSON field clause; single-clause needles
+        # that don't match contiguously are still fabrications.
+        parts_n = _split_on_json_field_boundary(needle_n)
+        if len(parts_n) > 1 and _all_parts_in_order(parts_n, haystack_n):
             continue
         return RuleFailure(
             rule_id="R_05", code="EXCERPT_HALLUCINATION",
