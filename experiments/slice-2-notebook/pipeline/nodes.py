@@ -989,6 +989,17 @@ def reissue_token_node(state: "PipelineState") -> dict:
     allowed_paths_list: list[str] = [
         "/mnt/hackathon/",
         "/mnt/derived/",
+        # /mnt/working/ added 2026-04-29 for the synthetic-workstation daily-loop:
+        # build.py writes planted images to /mnt/working/<name>.raw and Phase E
+        # of run_loop.py invokes run_case.py against that path. The original
+        # token issued in run_case.py already covered /mnt/working, but
+        # reissue_token here was overwriting it with a hardcoded list that did
+        # not. Without this prefix, fsstat_e01 + fls_list against the synthetic
+        # raw came back as capability_denied with reason
+        # `path_not_allowed:/mnt/working/<name>.raw` and the entire pipeline
+        # produced 1 NOT_FOUND finding (observed live as run-001 of
+        # synthetic-2026-04-29 on 2026-04-29).
+        "/mnt/working/",
         f"/home/sansforensics/cases/{case_id}/analysis/extracted/",
     ]
     if MEMORY_IMAGE_PATH:

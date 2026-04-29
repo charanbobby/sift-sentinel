@@ -106,12 +106,18 @@ def md5_of(path: Path) -> str:
 def phase_a_preflight(run_dir: Path) -> None:
     info("=== Phase A: pre-flight ===")
 
-    # CHECK 01: git pull clean
-    try:
-        run(["git", "-C", str(CFG.REPO_ROOT), "pull", "--ff-only"], capture=True)
-        check_pass(1, "git pull clean")
-    except subprocess.CalledProcessError as e:
-        check_fail(1, "git pull clean", f"exit {e.returncode}")
+    # CHECK 01: repo current. If REPO_ROOT is a git checkout, fast-forward pull;
+    # if it is rsync-deployed (no .git), soft-pass with a note. The VPS at
+    # /opt/find-evil/repo/ is rsync-deployed (no git remote), so the prior
+    # hard-fail-on-git-pull behavior was wrong for that environment.
+    if (CFG.REPO_ROOT / ".git").exists():
+        try:
+            run(["git", "-C", str(CFG.REPO_ROOT), "pull", "--ff-only"], capture=True)
+            check_pass(1, "repo current", "git fast-forward")
+        except subprocess.CalledProcessError as e:
+            check_fail(1, "repo current", f"git pull exit {e.returncode}")
+    else:
+        check_pass(1, "repo current", "rsync-deployed; skipping git pull")
 
     # CHECK 02: base raw md5 unchanged
     if not CFG.BASE_RAW.exists():

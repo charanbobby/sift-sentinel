@@ -71,9 +71,12 @@ from pipeline.mcp import parsers as P  # noqa: E402
 
 # Read-path allowlist. `/mnt/hackathon` is :ro raw evidence (E01s, memory dumps).
 # `/mnt/derived` is :rw preprocessed artifacts (raw .dd partitions extracted from
-# multi-segment E01s via ewfmount+dd). Both are legitimate read sources for fsstat
-# /fls/icat; only /mnt/hackathon is forensic-integrity-protected at the mount layer.
-EVIDENCE_ROOTS = tuple(p.resolve() for p in (Path("/mnt/hackathon"), Path("/mnt/derived")))
+# multi-segment E01s via ewfmount+dd). `/mnt/working` is :ro synthetic-workstation
+# daily-loop images written by build.py (added 2026-04-29 so Phase E's run_case.py
+# call against /mnt/working/<synthetic>.raw clears the read-path gate). All three
+# are legitimate read sources for fsstat/fls/icat; only /mnt/hackathon is
+# forensic-integrity-protected at the mount layer.
+EVIDENCE_ROOTS = tuple(p.resolve() for p in (Path("/mnt/hackathon"), Path("/mnt/derived"), Path("/mnt/working")))
 EVIDENCE_ROOT = EVIDENCE_ROOTS[0]  # retained for backwards-compat where code/errors name the primary root
 # Memory-image read-path allowlist (Slice 6 Step 3b.6). Production target is the
 # named Docker volume `/var/lib/find-evil/memory`; `/tmp` is the dev path during

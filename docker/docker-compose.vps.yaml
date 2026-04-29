@@ -1,30 +1,68 @@
-# VPS override for docker-compose.yaml — replaces Windows-dev volume paths
-# with the Linux paths used on the Hetzner VPS (sri@46.62.255.66).
+# Standalone Docker Compose for the Hetzner VPS (sri@46.62.255.66).
+# Use this file ALONE on the VPS — do NOT combine with docker-compose.yaml,
+# because Docker Compose merges arrays (ports, volumes) rather than replacing
+# them, which causes port conflicts with other VPS services.
 #
 # Usage on VPS:
 #   cd /opt/find-evil/repo/docker
-#   docker compose -f docker-compose.yaml -f docker-compose.vps.yaml up -d
+#   docker compose -f docker-compose.vps.yaml up -d
+#   docker compose -f docker-compose.vps.yaml down
 #
-# The base file defines services, networks, and build config.
-# This file only overrides volumes so the two container services see the
-# right host paths. Also adds /mnt/working so sift-mcp can read the
-# synthetic disk images produced by the daily loop's build phase.
+# Ports: 8080 is taken by claude-approver on this VPS.
+# The daily loop uses `docker exec`, so no published ports are needed.
+# Jupyter (8889) is exposed locally only for ad-hoc manual runs.
 
 services:
   sift-mcp:
+    image: find-evil/sift:slice5
+    container_name: sift-mcp
+    hostname: sift-mcp
+    environment:
+      - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
+      - CAPABILITY_TOKEN_KEY=${CAPABILITY_TOKEN_KEY}
     volumes:
       - sift-home:/home/sansforensics
       - "/opt/find-evil/source:/mnt/hackathon:ro"
       - "/opt/find-evil/derived:/mnt/derived:rw"
       - "/opt/find-evil/repo/experiments/slice-2-notebook/mcp_server:/opt/mcp:ro"
       - "/opt/find-evil/repo/experiments/slice-2-notebook/pipeline:/opt/pipeline:ro"
-      # Synthetic workstation daily-loop images written by build.py
+      # Synthetic workstation daily-loop images (built by build.py, read by pipeline)
       - "/opt/find-evil/working:/mnt/working:ro"
+    user: sansforensics
+    working_dir: /home/sansforensics
+    command: ["python3", "/opt/mcp/server.py"]
+    networks:
+      - findevil-internal
+    restart: unless-stopped
 
   sift-sentinel:
+    build: ./notebook
+    container_name: sift-sentinel
+    depends_on: [sift-mcp]
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
+      - CAPABILITY_TOKEN_KEY=${CAPABILITY_TOKEN_KEY}
+      - PYTHONUTF8=1
     volumes:
       - "/opt/find-evil/repo/experiments/slice-2-notebook:/workspace"
       - "sift-home:/home/sansforensics:ro"
+    working_dir: /workspace
     ports:
-      - "127.0.0.1:8888:8888"
-      - "127.0.0.1:8080:8080"
+      # No 8080 (taken by claude-approver). Jupyter on 8889 for manual ad-hoc runs only.
+      - "127.0.0.1:8889:8888"
+    networks:
+      - default
+      - findevil-internal
+    command: ["bash", "-c", "uv sync && uv run uvicorn pipeline.viewer:app --host 0.0.0.0 --port 8080 & uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
+    restart: unless-stopped
+
+networks:
+  findevil-internal:
+    internal: true
+
+volumes:
+  sift-home:
