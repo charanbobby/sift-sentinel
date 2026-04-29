@@ -229,7 +229,17 @@ def call_claude(prompt: str, model: str = "sonnet", timeout_s: int = 900) -> tup
     if wrapper.get("is_error"):
         fail(1, f"claude returned is_error=true: {wrapper.get('result', '')[:500]}")
     raw = wrapper.get("result", "")
-    n_web = wrapper.get("usage", {}).get("server_tool_use", {}).get("web_search_requests", 0)
+    # 2026-04-29: prefer modelUsage.<model>.webSearchRequests (the live counter
+    # that actually reflects fired searches in `claude -p` mode); fall back to
+    # the older `usage.server_tool_use.web_search_requests` for compatibility.
+    # Verified live: a haiku probe with --allowedTools WebSearch reported 8
+    # searches under modelUsage but 0 under server_tool_use. The older field
+    # was producing the false "0 web searches" log line that drove the design
+    # decision in `validate_web_search_actually_used` to soft-warn only.
+    model_usage = wrapper.get("modelUsage", {}) or {}
+    n_web = sum(int(mu.get("webSearchRequests", 0) or 0) for mu in model_usage.values())
+    if n_web == 0:
+        n_web = wrapper.get("usage", {}).get("server_tool_use", {}).get("web_search_requests", 0)
     cost = wrapper.get("total_cost_usd", 0)
     info(f"claude returned {len(raw)} chars, {n_web} web searches, equivalent cost ${cost:.4f}")
     return raw, wrapper
@@ -292,15 +302,22 @@ def validate_intel_sources(sources: list, min_articles: int = 5):
 
 
 def validate_web_search_actually_used(wrapper: dict, min_searches: int = 5):
-    # Note: claude -p (non-interactive) does not invoke real web search even with
-    # --allowedTools WebSearch. The usage counter correctly reports 0. We rely on
-    # intel_sources URL validation (url_is_article) to confirm the model cited
-    # specific articles rather than vague category listings. The strict
-    # web_search_requests gate is disabled; soft-warn only.
-    n = wrapper.get("usage", {}).get("server_tool_use", {}).get("web_search_requests", 0)
+    # 2026-04-29 update: the older "claude -p does not fire web search" comment
+    # was wrong. A haiku probe with --allowedTools WebSearch reported 8 fired
+    # searches under modelUsage.<model>.webSearchRequests; the previous code
+    # only read usage.server_tool_use.web_search_requests, which is a
+    # deprecated counter and reads zero in claude -p mode. Now we read the
+    # live counter (sum across all models in modelUsage) and fall back to the
+    # old field. This stays a soft-warn rather than a hard fail because
+    # rare runs may legitimately need fewer searches if the manifest reuses
+    # cached intel.
+    model_usage = wrapper.get("modelUsage", {}) or {}
+    n = sum(int(mu.get("webSearchRequests", 0) or 0) for mu in model_usage.values())
+    if n == 0:
+        n = wrapper.get("usage", {}).get("server_tool_use", {}).get("web_search_requests", 0)
     if n < min_searches:
-        info(f"note: {n} actual web_search_requests (claude -p does not fire the tool "
-             f"in non-interactive mode; intel_sources URL check is the quality gate)")
+        info(f"note: {n} actual web_search_requests (soft warn; intel_sources "
+             f"URL check + rationale grounding are the load-bearing gates)")
 
 
 def validate_rationale_grounding(manifest: dict):
@@ -362,21 +379,109 @@ def validate_rationale_grounding(manifest: dict):
 
     cve_re = _re.compile(r"CVE-\d{4}-\d{3,7}", _re.IGNORECASE)
 
+    # 2026-04-29: per-artifact source_url is direct citation evidence and
+    # counts as grounded regardless of rationale prose. Previously the
+    # validator only inspected `rationale` text, which made it stylistically
+    # picky against haiku's terser rationales (the run on 2026-04-29 saw
+    # 7 of 16 ungrounded purely because the rationales did not echo anchor
+    # terms even though the artifact's source_url cited a real CISA /
+    # Mandiant / Unit 42 article). Counting source_url against the same
+    # authoritative-source set fixes the false-fail without expanding the
+    # prompt or changing the model. The rationale-text checks below remain
+    # as a secondary signal.
+    AUTHORITATIVE_SOURCE_DOMAINS = {
+        "cisa.gov", "kev.cisa.gov", "us-cert.cisa.gov",
+        "mandiant.com", "cloud.google.com",
+        "unit42.paloaltonetworks.com", "paloaltonetworks.com",
+        "talosintelligence.com", "blog.talosintelligence.com",
+        "microsoft.com", "msrc.microsoft.com", "techcommunity.microsoft.com",
+        "anthropic.com",
+        "github.com", "githubusercontent.com",
+        "bleepingcomputer.com", "thehackernews.com",
+        "crowdstrike.com", "secureworks.com", "recordedfuture.com",
+        "sentinelone.com", "elastic.co", "sysdig.com", "checkpoint.com",
+        "trendmicro.com", "fortinet.com", "sophos.com", "ibm.com", "rapid7.com",
+        "huntress.com", "redcanary.com", "darkreading.com",
+        "krebsonsecurity.com", "schneier.com",
+    }
+
+    # 2026-04-29 tighten: domain-on-authoritative-list is necessary but not
+    # sufficient. Require the URL to actually return 200-299 with a real
+    # User-Agent before counting it as grounding. Catches haiku occasionally
+    # composing plausible-looking URL slugs that do not resolve. Cache results
+    # within a single validation pass so duplicate URLs are fetched once.
+    import urllib.request as _urlreq
+    import urllib.error as _urlerr
+
+    _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    _RESOLVE_CACHE: dict = {}
+
+    def _url_resolves(url: str) -> bool:
+        if url in _RESOLVE_CACHE:
+            return _RESOLVE_CACHE[url]
+        # Try HEAD first (cheaper). Fall back to GET if HEAD is rejected.
+        for method in ("HEAD", "GET"):
+            try:
+                req = _urlreq.Request(url, method=method, headers={"User-Agent": _UA})
+                with _urlreq.urlopen(req, timeout=12) as resp:
+                    ok = 200 <= resp.status < 400
+                    _RESOLVE_CACHE[url] = ok
+                    return ok
+            except _urlerr.HTTPError as e:
+                # 4xx is treated as not-real for grounding purposes; exit early.
+                _RESOLVE_CACHE[url] = False
+                return False
+            except Exception:
+                # Network or DNS failure on HEAD; try GET. After both fail,
+                # treat as not-real.
+                if method == "GET":
+                    _RESOLVE_CACHE[url] = False
+                    return False
+        _RESOLVE_CACHE[url] = False
+        return False
+
+    def _source_url_grounds(art: dict) -> bool:
+        url = art.get("source_url", "") or ""
+        if not url:
+            return False
+        try:
+            netloc = urlparse(url).netloc.lower()
+        except Exception:
+            return False
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+        if not netloc:
+            return False
+        is_authoritative = (
+            netloc in AUTHORITATIVE_SOURCE_DOMAINS
+            or any(netloc.endswith("." + p) for p in AUTHORITATIVE_SOURCE_DOMAINS)
+        )
+        if not is_authoritative:
+            return False
+        # Tightening: must also actually resolve. A real URL on an authoritative
+        # domain that returns 200 is real grounding; a plausible-shaped URL that
+        # 404s is hallucination.
+        return _url_resolves(url)
+
     ungrounded = []
     for cat in manifest["categories"]:
         for art in cat.get("artifacts", []):
             r = art.get("rationale", "").lower()
             grounded = False
-            if cve_re.search(r):
+            if _source_url_grounds(art):
                 grounded = True
-            for term in KNOWN_GROUND_TERMS:
-                if term in r:
-                    grounded = True
-                    break
-            for d in domains:
-                if d in r:
-                    grounded = True
-                    break
+            if not grounded and cve_re.search(r):
+                grounded = True
+            if not grounded:
+                for term in KNOWN_GROUND_TERMS:
+                    if term in r:
+                        grounded = True
+                        break
+            if not grounded:
+                for d in domains:
+                    if d in r:
+                        grounded = True
+                        break
             if not grounded:
                 ungrounded.append(art.get("id", "?"))
 
