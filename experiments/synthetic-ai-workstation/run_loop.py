@@ -138,21 +138,48 @@ def phase_a_preflight(run_dir: Path) -> None:
 # Phase B: research agent (CHECK 03)
 # ---------------------------------------------------------------------------
 
+def _research_shim(run_dir: Path, template_path: Path) -> Path:
+    """Fallback: stamp today's date into the hand-written template and write it."""
+    if not template_path.exists():
+        check_fail(3, "research agent manifest", f"template missing: {template_path}")
+    template = json.loads(template_path.read_text())
+    template["manifest_id"] = today_str()
+    out = run_dir / f"manifest_{today_str()}.json"
+    out.write_text(json.dumps(template, indent=2))
+    return out
+
+
 def phase_b_research(run_dir: Path) -> Path:
     info("=== Phase B: research agent ===")
     manifest_today = run_dir / f"manifest_{today_str()}.json"
 
-    # First-iteration shim: copy the hand-written template, stamp today's id.
-    # Subsequent iterations call a Claude Code routine that produces a fresh
-    # manifest via web search. Keeping the shim path so the loop can run
-    # end-to-end on day 1.
-    if not CFG.DEFAULT_MANIFEST_TEMPLATE.exists():
-        check_fail(3, "research agent manifest",
-                   f"template missing: {CFG.DEFAULT_MANIFEST_TEMPLATE}")
-    template = json.loads(CFG.DEFAULT_MANIFEST_TEMPLATE.read_text())
-    template["manifest_id"] = today_str()
-    manifest_today.write_text(json.dumps(template, indent=2))
-    info(f"manifest written: {manifest_today}")
+    research_script = CFG.REPO_ROOT / "experiments/synthetic-ai-workstation/research.py"
+    schema_path = CFG.REPO_ROOT / "experiments/synthetic-ai-workstation/manifest_schema.json"
+    template_path = CFG.DEFAULT_MANIFEST_TEMPLATE
+
+    if research_script.exists() and shutil.which("claude"):
+        info("running research.py to fetch fresh threat intel ...")
+        res = subprocess.run(
+            [
+                sys.executable, str(research_script),
+                "--schema", str(schema_path),
+                "--template", str(template_path),
+                "--out", str(manifest_today),
+                "--intel-window-days", "30",
+                "--loop-runs-dir", str(CFG.OUT_BASE),
+            ],
+            capture_output=False,
+            cwd=str(research_script.parent),
+        )
+        if res.returncode == 0 and manifest_today.exists():
+            info(f"research agent manifest written: {manifest_today}")
+        else:
+            info(f"research.py exited {res.returncode} — falling back to template shim")
+            manifest_today = _research_shim(run_dir, template_path)
+    else:
+        info("research.py or claude CLI not found — using template shim")
+        manifest_today = _research_shim(run_dir, template_path)
+    info(f"manifest: {manifest_today}")
 
     # CHECK 03: manifest validates (parses + has expected structure + non-empty)
     try:
