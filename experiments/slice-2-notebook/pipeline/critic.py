@@ -585,6 +585,12 @@ _PLAN_COVERAGE_REQUIRED_TOOLS: dict[str, set[str]] = {
     "registry_hive": {"regripper_run"},
     "service_config": {"regripper_run"},
     "scheduled_task_xml": {"scheduled_tasks_parse"},
+    # 2026-04-29: file_drop candidates (ProgramData drops, AI-tradecraft files,
+    # hidden venvs) are reached via fls_list of the parent dir; icat_extract
+    # is the content-inspection follow-up. Either tool counts as coverage
+    # because fls_list alone can already surface a suspicious filename
+    # (e.g. "maint.ps1" in ProgramData) as evidence the LLM can flag.
+    "file_drop": {"fls_list", "icat_extract"},
     # Memory channel: each volatility plugin is invoked as `volatility_run`
     # with a `plugin` argument; coarse mapping is acceptable here because
     # presence of any volatility_run step indicates the memory channel was

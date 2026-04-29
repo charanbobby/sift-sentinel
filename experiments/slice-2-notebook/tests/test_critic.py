@@ -721,6 +721,52 @@ def test_R_17_good_only_priority2_uncovered(
     assert R_17(make_finding(), ctx) is None
 
 
+def test_R_17_bad_file_drop_priority1_no_fls_or_icat(
+    make_plan, make_evidence, make_finding,
+):
+    """2026-04-29 EXTRACT widening: file_drop candidate (e.g. ProgramData
+    staging .ps1, AI-tradecraft hf-cache, hidden venv) requires fls_list
+    OR icat_extract in the plan to be reachable."""
+    cands = _make_candidates(("file_drop", 1))
+    ctx = CriticContext(
+        make_plan("regripper_run"),  # no fls_list, no icat_extract
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    r = R_17(make_finding(), ctx)
+    assert r is not None
+    assert r.code == "PLAN_COVERAGE_GAP"
+    assert "file_drop" in r.detail
+
+
+def test_R_17_good_file_drop_with_fls_list_only(
+    make_plan, make_evidence, make_finding,
+):
+    """fls_list of the parent dir is sufficient to surface a suspicious
+    filename (e.g. maint.ps1 in ProgramData) as evidence the LLM can flag,
+    even without icat_extract."""
+    cands = _make_candidates(("file_drop", 1))
+    ctx = CriticContext(
+        make_plan("fls_list"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    assert R_17(make_finding(), ctx) is None
+
+
+def test_R_17_good_file_drop_with_icat_extract_only(
+    make_plan, make_evidence, make_finding,
+):
+    """icat_extract alone also counts as coverage; either tool is sufficient."""
+    cands = _make_candidates(("file_drop", 1))
+    ctx = CriticContext(
+        make_plan("icat_extract"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    assert R_17(make_finding(), ctx) is None
+
+
 def test_R_17_orchestrator_routes_to_escalate(
     make_plan, make_evidence, make_finding,
 ):

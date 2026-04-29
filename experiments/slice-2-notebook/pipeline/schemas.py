@@ -162,6 +162,14 @@ class ArtifactCandidate(BaseModel):
         "registry_hive",
         "scheduled_task_xml",
         "service_config",
+        # 2026-04-29 added for Track-B EXTRACT widening: covers attacker-staged
+        # script and credential file drops in writeable directories that the
+        # other artifact_types do not address. Examples: ProgramData/*.ps1
+        # staging scripts, Users\<user>\AppData\Roaming\.huggingface\token
+        # AI-tradecraft credentials, Users\Public\<hidden-dir> hidden venvs.
+        # Reached via fls_list of the parent dir (and optionally icat_extract
+        # for content inspection).
+        "file_drop",
         # Memory channel (Slice 6 Step B)
         "process_anomaly",        # → volatility pslist + cmdline (suspicious PIDs / parent-child / cmdline)
         "network_connection",     # → volatility netscan (live C2, unexpected outbound)

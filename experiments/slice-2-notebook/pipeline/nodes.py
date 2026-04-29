@@ -738,6 +738,12 @@ Universal Windows persistence locations (always applicable, regardless of host t
 - Image File Execution Options (debugger hijack, accessibility tools)
 - WMI event subscriptions (HKLM\\SOFTWARE\\Microsoft\\Wbem)
 - Startup folder (per user)
+
+File-drop staging locations (use artifact_type=file_drop; reach via fls_list of the parent dir):
+- ProgramData\\ — world-writable; common landing zone for staging scripts (.ps1, .bat, .cfg) launched by services or scheduled tasks.
+- Users\\Public\\ — world-writable; attackers stage hidden tooling here, especially under leading-dot subdirs (e.g. Users\\Public\\.tools).
+- Users\\<username>\\AppData\\Roaming\\.huggingface\\, AppData\\Local\\hf-cache\\ — AI-attacker tradecraft: cached HuggingFace tokens and prompt-history JSONL files indicate on-host LLM inference for adversary command generation (PROMPTFLUX / PromptSteal / QuietVault pattern).
+- Any .venv\\Lib\\site-packages\\huggingface_hub\\ or sibling AI-SDK package paths under user-writable dirs — hidden Python virtualenvs with AI tooling are a known concealment pattern.
 {host_guidance}{channel_guidance}
 
 Rules:
