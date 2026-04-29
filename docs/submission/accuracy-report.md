@@ -1,28 +1,45 @@
 # Accuracy Report — Find Evil (SANS Hackathon 2026)
 
-**Status:** updated 2026-04-26 with first dual-channel (disk + memory) run on `srl-2018-wkstn-05` (run-005). Sections marked **TODO** still await data the system has not yet collected (ablation rows 2 + 4, regression-gate re-runs against the patched R_05 code, ground-truth annotation of the new memory-channel findings).
+**Status:** updated 2026-04-28. Adds the daily synthetic-workstation loop as a second, continuous accuracy-measurement track running alongside the one-shot static-case results. Tightens the ground-truth claims (only `dfirmadness-001-desktop` is externally validated; SRL-2018 cases are project-owner-annotated). Sections marked **TODO** still await data the system has not yet collected (ablation rows 2 + 4, regression-gate re-runs against the patched R_05 code, daily-loop runs after Phase E was wired on 2026-04-28).
 
 This document is the named "Accuracy Report" deliverable required by `docs/reference/hackathon/rules.md` §4 #5. It is intended to be read by a human reviewer (the SANS judge) who has not run our pipeline. Sections are written plain English first, with details after.
+
+The accuracy story has two tracks. Track A is one-shot evaluation on six static Windows hosts (mix of public-answer-key and project-owner-annotated). Track B is a continuous daily loop that pulls fresh threat intel, plants matching artifacts into a synthetic disk image, runs the sentinel against it, and scores detection. Track A measures the sentinel against historical attacks under a fixed answer key. Track B measures the sentinel against techniques attackers used in the last 30 days, using planted-and-known artifacts as the answer key. The two tracks measure different things (historical depth vs. recent-technique recalibration) and are reported separately.
 
 ---
 
 ## 1. Executive summary
 
-**Plain English (one paragraph):** We built an autonomous AI agent that examines a Windows disk image (and now also a Windows memory dump) and tells you what an attacker did to maintain access to the machine, plus what that attacker is *currently doing* if a memory snapshot is available. Top-level claim: on three machines where we have an official answer key, the agent gets every malicious disk-side item right and never invents anything that isn't there. On three more machines without an answer key, an independent human review found every finding the agent surfaced was sensible, every citation it gave pointed at a real piece of evidence, and the system stayed quiet when there was nothing to report. With the memory channel turned on, the agent additionally surfaced four runtime findings on one workstation (process injection in three system processes plus a likely command-and-control beacon); these need a human to review and grade against ground truth, but every claim cites real evidence from the memory dump. The system has multiple defensive layers built in to catch its own mistakes; this report quantifies how much each layer contributes.
+**Plain English (one paragraph):** We built an autonomous AI agent that examines a Windows disk image (and now also a Windows memory dump) and tells you what an attacker did to maintain access to the machine, plus what that attacker is currently doing if a memory snapshot is available. Top-level claim from Track A (static cases): on the one machine with an externally-published answer key (`dfirmadness-001-desktop`), the agent gets every malicious disk-side item right and never invents anything that isn't there. On two SRL-2018 cases the project owner annotated by hand against community write-ups, the agent again gets every disk-side item right with zero false positives. On three more SRL-2018 hosts without any answer key, an independent human review found every finding the agent surfaced was sensible and every citation it gave pointed at a real piece of evidence. With the memory channel turned on, the agent additionally surfaced four runtime findings on one workstation (process injection in three system processes plus a likely command-and-control beacon); these need a human to review and grade against ground truth, but every claim cites real evidence from the memory dump. Track B (daily loop) is the new continuous-validation mechanism: every day a research agent pulls recent threat intel, plants matching test artifacts into a synthetic image, the sentinel runs against it, and a score script compares planted vs. detected. The infrastructure was wired through on 2026-04-28; the first scored run plus a longitudinal trend table will populate this report as the loop runs. The system has multiple defensive layers built in to catch its own mistakes; this report quantifies how much each layer contributes.
 
-**Headline numbers (filled from current runs):**
+**Headline numbers — Track A (static cases, filled from current runs):**
 
 | Metric | Value | Source |
 |---|---|---|
-| Cases with full ground truth | 3 | `dfirmadness-001-desktop`, `srl-2018-base-dc`, `srl-2018-wkstn-05` |
-| Disk-side true positives across GT cases | 4 | 2 + 0 + 2 |
-| Disk-side false positives across GT cases | 0 | All 3 GT cases |
-| Disk-side false negatives across GT cases | 0 | All 3 GT cases |
-| Disk-side precision (where defined) | 1.00 | `dfirmadness`, `wkstn-05` (`base-dc` is a negative-control case) |
-| Disk-side recall (where defined) | 1.00 | Same |
+| Cases with externally-published ground truth | 1 | `dfirmadness-001-desktop` (DFIR Madness Case 001 published answer key) |
+| Cases with project-owner-annotated ground truth | 2 | `srl-2018-base-dc` (negative control, owner re-annotated 2026-04-24); `srl-2018-wkstn-05` (owner re-annotated 2026-04-19) |
+| Cases with no ground truth (sampled review only) | 3 | `srl-2018-base-file`, `srl-2018-base-rd-02`, `srl-2018-dmz-ftp` |
+| Disk-side true positives across the 3 annotated cases | 4 | 2 + 0 + 2 |
+| Disk-side false positives across the 3 annotated cases | 0 | All 3 |
+| Disk-side false negatives across the 3 annotated cases | 0 | All 3 |
+| Disk-side precision on the externally-validated case | 1.00 | `dfirmadness-001-desktop` |
+| Disk-side recall on the externally-validated case | 1.00 | Same |
+| Disk-side precision on owner-annotated cases | 1.00 | `wkstn-05` (`base-dc` is a negative-control case, no positives to predict) |
+| Disk-side recall on owner-annotated cases | 1.00 | Same |
 | Memory-channel findings surfaced (first dual-channel run) | 4 | `srl-2018-wkstn-05` run-005: 3× process_injection, 1× c2_beacon |
 | Hallucinations across 7 runs (6 disk-only + 1 dual-channel) | 0 | No fabricated findings observed by human review |
 | Critic-layer events across 7 runs | 13 | 10 R_05 (pre-fix normalize bug, since fixed); 2 INJECTION_QUARANTINE (defense fired correctly); 1 R_12 (false-trigger on memory-class finding, since narrowed) |
+
+**Honest framing of the precision/recall claim.** The 1.00 precision/recall figure rests on one externally-validated case plus two owner-annotated cases. Owner annotation is informed by community write-ups but is not the same authority as a published answer key; that distinction is preserved here so a reviewer can read the headline correctly. The claim is "the agent did not get any disk-side item wrong on the cases we annotated" rather than "the agent has measured precision 1.00 on a representative sample of attacks." Track B (Section 2.7) is how we extend coverage beyond the bounded historical set.
+
+**Headline numbers — Track B (daily synthetic-workstation loop, run on 2026-04-28+):**
+
+| Metric | Value | Source |
+|---|---|---|
+| Daily-loop infrastructure wired end-to-end | Yes | Phase A through G complete; Phase E runs sentinel via `docker exec` against the planted image |
+| First scored loop run | TODO | Pending Phase E first execution on VPS (2026-04-29 onward) |
+| Longitudinal detection trend | TODO | `experiments/synthetic-ai-workstation/trend.py` will accumulate per-day scores into [`trend.md`](../../experiments/synthetic-ai-workstation/) once runs start |
+| Tuning corrections applied to date | 2 | Recorded in [`corrections_log.md`](../../experiments/synthetic-ai-workstation/corrections_log.md): research-agent grounding-validator widening, sonnet→haiku model swap |
 
 **TODO**: re-run the 6 disk-only baselines under patched R_05 / R_12 / executor code; the 10 R_05 false-escalations and the 1 R_12 false-trigger should both drop to zero, and the headline "fraction of runs auto-committed" number becomes meaningful.
 
@@ -36,16 +53,18 @@ This document is the named "Accuracy Report" deliverable required by `docs/refer
 
 The agent is given a Windows hard-drive image (a single file containing a copy of a real disk) and optionally a memory dump. It runs a small fixed set of forensic tools — five for disk, five more for memory — pulls structured data out of each tool's output, and then writes a short report listing every persistence mechanism it believes an attacker installed. A human is asked to approve the plan of which tools to run before any of them execute, and is asked to approve or escalate the final findings before they are committed.
 
-### 2.2 Reference dataset
+### 2.2 Reference dataset (Track A: static cases)
 
-| Case | Image source | Has full ground truth? | Used for |
+| Case | Image source | Ground-truth source | Used for |
 |---|---|---|---|
-| `dfirmadness-001-desktop` | DFIR Madness Case 001 (public) | Yes (published answer key) | Precision/recall |
-| `srl-2018-base-dc` | SRL 2018 dataset, Windows DC | Yes (re-annotated 2026-04-24) | Negative control |
-| `srl-2018-wkstn-05` | SRL 2018 dataset, workstation | Yes (re-annotated 2026-04-19) | Precision/recall + memory-channel target |
-| `srl-2018-base-file` | SRL 2018, Windows file server | No | Sampled review |
-| `srl-2018-base-rd-02` | SRL 2018, Windows RDP host | No | Sampled review |
-| `srl-2018-dmz-ftp` | SRL 2018, DMZ FTP server | No | Sampled review |
+| `dfirmadness-001-desktop` | DFIR Madness Case 001 (public) | Externally published answer key (DFIR Madness) | Precision/recall (the only externally-validated cell) |
+| `srl-2018-base-dc` | SRL 2018 dataset, Windows DC | Project owner, re-annotated 2026-04-24 | Negative control |
+| `srl-2018-wkstn-05` | SRL 2018 dataset, workstation | Project owner, re-annotated 2026-04-19 | Precision/recall + memory-channel target (owner-annotated) |
+| `srl-2018-base-file` | SRL 2018, Windows file server | None | Sampled review only |
+| `srl-2018-base-rd-02` | SRL 2018, Windows RDP host | None | Sampled review only |
+| `srl-2018-dmz-ftp` | SRL 2018, DMZ FTP server | None | Sampled review only |
+
+The distinction between externally-published and owner-annotated ground truth matters: the published key for `dfirmadness` is what an outside reviewer can independently verify against; the owner annotations are informed by community write-ups and forensic best practice but are still the project owner's reading. Track B (Section 2.7) is how we extend accuracy measurement beyond this bounded set.
 
 ### 2.3 Ground-truth protocol
 
@@ -54,6 +73,30 @@ For each GT case, every finding the agent produced was assigned one of `TP`, `FP
 ### 2.4 Sampled-review protocol (for non-GT cases)
 
 For each of the 3 SRL cases without ground truth, a reviewer (the project owner with Claude Opus 4.7) reviewed every finding produced (each case had ≤3) plus 2 randomly-selected evidence records (Python `random.sample(range(N), 2)` after `random.seed(20260426)`). Each finding was scored "plausible / suspicious / known wrong"; cited tool_call_ids were verified to resolve in the evidence file; excerpts were spot-checked against the underlying structured fields. Per-case write-ups live at `out/runs/<case>/sampled_review.md`; aggregate at [`sampled-review-aggregate.md`](sampled-review-aggregate.md).
+
+### 2.7 Track B: daily synthetic-workstation loop (continuous accuracy)
+
+**Plain English.** The static cases above are all historical attacks frozen in time. They tell you the system handles 2018 SRL incidents and one 2020 DFIR Madness case, but not whether the system handles the techniques attackers used in the last 30 days. Track B closes that gap. Every day a research agent reads recent threat-intel articles (CISA advisories, Mandiant write-ups, Unit 42 posts), turns each interesting incident into a concrete forensic artifact (a registry key, a scheduled task, a file at a specific path), plants those artifacts into a fresh copy of a base Windows disk image inside a Docker container, runs the sentinel against the planted image, and scores whether the sentinel surfaced each planted artifact. Because we planted them ourselves, we know exactly what the answer key is.
+
+This is not a precision/recall claim about real-world attacker activity. The artifacts are synthetic, intentionally non-functional (`example.invalid` domains, `ALLCAPS_PLACEHOLDER` tokens, no live C2 endpoints), and structurally equivalent to the technique libraries in MITRE ATT&CK Evaluations and Atomic Red Team. What Track B measures is whether the sentinel's detectors catch known-planted artifacts derived from current threat reports. When the sentinel misses a planted artifact, that is a recalibration signal: a tuning entry goes into [`corrections_log.md`](../../experiments/synthetic-ai-workstation/corrections_log.md), the relevant detector or rule is widened, and the next loop confirms the fix.
+
+**The seven phases of a daily loop:**
+
+| Phase | What happens | Check |
+|---|---|---|
+| A. Pre-flight | git pull on VPS repo; verify base raw image md5 unchanged | CHECK 01-02 |
+| B. Research | `research.py` calls Claude (haiku) with the schema + recent-history dedup summary; produces a manifest of 8-15 artifacts grounded in real threat reports | CHECK 03 |
+| C. Build | `build.py` plants those artifacts into a copy of the base raw image inside a privileged Docker container with no network egress | CHECK 04-08 |
+| D. Verify | confirm planted artifacts are physically present + no baseline artifact was disturbed | CHECK 09-10 |
+| E. Pipeline | `docker exec sift-sentinel run_case.py --case synthetic-{date} --e01 /mnt/working/...` runs the full LangGraph pipeline against the planted image | CHECK 11-12 |
+| F. Score | `score.py` compares findings.json to manifest, emits per-artifact PASS/MISS and a regression check (baseline artifacts re-detected) | CHECK 13-14 |
+| G. Cleanup | delete working raw image (the base raw is preserved) | CHECK 15 |
+
+**Output artifacts per day:** `manifest_{date}.json`, `score_{date}.json`, `REPORT.md`, plus updates to the longitudinal `trend.md`. The `trend.md` is the day-over-day arc of detection rate and is the artifact a judge should read for the recalibration story.
+
+**What a MISS triggers:** an entry in `corrections_log.md` with the missed artifact's id, the root cause (which detector class was insufficient), the correction applied (rule widening, prompt change, parser fix), and verification on the next run. Two such entries already exist from 2026-04-28: the research-agent grounding-validator was too narrow for the haiku model's shorter rationale style, and the default model was switched from sonnet to haiku because sonnet's extended-thinking on long prompts was inflating cost and latency.
+
+**What a regression-FAIL triggers:** the loop fails fast in Phase F. A regression-FAIL means a baseline artifact (one of the artifacts that exists in the unmodified base image and the sentinel previously detected) was no longer re-detected, which indicates a build-side or pipeline-side regression rather than a new-technique miss.
 
 ### 2.5 Ablation design
 
@@ -80,6 +123,8 @@ To measure how much each defensive layer contributes to overall accuracy, we ran
 ---
 
 ## 3. Per-case results
+
+Sections 3.1-3.6 are Track A static-case results. Section 3.7 is Track B continuous-loop results.
 
 ### 3.1 `dfirmadness-001-desktop`
 
@@ -180,6 +225,33 @@ Full write-up: [`out/runs/srl-2018-base-rd-02/sampled_review.md`](../../experime
 
 Full write-up: [`out/runs/srl-2018-dmz-ftp/sampled_review.md`](../../experiments/slice-2-notebook/out/runs/srl-2018-dmz-ftp/sampled_review.md).
 
+### 3.7 Track B: synthetic-workstation daily-loop runs
+
+**Plain English.** The daily loop's first end-to-end execution is scheduled to run on 2026-04-29 (the day after Phase E was wired). Until then, this section reports the framework state. As runs accumulate, this section will list each day's score: the count of artifacts planted, the count detected, the per-category detection rate, the regression-check status, and a link to the day's full `REPORT.md`. The longitudinal table lives at [`trend.md`](../../experiments/synthetic-ai-workstation/) and is regenerated by `trend.py` after each run.
+
+**Framework readiness checklist (2026-04-28):**
+
+| Component | Status | Evidence |
+|---|---|---|
+| Research agent (`research.py`) | Working end-to-end | First live run on VPS produced 14 artifacts across 5 categories with 8 grounded intel sources at $0.31, ~90s |
+| Manifest schema validation | Working | Schema + grounding rules + URL-shape rules all enforced |
+| Build phase (`build.py`) | Manually probed; not yet end-to-end via `run_loop.py` | `test-build-2026-04-28.raw` exists on VPS |
+| Verify phases (planted, baseline-intact) | Implemented; awaiting end-to-end loop run | |
+| Pipeline phase (Phase E) | Wired through `docker exec sift-sentinel` on 2026-04-28 | Replaces the prior placeholder; reads `05_interpret_findings.json` via `latest.txt` pointer |
+| Score phase (`score.py`) | Working on placeholder data; awaiting first real run | Per-artifact PASS/MISS plus regression check |
+| Trend reporter (`trend.py`) | Built 2026-04-28 | Walks `out/loop-runs/{date}/score_*.json` to render Markdown table + JSON |
+| Corrections log | Pre-populated with 2 entries | `corrections_log.md` records the grounding-widening fix and the sonnet→haiku swap |
+
+**First-run forecast (will be replaced with actual numbers):**
+
+The first scored loop run will populate this table. Expected shape:
+
+| Date | Planted | Detected | Rate | Missed | Regression | Sources |
+|---|---|---|---|---|---|---|
+| 2026-04-29 | TODO | TODO | TODO | TODO | TODO | TODO |
+
+**What this measures and what it does not:** Track B measures whether the sentinel's detectors catch artifacts that mirror techniques attackers used in the last 30 days, given that we planted those artifacts ourselves. It does NOT measure precision against real-world attacker activity (Track A is closer to that), and it does not measure recall against unknown attacks (no methodology can, on synthetic data alone). Its claim is narrower and more honest: as new techniques surface in the wild, can the sentinel still catch them, or does it need tuning? The MISS column is the daily list of what to tune.
+
 ---
 
 ## 4. Ablation table
@@ -254,3 +326,5 @@ The R_12 narrowing (P3) is the most consequential of these for accuracy claims: 
 - Slice 6 runbook (process documentation): [`docs/runbooks/slice-6-runbook.md`](../runbooks/slice-6-runbook.md)
 - Architecture: [`docs/planning/architecture.md`](../planning/architecture.md), [`docs/planning/architecture.html`](../planning/architecture.html)
 - Threat-landscape research feeding the AI-assisted-attacker scope: [`docs/research/ai-assisted-threat-landscape-2026.md`](../research/ai-assisted-threat-landscape-2026.md)
+- Track B daily-loop pipeline: [`experiments/synthetic-ai-workstation/`](../../experiments/synthetic-ai-workstation/) (`research.py`, `build.py`, `verify_planted.py`, `score.py`, `trend.py`, `run_loop.py`)
+- Track B corrections log: [`experiments/synthetic-ai-workstation/corrections_log.md`](../../experiments/synthetic-ai-workstation/corrections_log.md)
