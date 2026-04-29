@@ -88,11 +88,20 @@ class CriticContext:
     positional is correct and simple.
     """
 
-    def __init__(self, tool_plan: ToolPlan, evidence: list[EvidenceRecord]):
+    def __init__(
+        self,
+        tool_plan: ToolPlan,
+        evidence: list[EvidenceRecord],
+        candidates=None,  # Optional[Candidates] — kept untyped at signature to avoid a circular import; R_17 uses .candidates list if present.
+    ):
         self.tool_plan = tool_plan
         self.evidence: dict[str, EvidenceRecord] = {
             ev.tool_call_id: ev for ev in evidence
         }
+        # 2026-04-29: candidates from EXTRACT, used by R_17 plan-coverage.
+        # Optional so pre-R_17 callers (existing tests, slim probes) keep
+        # working; rules that need it must None-check.
+        self.candidates = candidates
         self._plan_step_by_tcid: dict[str, PlannedStep] = {}
         for i, ev in enumerate(evidence):
             if i < len(tool_plan.steps):
@@ -564,11 +573,84 @@ def R_15(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     )
 
 
+# ---- R_17 plan-coverage rule (Track-B completeness layer, 2026-04-29) ----
+# Maps EXTRACT artifact_type to the tool that actually addresses that
+# artifact-class. Necessary-and-sufficient: just having a parent fls_list does
+# NOT count as covering a scheduled_task_xml candidate, because the planted
+# task XML never gets parsed without a scheduled_tasks_parse step. Same logic
+# for registry hives (icat_extract is necessary but regripper_run is what
+# turns a hive blob into structured persistence findings).
+_PLAN_COVERAGE_REQUIRED_TOOLS: dict[str, set[str]] = {
+    # Disk channel
+    "registry_hive": {"regripper_run"},
+    "service_config": {"regripper_run"},
+    "scheduled_task_xml": {"scheduled_tasks_parse"},
+    # Memory channel: each volatility plugin is invoked as `volatility_run`
+    # with a `plugin` argument; coarse mapping is acceptable here because
+    # presence of any volatility_run step indicates the memory channel was
+    # at least attempted. Per-plugin coverage (pslist vs malfind) is finer
+    # tuning and not needed today.
+    "process_anomaly": {"volatility_run"},
+    "network_connection": {"volatility_run"},
+    "injected_region": {"volatility_run"},
+    "dll_load_anomaly": {"volatility_run"},
+}
+
+
+def R_17(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
+    """Plan-coverage: every priority-1 EXTRACT candidate must map to at least
+    one PLAN step using the artifact-class tool.
+
+    This rule is the completeness counterpart to the rest of the Critic
+    registry: the existing rules validate findings the LLM produced, but
+    none of them catch the case where the planner skipped the
+    artifact-class tool entirely so the LLM never had evidence to interpret.
+
+    Live failure mode this rule catches (synthetic-2026-04-29 run-002):
+    EXTRACT produced a priority-1 candidate `scheduled_task_xml` pointing
+    at C:\\Windows\\System32\\Tasks. The plan included `fls_list` against
+    the Tasks dir but no `scheduled_tasks_parse` step. The planted
+    RebuildSearchIndex task XML therefore never reached the LLM and the
+    artifact was missed. R_17 fires `PLAN_COVERAGE_GAP` for this case.
+
+    Backwards compat: fires only when `ctx.candidates` is set. Older
+    callers that build CriticContext without candidates (some tests, the
+    pre-Slice-6 critic_node path) get a no-op. Once those callers are
+    updated to pass candidates, R_17 becomes load-bearing.
+
+    Per-finding firing: this is a run-level gap that affects every finding
+    equally, so the rule fires once per finding and produces N identical
+    audit entries. Acceptable noise for now; can be deduped at the
+    audit-writer level later.
+    """
+    if ctx.candidates is None:
+        return None
+    plan_tools = {step.tool for step in ctx.tool_plan.steps}
+    uncovered: list[tuple[str, str]] = []
+    for cand in ctx.candidates.candidates:
+        if cand.priority != 1:
+            continue
+        required = _PLAN_COVERAGE_REQUIRED_TOOLS.get(cand.artifact_type, set())
+        if required and not (required & plan_tools):
+            uncovered.append((cand.artifact_type, cand.path_hint[:80]))
+    if not uncovered:
+        return None
+    return RuleFailure(
+        rule_id="R_17",
+        code="PLAN_COVERAGE_GAP",
+        detail=(
+            f"{len(uncovered)} priority-1 EXTRACT candidate(s) had no plan "
+            f"step using the artifact-class tool; first up to 3: "
+            f"{uncovered[:3]}. Re-plan to add the missing tool calls."
+        ),
+    )
+
+
 # Rule registry + escalate-only failure codes
 # Order mirrors the rule-id numbering. R_14 is reserved for citation-gate
 # activation (mechanism lives below as parse_evidence_citations); R_15 was the
 # next unreserved slot for low-confidence auto-escalation.
-CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16]
+CRITIC_RULES = [R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16, R_17]
 ESCALATE_CODES = {
     "EXCERPT_HALLUCINATION",
     "INJECTION_FLAGGED_EVIDENCE",
@@ -577,6 +659,7 @@ ESCALATE_CODES = {
     "CANARY_LEAK",               # interpret_node boundary-leak tripwire
     "UNCITED_CLAIM",             # R_14 mechanism landed 2026-04-24; activation deferred
     "LOW_CONFIDENCE_AUTO_ESCALATE",  # R_15 — Slice 6 Step 3 L3 rubric enforcement
+    "PLAN_COVERAGE_GAP",         # R_17 — Track-B completeness layer; priority-1 candidate had no matching plan step
 }
 
 

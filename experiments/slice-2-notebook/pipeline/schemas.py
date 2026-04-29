@@ -306,6 +306,7 @@ RuleId = Literal[
     # R_14 reserved for citation-gate activation (mechanism landed 2026-04-24; see critic.py)
     'R_15',  # Low-confidence auto-escalation — added 2026-04-24 Slice 6 Step 3
     'R_16',  # AI-assisted anchor check — added 2026-04-24 Slice 6 Step 3b
+    'R_17',  # Plan-coverage — added 2026-04-29 Track-B completeness layer
 ]
 FailureCode = Literal[
     'EVID_UNRESOLVED', 'PATH_INCONSISTENCY', 'TOOL_MISMATCH',
@@ -320,6 +321,7 @@ FailureCode = Literal[
     'UNCITED_CLAIM',               # R_14 (mechanism landed, activation deferred) — Finding.notes lacks inline [ev:<id>] citation(s), or cites a tool_call_id not in this run's bundle
     'LOW_CONFIDENCE_AUTO_ESCALATE',# R_15 — any finding at confidence=low auto-routes to human_review (see CONFIDENCE_RUBRIC)
     'AI_ASSIST_ANCHOR_MISSING',    # R_16 — classification=attacker_persistence_ai_assisted but no concrete AI-artifact anchor (LLM URL / SDK import / API-key env var) in cited evidence
+    'PLAN_COVERAGE_GAP',           # R_17 — priority-1 EXTRACT candidate not addressed by any plan step using the artifact-class tool (e.g. scheduled_task_xml candidate but no scheduled_tasks_parse step)
 ]
 
 class RuleFailure(BaseModel):

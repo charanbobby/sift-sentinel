@@ -1855,7 +1855,11 @@ def critic_node(state: "PipelineState") -> dict:
     current_hash = plan_hash(state.tool_plan)
     plan_already_failed = current_hash in state.failed_plan_hashes
 
-    ctx = CriticContext(state.tool_plan, state.evidence)
+    # 2026-04-29: pass candidates so R_17 plan-coverage rule can compare the
+    # priority-1 EXTRACT candidates against the plan's tool steps. Pre-R_17
+    # callers passed only (tool_plan, evidence); the third arg is optional
+    # and defaults to None so older test fixtures keep working.
+    ctx = CriticContext(state.tool_plan, state.evidence, state.candidates)
     results = [
         critic_evaluate(f, ctx, i)
         for i, f in enumerate(state.findings.findings)

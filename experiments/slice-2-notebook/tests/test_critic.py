@@ -17,7 +17,7 @@ from pipeline.critic import (
     AI_ASSIST_ANCHORS,
     CRITIC_RULES,
     CriticContext,
-    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16,
+    R_01, R_02, R_03, R_04, R_05, R_06, R_07, R_08, R_09, R_10, R_11, R_12, R_13, R_15, R_16, R_17,
     build_resolution,
     critic_evaluate,
 )
@@ -629,10 +629,122 @@ def test_build_resolution_retry_branch(make_plan, make_evidence, make_finding):
 # ---- critic_evaluate + full CRITIC_RULES registry -------------------------
 
 
-def test_critic_rules_registry_has_15_rules():
-    # R_01..R_13 + R_15 (low-confidence) + R_16 (AI-assist anchor).
+# ---- R_17 — PLAN_COVERAGE_GAP (Track-B completeness layer, 2026-04-29) -----
+
+
+def _make_candidates(*entries):
+    """Build a Candidates object from (artifact_type, priority) tuples.
+    Path hints and reasons are uniform placeholders since R_17 only inspects
+    artifact_type and priority."""
+    from pipeline.schemas import ArtifactCandidate, Candidates
+
+    return Candidates(
+        question="test",
+        candidates=[
+            ArtifactCandidate(
+                artifact_type=at,
+                path_hint=f"path/{at}",
+                reason=f"reason for {at}",
+                priority=pri,
+            )
+            for at, pri in entries
+        ],
+    )
+
+
+def test_R_17_bad_priority1_scheduled_task_xml_without_parser(
+    make_plan, make_evidence, make_finding,
+):
+    """Live failure mode synthetic-2026-04-29 run-002: priority-1
+    scheduled_task_xml candidate but plan only has fls_list, no
+    scheduled_tasks_parse → R_17 fires PLAN_COVERAGE_GAP."""
+    cands = _make_candidates(
+        ("registry_hive", 1),
+        ("scheduled_task_xml", 1),
+    )
+    ctx = CriticContext(
+        make_plan("fls_list", "icat_extract", "regripper_run"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    f = make_finding()
+    r = R_17(f, ctx)
+    assert r is not None
+    assert r.rule_id == "R_17"
+    assert r.code == "PLAN_COVERAGE_GAP"
+    assert "scheduled_task_xml" in r.detail
+
+
+def test_R_17_good_all_priority1_covered(
+    make_plan, make_evidence, make_finding,
+):
+    cands = _make_candidates(
+        ("registry_hive", 1),
+        ("scheduled_task_xml", 1),
+        ("service_config", 1),
+    )
+    ctx = CriticContext(
+        make_plan("fls_list", "regripper_run", "scheduled_tasks_parse"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    assert R_17(make_finding(), ctx) is None
+
+
+def test_R_17_good_candidates_none_backwards_compat(
+    make_plan, make_evidence, make_finding,
+):
+    """Pre-R_17 callers (older tests, slim probes) build CriticContext with
+    candidates=None; R_17 must be silent in that case."""
+    ctx = CriticContext(
+        make_plan("fls_list"),
+        [make_evidence("t-0", {})],
+        candidates=None,
+    )
+    assert R_17(make_finding(), ctx) is None
+
+
+def test_R_17_good_only_priority2_uncovered(
+    make_plan, make_evidence, make_finding,
+):
+    """R_17 only enforces priority-1 candidates. A priority-2 scheduled_task_xml
+    candidate without scheduled_tasks_parse must NOT fire."""
+    cands = _make_candidates(
+        ("registry_hive", 1),
+        ("scheduled_task_xml", 2),  # priority-2 → R_17 ignores
+    )
+    ctx = CriticContext(
+        make_plan("fls_list", "regripper_run"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    assert R_17(make_finding(), ctx) is None
+
+
+def test_R_17_orchestrator_routes_to_escalate(
+    make_plan, make_evidence, make_finding,
+):
+    """PLAN_COVERAGE_GAP is in ESCALATE_CODES; critic_evaluate must set
+    severity=escalate when R_17 fires."""
+    cands = _make_candidates(("scheduled_task_xml", 1))
+    ctx = CriticContext(
+        make_plan("fls_list"),
+        [make_evidence("t-0", {})],
+        candidates=cands,
+    )
+    result = critic_evaluate(make_finding(), ctx, finding_index=0)
+    assert result.severity == "escalate"
+    assert any(rf.code == "PLAN_COVERAGE_GAP" for rf in result.rules_failed)
+
+
+# ---- Registry size + clean-finding round-trip -----------------------------
+
+
+def test_critic_rules_registry_has_16_rules():
+    # R_01..R_13 + R_15 (low-confidence) + R_16 (AI-assist anchor) +
+    # R_17 (plan-coverage, Track-B completeness layer, 2026-04-29).
     # R_14 reserved for citation-gate activation.
-    assert len(CRITIC_RULES) == 15
+    assert len(CRITIC_RULES) == 16
 
 
 def test_critic_evaluate_clean_finding_passes_all_rules(
