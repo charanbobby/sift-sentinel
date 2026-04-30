@@ -138,6 +138,43 @@ def phase_a_preflight(run_dir: Path) -> None:
             check_fail(2, "base raw md5 unchanged",
                        f"expected {expected}, got {actual}")
 
+    # CHECK 02b: clean stale working raws. The /working/ volume is 49 GB on
+    # this VPS and each working raw is ~30 GB sparse + grow-on-write. Phase G
+    # always cleans up the run's own working file, but if a prior run halts
+    # before Phase G (Critic escalation, container crash, manual stop) the
+    # working file stays on disk and the next run hits "No space left on
+    # device" during cp --sparse=always. Defensive sweep: delete any *.raw in
+    # /working/ older than 6 hours OR that does not match today's filename.
+    # Runs in a tiny privileged container so we can remove root-owned files
+    # produced by previous build containers without needing host sudo.
+    info("CHECK 02b: scanning /working/ for stale raw files")
+    try:
+        # Match the synth-builder naming pattern only; ignore any other .raw
+        # files a user may have parked in /working/. -mmin +5 catches a partial
+        # from a hung run minutes ago AND any older files. The fresh working
+        # raw for THIS loop run will not exist yet (build is Phase C).
+        cleanup_cmd = (
+            "find /working -maxdepth 1 -name 'win-ops-04-*.raw' "
+            "-mmin +5 -print -delete"
+        )
+        res = run(
+            ["docker", "run", "--rm", "--network", "none",
+             "-v", f"{CFG.WORKING_DIR}:/working:rw",
+             CFG.BUILDER_IMAGE,
+             "sh", "-c", cleanup_cmd],
+            capture=True,
+        )
+        deleted = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+        if deleted:
+            check_pass(102, "stale working raws cleaned",
+                       f"deleted {len(deleted)} file(s): {[Path(p).name for p in deleted]}")
+        else:
+            check_pass(102, "stale working raws cleaned", "no stale files")
+    except subprocess.CalledProcessError as e:
+        # Soft-pass: if cleanup fails the loop still runs; Phase C will catch
+        # the genuine no-space failure with a clearer error.
+        info(f"CHECK 02b: cleanup container exit {e.returncode} (soft-pass; Phase C will catch real failures)")
+
 
 # ---------------------------------------------------------------------------
 # Phase B: research agent (CHECK 03)
