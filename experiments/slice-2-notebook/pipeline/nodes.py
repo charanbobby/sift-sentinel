@@ -363,7 +363,7 @@ def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
                 "appinitdlls":  "hive: Software — AppInit_DLLs (DLL injection into every GUI process)",
                 "imagefile":    "hive: Software — Image File Execution Options / debuggers (IFEO)",
                 "winlogon_tln": "hive: Software — Winlogon Userinit / Shell / Notify",
-                "wdigest":      "hive: System — CurrentControlSet\\Control\\SecurityProviders\\WDigest (UseLogonCredential = 1 enables Mimikatz plaintext credential extraction; classic Storm-1175 / Medusa post-exploitation prep)",
+                "securityproviders": "hive: System — CurrentControlSet\\Control\\SecurityProviders\\WDigest (UseLogonCredential = 1 enables Mimikatz plaintext credential extraction; classic Storm-1175 / Medusa post-exploitation prep)",
             },
         },
         # Slice 5 Step 6: 5th MCP tool — scheduled_tasks_parse (T1053.005).

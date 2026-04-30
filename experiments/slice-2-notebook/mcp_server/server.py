@@ -116,6 +116,7 @@ REGRIPPER_PLUGIN_ALLOWLIST: dict[str, str] = {
     "appinitdlls":   "Software",                # AppInit_DLLs
     "imagefile":     "Software",                # Image File Execution Options (IFEO debuggers)
     "winlogon_tln":  "Software",                # Winlogon Userinit / Shell / Notify
+    "securityproviders": "System",              # SecurityProviders (WDigest UseLogonCredential = Mimikatz prep)
 }
 
 
