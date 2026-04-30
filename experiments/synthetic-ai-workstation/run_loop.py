@@ -41,6 +41,8 @@ class Config:
     DERIVED_DIR     = Path("/opt/find-evil/derived")
     WORKING_DIR     = Path("/opt/find-evil/working")
     OUT_BASE        = Path("/opt/find-evil/out/loop-runs")
+    STATE_DIR       = Path("/opt/find-evil/state")
+    LOCK_FILE       = STATE_DIR / "active_run.json"
 
     BASE_E01        = SOURCE_DIR / "base-wkstn-05-cdrive.E01"
     BASE_RAW        = DERIVED_DIR / "base-wkstn-05.raw"
@@ -97,6 +99,104 @@ def md5_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Run lock: serialize concurrent loop invocations.
+# ---------------------------------------------------------------------------
+# 2026-04-30: written so two invocations of run_loop.py (e.g. cron + manual,
+# or two terminals) cannot collide on the 49 GB working volume. Also lays
+# the groundwork for the Stage-4 judge-plant-and-test UI which will share
+# this lock space (judge runs queue behind / preempt the daily loop).
+#
+# Lock format: JSON file at CFG.LOCK_FILE recording {pid, owner, started_iso,
+# phase, last_heartbeat_iso}. Stale detection: if pid does not exist OR
+# heartbeat is older than 60 minutes, the lock is broken and silently overridden.
+
+import os as _os
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if `pid` is a running process. Linux-only (signal 0 syscall)."""
+    if pid <= 0:
+        return False
+    try:
+        _os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but is owned by another UID; still alive for our purposes.
+        return True
+    return True
+
+
+def acquire_lock(owner: str = "daily-cron") -> None:
+    """Acquire the shared run lock. Halts via check_fail(99, ...) if another
+    run is in flight. Stale locks (dead pid or 60+ min heartbeat) are overridden."""
+    CFG.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if CFG.LOCK_FILE.exists():
+        try:
+            existing = json.loads(CFG.LOCK_FILE.read_text())
+        except Exception:
+            existing = {}
+        their_pid = int(existing.get("pid", 0))
+        their_owner = existing.get("owner", "?")
+        their_start = existing.get("started_iso", "?")
+        their_hb = existing.get("last_heartbeat_iso", "?")
+        # Stale check
+        is_dead = not _pid_alive(their_pid)
+        is_old_hb = False
+        try:
+            hb = datetime.datetime.fromisoformat(their_hb.replace("Z", "+00:00"))
+            age_s = (datetime.datetime.now(datetime.timezone.utc) - hb).total_seconds()
+            is_old_hb = age_s > 60 * 60  # 60 minutes
+        except Exception:
+            is_old_hb = True  # unparseable heartbeat = stale
+        if is_dead or is_old_hb:
+            info(f"override stale lock: pid={their_pid} owner={their_owner} dead={is_dead} old_hb={is_old_hb}")
+        else:
+            check_fail(99, "acquire run lock",
+                       f"another run active: pid={their_pid} owner={their_owner} "
+                       f"started={their_start} last_heartbeat={their_hb}")
+    _write_lock(owner=owner, phase="acquired")
+    info(f"run lock acquired: pid={_os.getpid()} owner={owner} file={CFG.LOCK_FILE}")
+
+
+def heartbeat_lock(phase: str) -> None:
+    """Update phase + last_heartbeat in the lock file. Silent on missing file."""
+    if not CFG.LOCK_FILE.exists():
+        return
+    try:
+        existing = json.loads(CFG.LOCK_FILE.read_text())
+    except Exception:
+        return
+    _write_lock(
+        owner=existing.get("owner", "?"),
+        phase=phase,
+        started_iso=existing.get("started_iso"),
+    )
+
+
+def release_lock() -> None:
+    """Remove the lock file. Idempotent; safe to call from finally even
+    when acquire failed."""
+    try:
+        if CFG.LOCK_FILE.exists():
+            CFG.LOCK_FILE.unlink()
+            info(f"run lock released: {CFG.LOCK_FILE}")
+    except Exception as e:
+        info(f"could not release lock {CFG.LOCK_FILE}: {e}")
+
+
+def _write_lock(*, owner: str, phase: str, started_iso: str | None = None) -> None:
+    payload = {
+        "pid": _os.getpid(),
+        "owner": owner,
+        "started_iso": started_iso or now_iso(),
+        "phase": phase,
+        "last_heartbeat_iso": now_iso(),
+    }
+    CFG.LOCK_FILE.write_text(json.dumps(payload, indent=2) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +605,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-cleanup", action="store_true",
                     help="Keep working file (debug mode)")
+    ap.add_argument("--owner", default="daily-cron",
+                    help="Lock owner identifier (e.g. daily-cron, judge-<id>). Used for the activity feed.")
     args = ap.parse_args()
 
     run_dir = CFG.OUT_BASE / today_str()
@@ -513,13 +615,27 @@ def main():
 
     started = time.time()
     working_raw: Path | None = None
+    lock_acquired = False
 
     try:
+        # Acquire the shared run lock BEFORE any expensive work. If another
+        # run is in flight (cron + manual collision, or two terminals),
+        # acquire_lock calls check_fail(99, ...) which exits cleanly without
+        # touching disk.
+        acquire_lock(owner=args.owner)
+        lock_acquired = True
+
+        heartbeat_lock("phase_a")
         phase_a_preflight(run_dir)
+        heartbeat_lock("phase_b")
         manifest_today = phase_b_research(run_dir)
+        heartbeat_lock("phase_c")
         working_raw = phase_c_build(run_dir, manifest_today)
+        heartbeat_lock("phase_d")
         phase_d_verify(run_dir, manifest_today, working_raw)
+        heartbeat_lock("phase_e")
         findings_path = phase_e_pipeline(run_dir, working_raw)
+        heartbeat_lock("phase_f")
         phase_f_score(run_dir, manifest_today, findings_path)
 
         elapsed = time.time() - started
@@ -533,6 +649,11 @@ def main():
             info(f"--no-cleanup: keeping {working_raw} (debug mode)")
         else:
             phase_g_cleanup(working_raw)
+        # Release the lock LAST so concurrent runs see Phase G finish before
+        # they unblock. Skipped if acquire failed (which means the lock was
+        # held by someone else; we must NOT remove it).
+        if lock_acquired:
+            release_lock()
 
 
 if __name__ == "__main__":
