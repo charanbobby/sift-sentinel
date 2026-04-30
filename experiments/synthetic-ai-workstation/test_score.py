@@ -249,3 +249,56 @@ def test_derive_baseline_detected_handles_missing_files(tmp_path):
     m_path = tmp_path / "no_manifest.json"
     f_path = tmp_path / "no_findings.json"
     assert derive_baseline_detected(m_path, f_path) == []
+
+
+# ---- research._file_path_is_windows_safe (path-shape gate) ----------------
+
+
+def test_path_shape_accepts_inetpub_web_shell():
+    from research import _file_path_is_windows_safe
+    ok, _ = _file_path_is_windows_safe("inetpub/wwwroot/admin.aspx")
+    assert ok is True
+
+
+def test_path_shape_accepts_program_files_path():
+    from research import _file_path_is_windows_safe
+    ok, _ = _file_path_is_windows_safe("Program Files/PaperCut MF/server/webapps/ROOT/shell.jsp")
+    assert ok is True
+
+
+def test_path_shape_accepts_users_path_with_drive_letter():
+    from research import _file_path_is_windows_safe
+    ok, _ = _file_path_is_windows_safe("C:\\Users\\developer\\AppData\\Local\\Temp\\shell.aspx")
+    assert ok is True
+
+
+def test_path_shape_rejects_linux_root_opt():
+    """Run-002: cisco_sdwan_exploitation_artifact at 'opt/cisco/sdwan/web/shell.jsp'
+    is unbuildable on a Windows NTFS image."""
+    from research import _file_path_is_windows_safe
+    ok, reason = _file_path_is_windows_safe("opt/cisco/sdwan/web/shell.jsp")
+    assert ok is False
+    assert "windows root" in reason.lower()
+
+
+def test_path_shape_rejects_path_traversal():
+    """Run-002: screenconnect_auth_bypass_attempt with literal '..\\..\\..\\..\\Windows\\System32\\config\\SAM'
+    cannot be planted; build phase resolves the relative segments."""
+    from research import _file_path_is_windows_safe
+    ok, reason = _file_path_is_windows_safe(
+        "Program Files/ConnectWise/ScreenConnect/..\\..\\..\\..\\Windows\\System32\\config\\SAM"
+    )
+    assert ok is False
+    assert "traversal" in reason.lower()
+
+
+def test_path_shape_rejects_empty_path():
+    from research import _file_path_is_windows_safe
+    ok, reason = _file_path_is_windows_safe("")
+    assert ok is False
+
+
+def test_path_shape_rejects_etc_passwd_style():
+    from research import _file_path_is_windows_safe
+    ok, _ = _file_path_is_windows_safe("etc/passwd")
+    assert ok is False

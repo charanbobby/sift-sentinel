@@ -56,6 +56,11 @@ After web search:
 
    Do NOT use registry_binary_value, file_drop_sqlite_chrome_history, or any other type.
    A file_drop that is not a web shell (wrong or missing extension) will be rejected by the validator.
+   FILE PATH SHAPE RULES (validator hard-rejects violators):
+   - Path must start with a Windows root segment: Program Files, ProgramData, Users, Windows, inetpub, Documents and Settings, or PerfLogs.
+   - Linux-style paths (opt/..., etc/..., var/..., usr/...) are rejected; this is a Windows NTFS image.
+   - Path must NOT contain `..\\` or `..` traversal segments; the build phase cannot plant traversed paths.
+   - Use forward or back slashes; both work.
    See the schema for full per-type field requirements.
 
    CONTENT RULES FOR file_drop SCRIPTS: When file_content_text contains PowerShell, batch,
@@ -502,6 +507,41 @@ _PERSISTENCE_ARTIFACT_TYPES = frozenset({
     "registry_run_key", "registry_service", "scheduled_task_xml", "file_drop",
 })
 
+# Windows-root prefixes a file_path must start with. Anything else (Linux
+# paths, /opt/..., /etc/..., etc.) cannot be planted on the Windows NTFS
+# synthetic image. 2026-04-30 incident: haiku produced
+# `cisco_sdwan_exploitation_artifact` at `opt/cisco/sdwan/web/shell.jsp`,
+# unbuildable, scored MISS.
+_WINDOWS_ROOTS = (
+    "program files", "programdata", "users", "windows", "inetpub",
+    "documents and settings", "perflogs",
+)
+
+
+def _file_path_is_windows_safe(file_path: str) -> tuple[bool, str]:
+    """Return (ok, reason). Path-shape gate for file_drop artifacts.
+
+    Rejects:
+        - empty / missing path
+        - any segment containing `..` (path traversal cannot be planted)
+        - paths whose first non-empty segment is not a Windows-root
+    """
+    if not file_path:
+        return False, "empty path"
+    # Normalise separator to /, strip leading drive letter if any.
+    norm = file_path.replace("\\", "/").lstrip("/")
+    if norm.startswith(("c:/", "C:/")):
+        norm = norm[3:]
+    segments = [s for s in norm.split("/") if s]
+    if not segments:
+        return False, "no path segments after normalisation"
+    if any(".." in s for s in segments):
+        return False, "contains '..' path traversal"
+    first = segments[0].lower()
+    if first not in _WINDOWS_ROOTS:
+        return False, f"first segment {first!r} not a Windows root {sorted(_WINDOWS_ROOTS)}"
+    return True, ""
+
 
 def validate_persistence_types(manifest: dict):
     """Strip non-persistence artifacts before downstream phases.
@@ -531,6 +571,12 @@ def validate_persistence_types(manifest: dict):
                 if ext not in _WEB_SHELL_EXTS:
                     stripped.append(
                         f"{art.get('id', '?')}: file_drop ext={ext!r} (not a web-shell extension)"
+                    )
+                    continue
+                ok, reason = _file_path_is_windows_safe(fp)
+                if not ok:
+                    stripped.append(
+                        f"{art.get('id', '?')}: file_drop path={fp!r} unbuildable: {reason}"
                     )
                     continue
             kept.append(art)
