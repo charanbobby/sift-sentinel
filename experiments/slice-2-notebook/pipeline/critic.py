@@ -685,14 +685,7 @@ def R_17(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
     """
     if ctx.candidates is None:
         return None
-    plan_tools = {step.tool for step in ctx.tool_plan.steps}
-    uncovered: list[tuple[str, str]] = []
-    for cand in ctx.candidates.candidates:
-        if cand.priority != 1:
-            continue
-        required = _PLAN_COVERAGE_REQUIRED_TOOLS.get(cand.artifact_type, set())
-        if required and not (required & plan_tools):
-            uncovered.append((cand.artifact_type, cand.path_hint[:80]))
+    uncovered = compute_uncovered_candidates(ctx.tool_plan, ctx.candidates)
     if not uncovered:
         return None
     return RuleFailure(
@@ -704,6 +697,29 @@ def R_17(finding: Finding, ctx: CriticContext) -> RuleFailure | None:
             f"{uncovered[:3]}. Re-plan to add the missing tool calls."
         ),
     )
+
+
+def compute_uncovered_candidates(tool_plan, candidates) -> list[tuple[str, str]]:
+    """Return [(artifact_type, path_hint)] for priority-1 candidates whose
+    artifact-class tool is missing from the plan. Empty list = full coverage.
+
+    Public so plan_node can run the same check at plan-time (rather than
+    relying on R_17, which is a per-finding rule and cannot fire on a 0-step
+    plan because 0 steps -> 0 evidence -> 0 findings).
+
+    Args:
+        tool_plan: ToolPlan instance (has .steps).
+        candidates: Candidates instance (has .candidates list).
+    """
+    plan_tools = {step.tool for step in tool_plan.steps}
+    out: list[tuple[str, str]] = []
+    for cand in candidates.candidates:
+        if cand.priority != 1:
+            continue
+        required = _PLAN_COVERAGE_REQUIRED_TOOLS.get(cand.artifact_type, set())
+        if required and not (required & plan_tools):
+            out.append((cand.artifact_type, cand.path_hint[:80]))
+    return out
 
 
 # Rule registry + escalate-only failure codes

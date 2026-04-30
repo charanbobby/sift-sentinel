@@ -586,6 +586,49 @@ def plan_node(state: "PipelineState") -> dict:
         _llm_cost_post("plan", model, resp.usage)
         tool_plan = _parse_json_response(resp.choices[0].message.content, ToolPlan)
 
+        # Plan-time coverage gate (run-003 incident, 2026-04-29): a 0-step plan
+        # or one missing the artifact-class tool for a priority-1 candidate
+        # produces 0 evidence -> 0 findings -> R_17 cannot fire (it is per-
+        # finding). Catch it here and retry the LLM ONCE with an explicit
+        # corrective. If still uncovered, raise so the run fails loudly rather
+        # than silently producing an empty findings file.
+        if state.candidates is not None:
+            from pipeline.critic import (
+                compute_uncovered_candidates,
+                _PLAN_COVERAGE_REQUIRED_TOOLS,
+            )
+            uncovered = compute_uncovered_candidates(tool_plan, state.candidates)
+            if uncovered:
+                missing_tools = sorted({
+                    t for at, _ in uncovered
+                    for t in _PLAN_COVERAGE_REQUIRED_TOOLS.get(at, set())
+                })
+                cov_corrective = (
+                    f"PLAN-TIME COVERAGE GAP: your previous plan had "
+                    f"{len(tool_plan.steps)} step(s) but {len(uncovered)} "
+                    f"priority-1 candidate(s) need a tool that is missing. "
+                    f"Add at least one step using each of these tools: "
+                    f"{missing_tools}. Uncovered candidates (artifact_type, "
+                    f"path_hint): {uncovered[:5]}. Re-emit the full plan."
+                )
+                messages.append({"role": "system", "content": cov_corrective})
+                _llm_cost_pre("plan_retry_coverage", model, messages)
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    extra_body=LLM_USAGE_INCLUDE,
+                )
+                _llm_cost_post("plan_retry_coverage", model, resp.usage)
+                tool_plan = _parse_json_response(resp.choices[0].message.content, ToolPlan)
+                still_uncovered = compute_uncovered_candidates(tool_plan, state.candidates)
+                if still_uncovered:
+                    raise RuntimeError(
+                        f"plan_node: coverage retry failed. Still uncovered "
+                        f"after one retry: {still_uncovered}. Plan has "
+                        f"{len(tool_plan.steps)} step(s)."
+                    )
+
         out_path = OUT_DIR / PLAN_TOOL_PLAN
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(tool_plan.model_dump_json(indent=2).encode("utf-8"))

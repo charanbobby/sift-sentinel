@@ -889,6 +889,39 @@ def test_R_17_orchestrator_routes_to_escalate(
     assert any(rf.code == "PLAN_COVERAGE_GAP" for rf in result.rules_failed)
 
 
+# ---- compute_uncovered_candidates (public helper for plan_node) -----------
+
+
+def test_compute_uncovered_candidates_returns_uncovered_priority1(make_plan):
+    """Public helper used by plan_node to gate before EXECUTE runs."""
+    from pipeline.critic import compute_uncovered_candidates
+
+    cands = _make_candidates(
+        ("registry_hive", 1),
+        ("scheduled_task_xml", 1),
+    )
+    plan = make_plan("fls_list", "regripper_run")
+    out = compute_uncovered_candidates(plan, cands)
+    assert len(out) == 1
+    assert out[0][0] == "scheduled_task_xml"
+
+
+def test_compute_uncovered_candidates_empty_when_all_covered(make_plan):
+    from pipeline.critic import compute_uncovered_candidates
+
+    cands = _make_candidates(("scheduled_task_xml", 1))
+    plan = make_plan("scheduled_tasks_parse")
+    assert compute_uncovered_candidates(plan, cands) == []
+
+
+def test_compute_uncovered_candidates_ignores_priority2(make_plan):
+    from pipeline.critic import compute_uncovered_candidates
+
+    cands = _make_candidates(("scheduled_task_xml", 2))
+    plan = make_plan("fls_list")  # missing scheduled_tasks_parse
+    assert compute_uncovered_candidates(plan, cands) == []
+
+
 # ---- Registry size + clean-finding round-trip -----------------------------
 
 
