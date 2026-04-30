@@ -452,16 +452,49 @@ def phase_f_score(run_dir: Path, manifest_path: Path, findings_path: Path) -> No
                f"all {len(score['regression']['expected'])} baseline findings re-detected")
 
 
-def phase_g_cleanup(working_raw: Path) -> None:
+def phase_g_cleanup(working_raw: Path | None = None) -> None:
+    """Always-fire cleanup. Removes the run's own working raw if known, AND
+    sweeps /working/ for any orphan win-ops-04-*.raw left by an aborted run.
+
+    Called from a finally block so it runs even when an earlier phase
+    raised SystemExit via check_fail. The sweep uses a privileged-equivalent
+    docker container so it can delete root-owned files produced by the
+    privileged builder without host sudo.
+    """
     info("=== Phase G: cleanup ===")
-    if working_raw.exists():
+    # Step 1: remove the run's own working raw if we know its path.
+    if working_raw is not None and working_raw.exists():
         try:
             working_raw.unlink()
-            check_pass(15, "cleanup", f"deleted {working_raw}")
+            info(f"removed run's working raw: {working_raw}")
         except Exception as e:
-            check_fail(15, "cleanup", str(e))
-    else:
-        check_pass(15, "cleanup", "no working file to delete")
+            info(f"could not unlink {working_raw}: {e} (will rely on sweep)")
+    # Step 2: defensive sweep of /working/ for any orphan win-ops-04-*.raw.
+    # Catches: files left by a hung build, files we could not unlink in step 1
+    # (root-owned), partial files from a crashed run.
+    try:
+        cleanup_cmd = (
+            "find /working -maxdepth 1 -name 'win-ops-04-*.raw' "
+            "-print -delete"
+        )
+        res = run(
+            ["docker", "run", "--rm", "--network", "none",
+             "-v", f"{CFG.WORKING_DIR}:/working:rw",
+             CFG.BUILDER_IMAGE,
+             "sh", "-c", cleanup_cmd],
+            capture=True,
+        )
+        deleted = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+        if deleted:
+            check_pass(15, "cleanup",
+                       f"sweep removed {len(deleted)} working raw(s): "
+                       f"{[Path(p).name for p in deleted]}")
+        else:
+            check_pass(15, "cleanup", "no working raws on disk")
+    except subprocess.CalledProcessError as e:
+        # Soft-pass: sweep failure is logged but does not change overall loop status.
+        info(f"cleanup sweep container exit {e.returncode} (soft-pass)")
+        check_pass(15, "cleanup", f"sweep exit {e.returncode} (soft-pass)")
 
 
 # ---------------------------------------------------------------------------
@@ -479,20 +512,27 @@ def main():
     info(f"loop run dir: {run_dir}")
 
     started = time.time()
+    working_raw: Path | None = None
 
-    phase_a_preflight(run_dir)
-    manifest_today = phase_b_research(run_dir)
-    working_raw = phase_c_build(run_dir, manifest_today)
-    phase_d_verify(run_dir, manifest_today, working_raw)
-    findings_path = phase_e_pipeline(run_dir, working_raw)
-    phase_f_score(run_dir, manifest_today, findings_path)
-    if not args.no_cleanup:
-        phase_g_cleanup(working_raw)
-    else:
-        info(f"--no-cleanup: keeping {working_raw}")
+    try:
+        phase_a_preflight(run_dir)
+        manifest_today = phase_b_research(run_dir)
+        working_raw = phase_c_build(run_dir, manifest_today)
+        phase_d_verify(run_dir, manifest_today, working_raw)
+        findings_path = phase_e_pipeline(run_dir, working_raw)
+        phase_f_score(run_dir, manifest_today, findings_path)
 
-    elapsed = time.time() - started
-    info(f"=== LOOP COMPLETE in {elapsed:.1f}s ===")
+        elapsed = time.time() - started
+        info(f"=== LOOP COMPLETE in {elapsed:.1f}s ===")
+    finally:
+        # ALWAYS run cleanup. The synth-builder's working raw is ~30 GB and the
+        # /working/ volume on VPS is 49 GB; one orphan blocks the next run. The
+        # finally block fires on success, on check_fail SystemExit, and on
+        # KeyboardInterrupt. --no-cleanup is debug-only and skips Phase G.
+        if args.no_cleanup:
+            info(f"--no-cleanup: keeping {working_raw} (debug mode)")
+        else:
+            phase_g_cleanup(working_raw)
 
 
 if __name__ == "__main__":
