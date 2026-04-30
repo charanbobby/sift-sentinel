@@ -97,6 +97,11 @@ CONFIDENCE_RUBRIC: dict[str, str] = {
 PersistenceCategory = Literal[
     "registry_run_key", "service", "scheduled_task",
     "ifeo_debugger", "appinit_dll", "logon_script",
+    # 2026-04-29 Track-B addition: web shells are MITRE T1505.003 (Server
+    # Software Component: Web Shell), a first-class persistence sub-technique.
+    # Added so manifest items like Cisco SD-WAN / ScreenConnect / IIS web-shell
+    # drops can be classified instead of being scored as misses.
+    "web_shell",
     "NOT_FOUND",
 ]
 
@@ -129,6 +134,7 @@ ATTACK_MAPPING: dict[str, tuple[str | None, str | None]] = {
     "ifeo_debugger":    ("T1546.012", "Image File Execution Options Injection"),
     "appinit_dll":      ("T1546.010", "AppInit DLLs"),
     "logon_script":     ("T1037.001", "Logon Script"),
+    "web_shell":        ("T1505.003", "Server Software Component: Web Shell"),
     "NOT_FOUND":        (None, None),
 }
 ATTACK_TACTIC_ID = "TA0003"

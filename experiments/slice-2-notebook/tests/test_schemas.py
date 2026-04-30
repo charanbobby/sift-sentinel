@@ -48,7 +48,7 @@ def test_persistence_category_literal():
     from pipeline.schemas import PersistenceCategory
     vals = set(get_args(PersistenceCategory))
     assert {"registry_run_key", "service", "scheduled_task", "ifeo_debugger",
-            "appinit_dll", "logon_script", "NOT_FOUND"} == vals
+            "appinit_dll", "logon_script", "web_shell", "NOT_FOUND"} == vals
 
 
 def test_classification_literal():

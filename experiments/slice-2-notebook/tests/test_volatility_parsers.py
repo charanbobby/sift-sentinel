@@ -141,12 +141,13 @@ def test_parse_volatility_unknown_plugin_raises_validation_error():
 
 
 def test_parse_volatility_empty_stdout_returns_empty():
-    result, status = parse_volatility(b"", "pslist", "Win7SP1x64")
+    # malfind/netscan legitimately return zero results; pslist does not
+    result, status = parse_volatility(b"", "malfind", "Win7SP1x64")
     assert status == "empty"
 
 
 def test_parse_volatility_only_warnings_returns_empty():
-    result, status = parse_volatility(VOL_WARNINGS.encode("utf-8"), "pslist", "Win7SP1x64")
+    result, status = parse_volatility(VOL_WARNINGS.encode("utf-8"), "malfind", "Win7SP1x64")
     assert status == "empty"
 
 
