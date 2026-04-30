@@ -787,6 +787,12 @@ File-drop staging locations (use artifact_type=file_drop; reach via fls_list of 
 - Users\\Public\\ — world-writable; attackers stage hidden tooling here, especially under leading-dot subdirs (e.g. Users\\Public\\.tools).
 - Users\\<username>\\AppData\\Roaming\\.huggingface\\, AppData\\Local\\hf-cache\\ — AI-attacker tradecraft: cached HuggingFace tokens and prompt-history JSONL files indicate on-host LLM inference for adversary command generation (PROMPTFLUX / PromptSteal / QuietVault pattern).
 - Any .venv\\Lib\\site-packages\\huggingface_hub\\ or sibling AI-SDK package paths under user-writable dirs — hidden Python virtualenvs with AI tooling are a known concealment pattern.
+
+Web-shell drop locations (use artifact_type=file_drop with web-shell extensions: .aspx, .asp, .jsp, .jspx, .php, .cfm; MITRE T1505.003):
+- inetpub\\wwwroot\\ — IIS default document root. Any .aspx / .asp dropped here is server-side executable on HTTP request. List this whenever the host could plausibly run IIS (default install or vendor-bundled).
+- Program Files\\<vendor>\\ subtrees that contain web-server content directories — vendor products with embedded webapps (PaperCut: server\\webapps\\ROOT, ConnectWise ScreenConnect: webserver, Dell KACE: admin web, JetBrains TeamCity: webapps, Synacor Zimbra: jetty\\webapps) are common post-exploitation web-shell targets when the vendor product is RCE-vulnerable.
+- Tomcat-style webapps\\ROOT\\ subdirectories under any Java app server install — JSP shells dropped here run with the app-server service account.
+- Note: list these as candidates only at priority-2 or priority-3 unless EXTRACT has positive evidence the host runs IIS or a vendor webapp (e.g. fsstat showed an inetpub directory; a service like W3SVC or a vendor RMM service was visible).
 {host_guidance}{channel_guidance}
 
 Rules:
