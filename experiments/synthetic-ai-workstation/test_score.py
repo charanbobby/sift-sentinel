@@ -1,0 +1,191 @@
+"""Unit tests for score.py matcher.
+
+Run with: python3 -m pytest experiments/synthetic-ai-workstation/test_score.py
+or, from this directory: pytest test_score.py
+
+Covers the 2026-04-30 over-matching fix. Pre-fix, any locator substring match
+counted as detection, so registry_run_key with value_data="1" matched anything
+containing the digit "1" (run-002 false positive on medusa_wdigest_credential_cache).
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+# score.py lives next to this test file
+sys.path.insert(0, str(Path(__file__).parent))
+from score import find_artifact_in_findings, _artifact_match_locator
+
+
+# ---- helpers ---------------------------------------------------------------
+
+
+def _finding_blob(d: dict) -> str:
+    """Findings are dicts; the matcher takes JSON-serialized strings."""
+    return json.dumps(d)
+
+
+# ---- _artifact_match_locator (per-type discriminator selection) -----------
+
+
+def test_match_locator_run_key_uses_value_name():
+    art = {
+        "type": "registry_run_key",
+        "key_path": "Microsoft\\Windows\\CurrentVersion\\Run",
+        "value_name": "SystemService",
+        "value_data": "C:\\ProgramData\\system_svc.exe",
+    }
+    assert _artifact_match_locator(art) == "SystemService"
+
+
+def test_match_locator_service_uses_service_name():
+    art = {
+        "type": "registry_service",
+        "service_name": "SimpleHelpRemoteService",
+        "service_image_path": "C:\\Program Files\\SimpleHelp\\simmgr.exe",
+    }
+    assert _artifact_match_locator(art) == "SimpleHelpRemoteService"
+
+
+def test_match_locator_scheduled_task_uses_install_path():
+    art = {
+        "type": "scheduled_task_xml",
+        "task_install_path": "Microsoft\\Windows\\MSBuildCheck",
+    }
+    assert _artifact_match_locator(art) == "Microsoft\\Windows\\MSBuildCheck"
+
+
+def test_match_locator_file_drop_uses_file_path():
+    art = {"type": "file_drop", "file_path": "inetpub/wwwroot/shell.aspx"}
+    assert _artifact_match_locator(art) == "inetpub/wwwroot/shell.aspx"
+
+
+def test_match_locator_unknown_type_returns_none():
+    art = {"type": "registry_binary_value_v2_speculative"}
+    assert _artifact_match_locator(art) is None
+
+
+# ---- find_artifact_in_findings: regression cases for over-match bug -------
+
+
+def test_over_match_wdigest_value_data_one_does_not_match_unrelated():
+    """Pre-fix bug: medusa_wdigest_credential_cache had value_data='1'.
+    Any finding containing the digit '1' was incorrectly marked detected.
+    Fix: only the value_name discriminator is checked, and locators below
+    _MIN_LOCATOR_LEN are rejected."""
+    wdigest = {
+        "type": "registry_run_key",
+        "key_path": "CurrentControlSet\\Control\\SecurityProviders\\WDigest",
+        "value_name": "UseLogonCredential",
+        "value_data": "1",
+    }
+    unrelated_finding = _finding_blob({
+        "category": "registry_run_key",
+        "value": "C:\\ProgramData\\system_svc.exe",
+        "evidence": [{"output_excerpt": "value_name: SystemService"}],
+    })
+    detected, _ = find_artifact_in_findings(wdigest, [unrelated_finding])
+    assert detected is False, "wdigest must not over-match a system_svc finding"
+
+
+def test_run_key_matches_when_value_name_present():
+    art = {
+        "type": "registry_run_key",
+        "key_path": "Microsoft\\Windows\\CurrentVersion\\Run",
+        "value_name": "SystemService",
+        "value_data": "C:\\ProgramData\\system_svc.exe",
+    }
+    finding = _finding_blob({
+        "category": "registry_run_key",
+        "evidence": [{"output_excerpt": "value_name: SystemService, value_data: ..."}],
+    })
+    detected, excerpt = find_artifact_in_findings(art, [finding])
+    assert detected is True
+    assert excerpt is not None and "SystemService" in excerpt
+
+
+def test_run_key_misses_when_value_name_absent():
+    art = {
+        "type": "registry_run_key",
+        "key_path": "Microsoft\\Windows\\CurrentVersion\\Run",
+        "value_name": "VeryUniqueArtifactName",
+        "value_data": "C:\\Some\\Path",
+    }
+    # Finding mentions same key_path but different value_name; no match.
+    finding = _finding_blob({
+        "category": "registry_run_key",
+        "evidence": [{"output_excerpt": "Microsoft\\Windows\\CurrentVersion\\Run other entry"}],
+    })
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is False
+
+
+def test_short_locator_rejected_below_min_length():
+    """value_name='Run' is shorter than 4 chars; matcher must refuse to
+    pretend any finding containing 'Run' (most run_key findings) detected
+    this artifact."""
+    art = {
+        "type": "registry_run_key",
+        "key_path": "Microsoft\\Windows\\CurrentVersion\\Run",
+        "value_name": "Run",
+        "value_data": "C:\\evil.exe",
+    }
+    finding = _finding_blob({"category": "registry_run_key", "value": "anything Run-related"})
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is False
+
+
+# ---- file_drop slash-form bridging ----------------------------------------
+
+
+def test_file_drop_forward_slash_matches_backslash_finding():
+    """Manifest stores file_path with /; findings emit JSON-escaped Windows
+    paths with \\. The matcher tries both forms."""
+    art = {"type": "file_drop", "file_path": "inetpub/wwwroot/shell.aspx"}
+    finding = _finding_blob({
+        "value": "C:\\inetpub\\wwwroot\\shell.aspx",
+    })
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is True
+
+
+def test_file_drop_misses_unrelated_path():
+    art = {"type": "file_drop", "file_path": "inetpub/wwwroot/shell.aspx"}
+    finding = _finding_blob({"value": "C:\\Users\\evil\\notes.txt"})
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is False
+
+
+# ---- service matching -----------------------------------------------------
+
+
+def test_service_matches_on_service_name():
+    art = {
+        "type": "registry_service",
+        "service_name": "SimpleHelpRemoteService",
+        "service_image_path": "C:\\Program Files\\SimpleHelp\\simmgr.exe",
+    }
+    finding = _finding_blob({
+        "category": "service",
+        "evidence": [{"output_excerpt": "Services\\SimpleHelpRemoteService entry"}],
+    })
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is True
+
+
+def test_service_misses_when_service_name_not_in_finding():
+    """Run-002: the SimpleHelp service was never extracted by the pipeline,
+    so no finding mentioned its service_name. Score must say MISS."""
+    art = {
+        "type": "registry_service",
+        "service_name": "SimpleHelpRemoteService",
+    }
+    finding = _finding_blob({
+        "category": "service",
+        "value": "PerfMon masquerade running c:\\windows\\system32\\perfmonsvc64.exe",
+    })
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is False

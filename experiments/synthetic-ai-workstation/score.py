@@ -55,45 +55,67 @@ def _flatten(obj: Any, _out: list[str] | None = None) -> list[str]:
     return _out
 
 
-def _artifact_locator_strings(artifact: dict) -> list[str]:
-    """Return the strings that, if present in a finding, mean the pipeline
-    surfaced this artifact. Per-type."""
-    t = artifact["type"]
-    out = []
+# 2026-04-30: matcher rewritten to fix over-counting bug.
+# Old behavior: any locator substring match counted as detection. With
+# locators like value_data="1" (wdigest UseLogonCredential), this matched
+# anything containing the digit "1". On run-002, medusa_wdigest_credential_cache
+# was incorrectly marked PASS using the matching_excerpt of the unrelated
+# medusa_run_key_persistence finding.
+# New behavior: each type names ONE discriminating field that must appear in
+# the finding (e.g. value_name for run_keys, service_name for services).
+# Locators below the minimum length are rejected (catches "1", "2", "Run",
+# etc. that would false-match).
+_MIN_LOCATOR_LEN = 4
+
+
+def _artifact_match_locator(artifact: dict) -> str | None:
+    """Return the single discriminating string for this artifact. The finding
+    blob MUST contain this exact substring to count as detection. Per-type:
+        registry_run_key      -> value_name (unique under HKLM Run)
+        registry_service      -> service_name
+        registry_binary_value -> value_name (unique under key_path)
+        scheduled_task_xml    -> task_install_path
+        file_drop             -> file_path (also checked with \\ separators)
+    Returns None if the artifact has no usable discriminator (manifest gap).
+    """
+    t = artifact.get("type")
     if t == "registry_run_key":
-        out.append(artifact.get("key_path", ""))
-        out.append(artifact.get("value_name", ""))
-        # The value_data path is also a strong signal
-        out.append(artifact.get("value_data", ""))
-    elif t == "registry_service":
-        out.append(artifact.get("service_name", ""))
-        if artifact.get("service_image_path"):
-            out.append(artifact["service_image_path"])
-    elif t == "registry_binary_value":
-        out.append(artifact.get("key_path", ""))
-        out.append(artifact.get("value_name", ""))
-    elif t == "scheduled_task_xml":
-        out.append(artifact.get("task_install_path", ""))
-    elif t == "file_drop":
-        out.append(artifact.get("file_path", ""))
-        # Convert / to \ for Windows-path matching
-        if artifact.get("file_path"):
-            out.append("\\" + artifact["file_path"].replace("/", "\\"))
-    return [s for s in out if s]
+        return artifact.get("value_name") or None
+    if t == "registry_service":
+        return artifact.get("service_name") or None
+    if t == "registry_binary_value":
+        return artifact.get("value_name") or None
+    if t == "scheduled_task_xml":
+        return artifact.get("task_install_path") or None
+    if t == "file_drop":
+        return artifact.get("file_path") or None
+    return None
 
 
 def find_artifact_in_findings(artifact: dict, findings_text: list[str]) -> tuple[bool, str | None]:
-    """Return (detected, matching_finding_excerpt)."""
-    locators = _artifact_locator_strings(artifact)
-    if not locators:
+    """Return (detected, matching_finding_excerpt).
+
+    A finding counts as detection only if it contains the artifact's
+    discriminating locator (per type). Locators shorter than _MIN_LOCATOR_LEN
+    are rejected to prevent false matches on tokens like "1", "Run", etc.
+    file_drop additionally tries the backslash-escaped form for Windows paths.
+    """
+    locator = _artifact_match_locator(artifact)
+    if not locator or len(locator) < _MIN_LOCATOR_LEN:
         return False, None
+    needles = [locator.lower()]
+    if artifact.get("type") == "file_drop":
+        # Manifest paths use /; findings come in as json.dumps() output, which
+        # escapes Windows backslashes into \\. Try both raw and JSON-escaped
+        # backslash forms so a forward-slash manifest path catches the
+        # finding's escaped backslash path.
+        bs_path = ("\\" + locator.replace("/", "\\")).lower()
+        needles.append(bs_path)
+        needles.append(bs_path.replace("\\", "\\\\"))
     for finding_blob in findings_text:
-        # Case-insensitive substring; locator strings already include the
-        # path separators in their canonical form
-        for locator in locators:
-            if locator.lower() in finding_blob.lower():
-                excerpt = finding_blob[:200]
-                return True, excerpt
+        blob_lc = finding_blob.lower()
+        if any(n in blob_lc for n in needles):
+            return True, finding_blob[:200]
     return False, None
 
 
