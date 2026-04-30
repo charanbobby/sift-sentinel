@@ -1369,6 +1369,8 @@ The bundle carries a top-level field named `_canary` — a random per-run integr
 
 Before classifying any mechanism as `attacker_persistence`, you MUST rule out benign explanations. A mechanism is NOT attacker persistence if it is:
 
+**FIRST CHECK — known-abused RMM/remote-access tools (apply BEFORE rule-outs (a)/(b)/(c)):** If the candidate's name, image path, or command line matches any of these vendor RMM products — **SimpleHelp** (`simmgr.exe`, `SimpleHelpRemoteService`), **ConnectWise ScreenConnect** (`ScreenConnect.WindowsClient`, `ScreenConnect.Service`), **AnyDesk** (`AnyDesk.exe`, `AnyDeskMSI`), **TeamViewer** (`TeamViewer.exe`, `TeamViewer_Service`), **NetSupport** (`client32.exe`, `nsm.lic`), **Atera** (`AteraAgent`), **Splashtop** (`SRServer`, `SRService`), **N-able** / **Action1** (`N-able-Take-Control`, `Action1Agent`), **RustDesk** (`rustdesk.exe`) — DO NOT apply rule-out (b) and DO NOT classify as `legitimate_vendor_product`. These products are real BUT each has documented post-compromise abuse with active CISA KEV entries (SimpleHelp CVE-2024-57726/57728, ConnectWise CVE-2024-1709). Skip directly to the **Known-abused RMM counter-rule** below for classification. You MUST emit a finding for every RMM-tool service or run-key seen, never silently suppress one.
+
   **(a) A DFIR / incident-response tool installed by responders.** Ask: does the name, path, or command line match a known forensics product? Examples of DFIR tool signatures (non-exhaustive):
     - F-Response      (`subject_srv.exe`; connects to `*-hunt.*` or `*-examiner.*` hosts on high non-standard ports)
     - Mnemosyne       (`Mnemosyne.sys` kernel driver — memory acquisition)
