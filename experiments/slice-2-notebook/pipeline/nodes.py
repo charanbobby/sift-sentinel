@@ -371,10 +371,20 @@ def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
         # notebook hadn't advertised it before the node-lift, so PLAN can
         # produce a step that uses it without a separate Step 7 prompt edit.
         "scheduled_tasks_parse": {
-            "description": "Extract a Windows Task XML file by inode from `\\Windows\\System32\\Tasks\\` and parse it server-side. Chains icat + XML parse in one call so one PLAN step can claim T1053.005 coverage.",
+            "description": (
+                "Extract ONE Windows Task XML file by inode from `\\Windows\\System32\\Tasks\\` and parse it server-side. "
+                "Chains icat + XML parse in one call. To cover all tasks, EMIT MULTIPLE scheduled_tasks_parse STEPS, one per "
+                "candidate task XML you want parsed; common names a defender investigates first are any non-Microsoft top-level "
+                "subdirectory of Tasks (Sandworm, Adversary, vendor-specific) and within Microsoft\\Windows the SystemRestore, "
+                "AppInit, Update, Cleanup family. Use the placeholder `{step:N.inode_by_name(<TASK_XML_FILENAME>)}` where "
+                "TASK_XML_FILENAME is the leaf XML filename (NOT a directory name) that you want parsed. The upstream step N "
+                "MUST be an fls_list of `Tasks` with `recurse=true` so the deeply-nested task XMLs are visible in the listing. "
+                "An unresolvable placeholder (filename not in listing) returns parse_error and is non-fatal, so emitting 3-5 "
+                "speculative steps is acceptable; INTERPRET will see the parsed tasks that did resolve and ignore the parse_error ones."
+            ),
             "args": {
                 "e01_path": "absolute path to the E01",
-                "task_xml_inode": "int OR placeholder from a prior fls_list over Windows/System32/Tasks/",
+                "task_xml_inode": "int OR `{step:N.inode_by_name(<XML_FILENAME>)}` placeholder where N is the step id of an fls_list with recurse=true over Tasks/",
                 "dest_filename": "plain filename; XML lands at <case>/analysis/extracted/<dest_filename>",
             },
         },
@@ -791,10 +801,10 @@ File-drop staging locations (use artifact_type=file_drop; reach via fls_list of 
 - Any .venv\\Lib\\site-packages\\huggingface_hub\\ or sibling AI-SDK package paths under user-writable dirs — hidden Python virtualenvs with AI tooling are a known concealment pattern.
 
 Web-shell drop locations (use artifact_type=file_drop with web-shell extensions: .aspx, .asp, .jsp, .jspx, .php, .cfm; MITRE T1505.003):
-- inetpub\\wwwroot\\ — IIS default document root. Any .aspx / .asp dropped here is server-side executable on HTTP request. List this whenever the host could plausibly run IIS (default install or vendor-bundled).
-- Program Files\\<vendor>\\ subtrees that contain web-server content directories — vendor products with embedded webapps (PaperCut: server\\webapps\\ROOT, ConnectWise ScreenConnect: webserver, Dell KACE: admin web, JetBrains TeamCity: webapps, Synacor Zimbra: jetty\\webapps) are common post-exploitation web-shell targets when the vendor product is RCE-vulnerable.
+- inetpub\\wwwroot\\ — IIS default document root. Any .aspx / .asp dropped here is server-side executable on HTTP request.
+- Program Files\\<vendor>\\ subtrees that contain web-server content directories — vendor products with embedded webapps (PaperCut: server\\webapps\\ROOT, ConnectWise ScreenConnect: webserver, Dell KACE: admin web, JetBrains TeamCity: webapps, Synacor Zimbra: jetty\\webapps, Cisco SD-WAN: api/plugins) are common post-exploitation web-shell targets when the vendor product is RCE-vulnerable.
 - Tomcat-style webapps\\ROOT\\ subdirectories under any Java app server install — JSP shells dropped here run with the app-server service account.
-- Note: list these as candidates only at priority-2 or priority-3 unless EXTRACT has positive evidence the host runs IIS or a vendor webapp (e.g. fsstat showed an inetpub directory; a service like W3SVC or a vendor RMM service was visible).
+- **Always priority-1** for inetpub\\wwwroot if it exists on disk; priority-1 for known-RCE-vulnerable vendor webapp paths if any vendor RMM/webapp service is visible. List these P1 even before fls_list confirms the directory exists, because the plan-coverage gate enforces tool calls only for P1 candidates and web shells are only detectable via fls_list of the parent directory.
 {host_guidance}{channel_guidance}
 
 Rules:
