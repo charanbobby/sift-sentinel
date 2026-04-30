@@ -48,12 +48,14 @@ Please invoke your web-search tool at least 5 times before drafting. Each search
 
 After web search:
 
-1. For each significant incident or report you actually retrieved, design ONE concrete artifact that could be planted on a Windows workstation as a forensic anchor for that pattern. The artifact must be one of these types:
-   - registry_run_key (HKLM\\Software\\...\\Run\\<value>)
-   - registry_service (HKLM\\System\\...\\Services\\<name>)
-   - registry_binary_value (a binary blob in a registry value)
-   - scheduled_task_xml (a Windows Task XML file)
-   - file_drop (a regular file at a Windows path)
+1. For each significant incident or report you actually retrieved, design ONE concrete artifact that could be planted on a Windows workstation as a forensic anchor for that pattern. The artifact MUST be one of these four persistence-focused types (no others are valid):
+   - registry_run_key   (HKLM\\Software\\...\\Run\\<value>)                → T1547.001
+   - registry_service   (HKLM\\System\\...\\Services\\<name>)              → T1543.003
+   - scheduled_task_xml (a Windows Task Scheduler XML file)                 → T1053.005
+   - file_drop          (a web shell ONLY: extension must be .aspx, .asp, .jsp, .jspx, .php, or .cfm) → T1505.003
+
+   Do NOT use registry_binary_value, file_drop_sqlite_chrome_history, or any other type.
+   A file_drop that is not a web shell (wrong or missing extension) will be rejected by the validator.
    See the schema for full per-type field requirements.
 
    CONTENT RULES FOR file_drop SCRIPTS: When file_content_text contains PowerShell, batch,
@@ -118,6 +120,8 @@ The pipeline already planted and scored each of these. Pick fresh angles, fresh 
 # Reference: yesterday's full manifest as the shape example
 
 This is the most-recent manifest for shape and field-population reference. Do NOT regurgitate its artifacts; design new ones based on the last {INTEL_WINDOW_DAYS} days of threat reports.
+
+CRITICAL: The template below may show file_drop artifacts with .ps1, .yaml, .ini, .cfg, .json, .py, or other non-web-shell extensions. Do NOT copy those artifact types. The only valid file_drop extension is a web-shell extension: .aspx, .asp, .jsp, .jspx, .php, or .cfm. Any other file_drop will fail validation and cause the entire manifest to be rejected.
 
 ```json
 {TEMPLATE}
@@ -493,6 +497,51 @@ def validate_rationale_grounding(manifest: dict):
         info(f"warning: {len(ungrounded)}/{total} artifacts have soft-grounded rationales: {ungrounded}")
 
 
+_WEB_SHELL_EXTS = frozenset({".aspx", ".asp", ".jsp", ".jspx", ".php", ".cfm"})
+_PERSISTENCE_ARTIFACT_TYPES = frozenset({
+    "registry_run_key", "registry_service", "scheduled_task_xml", "file_drop",
+})
+
+
+def validate_persistence_types(manifest: dict):
+    """Strip non-persistence artifacts before downstream phases.
+
+    Every non-quarantine artifact must be a persistence-relevant type (registry_run_key,
+    registry_service, scheduled_task_xml, or file_drop web-shell). Artifacts with
+    expected_quarantine=True are exempt (injection tests). Violating artifacts are
+    stripped from the manifest in-place; the run hard-fails only if all artifacts are
+    stripped (zero remain across all categories).
+    """
+    stripped: list[str] = []
+    for cat in manifest.get("categories", []):
+        kept = []
+        for art in cat.get("artifacts", []):
+            if art.get("expected_quarantine"):
+                kept.append(art)
+                continue
+            t = art.get("type", "")
+            if t not in _PERSISTENCE_ARTIFACT_TYPES:
+                stripped.append(
+                    f"{art.get('id', '?')}: type={t!r} (not a persistence type)"
+                )
+                continue
+            if t == "file_drop":
+                fp = art.get("file_path", "")
+                ext = ("." + fp.rsplit(".", 1)[-1].lower()) if "." in fp else ""
+                if ext not in _WEB_SHELL_EXTS:
+                    stripped.append(
+                        f"{art.get('id', '?')}: file_drop ext={ext!r} (not a web-shell extension)"
+                    )
+                    continue
+            kept.append(art)
+        cat["artifacts"] = kept
+    if stripped:
+        info(f"stripped {len(stripped)} non-persistence artifact(s): {stripped}")
+    total = sum(len(c.get("artifacts", [])) for c in manifest.get("categories", []))
+    if total == 0:
+        fail(3, "all artifacts stripped by persistence-type filter — manifest unusable")
+
+
 def validate_shape(manifest: dict, today: str, intel_window_days: int):
     """Light schema validation. Catches the common failure modes without
     needing a full jsonschema install."""
@@ -509,6 +558,7 @@ def validate_shape(manifest: dict, today: str, intel_window_days: int):
         fail(4, "zero artifacts across all categories")
     sources = manifest.get("intel_sources", [])
     validate_intel_sources(sources, min_articles=5)
+    validate_persistence_types(manifest)
     validate_rationale_grounding(manifest)
     info(f"validated: {len(manifest['categories'])} categories, "
          f"{total} artifacts, {len(sources)} sources")
