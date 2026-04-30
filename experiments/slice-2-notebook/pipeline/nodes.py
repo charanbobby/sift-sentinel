@@ -782,6 +782,7 @@ Universal Windows persistence locations (always applicable, regardless of host t
 - Image File Execution Options (debugger hijack, accessibility tools)
 - WMI event subscriptions (HKLM\\SOFTWARE\\Microsoft\\Wbem)
 - Startup folder (per user)
+- HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest (UseLogonCredential value enables plaintext credential caching; Storm-1175 / Medusa Mimikatz prep — covered by the wdigest regripper plugin against the SYSTEM hive)
 
 File-drop staging locations (use artifact_type=file_drop; reach via fls_list of the parent dir):
 - ProgramData\\ — world-writable; common landing zone for staging scripts (.ps1, .bat, .cfg) launched by services or scheduled tasks.
