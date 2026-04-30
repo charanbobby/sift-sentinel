@@ -13,8 +13,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # score.py lives next to this test file
 sys.path.insert(0, str(Path(__file__).parent))
 from score import find_artifact_in_findings, _artifact_match_locator
@@ -189,3 +187,65 @@ def test_service_misses_when_service_name_not_in_finding():
     })
     detected, _ = find_artifact_in_findings(art, [finding])
     assert detected is False
+
+
+# ---- run_loop.derive_baseline_detected ------------------------------------
+
+
+def _mk_manifest_findings(tmp_path, baselines, findings):
+    """Create temp manifest and findings JSON files; return their paths."""
+    manifest = {
+        "manifest_id": "2026-04-30",
+        "base": {
+            "case_id": "test",
+            "raw_path": "x.raw",
+            "expected_baseline_findings": baselines,
+        },
+        "categories": [],
+    }
+    m_path = tmp_path / "manifest.json"
+    f_path = tmp_path / "findings.json"
+    m_path.write_text(json.dumps(manifest))
+    f_path.write_text(json.dumps({"findings": findings}))
+    return m_path, f_path
+
+
+def test_derive_baseline_detected_picks_discriminator(tmp_path):
+    from run_loop import derive_baseline_detected
+
+    m_path, f_path = _mk_manifest_findings(
+        tmp_path,
+        baselines=[
+            {"id": "perfmon_masquerading", "category": "service", "description": ""},
+            {"id": "tbbd05_named_pipe_beacon", "category": "service", "description": ""},
+        ],
+        findings=[
+            {"value": "Service PerfMon runs perfmonsvc64.exe"},
+            {"value": "Service tbbd05 echo to named pipe"},
+        ],
+    )
+    assert derive_baseline_detected(m_path, f_path) == [
+        "perfmon_masquerading", "tbbd05_named_pipe_beacon",
+    ]
+
+
+def test_derive_baseline_detected_misses_when_discriminator_absent(tmp_path):
+    from run_loop import derive_baseline_detected
+
+    m_path, f_path = _mk_manifest_findings(
+        tmp_path,
+        baselines=[{"id": "perfmon_masquerading", "category": "service", "description": ""}],
+        findings=[{"value": "An unrelated finding about masquerading services"}],
+    )
+    # 'masquerading' is in the finding but it's not the discriminator;
+    # 'perfmon' is the discriminator and it's NOT in the finding -> miss.
+    assert derive_baseline_detected(m_path, f_path) == []
+
+
+def test_derive_baseline_detected_handles_missing_files(tmp_path):
+    from run_loop import derive_baseline_detected
+
+    # Neither file exists; helper must not crash.
+    m_path = tmp_path / "no_manifest.json"
+    f_path = tmp_path / "no_findings.json"
+    assert derive_baseline_detected(m_path, f_path) == []

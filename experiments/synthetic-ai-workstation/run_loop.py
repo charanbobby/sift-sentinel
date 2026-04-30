@@ -341,10 +341,52 @@ def phase_e_pipeline(run_dir: Path, working_raw: Path) -> Path:
 # Phase F: score + cleanup (CHECK 13-15)
 # ---------------------------------------------------------------------------
 
+def derive_baseline_detected(manifest_path: Path, findings_path: Path) -> list[str]:
+    """Scan findings.json for any expected baseline finding from the manifest.
+
+    Each baseline finding has an `id` like 'perfmon_masquerading' or
+    'tbbd05_named_pipe_beacon'. The first underscore-component (length >= 4) is
+    the discriminator (e.g. 'perfmon', 'tbbd05'); a baseline counts as
+    detected if that token appears anywhere in the findings JSON.
+
+    Using only the first component avoids over-matching on generic words like
+    'masquerading' or 'beacon' that other findings may also use.
+
+    Returns the list of detected baseline ids, in manifest order.
+    """
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        findings_obj = json.loads(findings_path.read_text())
+    except Exception as e:
+        info(f"derive_baseline_detected: read error {e}; returning []")
+        return []
+
+    findings_list = (
+        findings_obj if isinstance(findings_obj, list)
+        else findings_obj.get("findings", [])
+    )
+    blob = json.dumps(findings_list).lower()
+
+    detected: list[str] = []
+    for entry in manifest.get("base", {}).get("expected_baseline_findings", []):
+        bid = entry.get("id", "")
+        # First underscore-part with length >= 4 is the discriminator.
+        keyword = next(
+            (p.lower() for p in bid.split("_") if len(p) >= 4),
+            None,
+        )
+        if keyword and keyword in blob:
+            detected.append(bid)
+    return detected
+
+
 def phase_f_score(run_dir: Path, manifest_path: Path, findings_path: Path) -> None:
     info("=== Phase F: score + cleanup ===")
     score_json = run_dir / f"score_{today_str()}.json"
     report_md = run_dir / "REPORT.md"
+
+    detected_baselines = derive_baseline_detected(manifest_path, findings_path)
+    info(f"baseline detection scan: {detected_baselines or 'none'}")
 
     try:
         run([
@@ -356,7 +398,7 @@ def phase_f_score(run_dir: Path, manifest_path: Path, findings_path: Path) -> No
             "python3", "/repo/experiments/synthetic-ai-workstation/score.py",
             "--manifest", "/run_out/" + manifest_path.name,
             "--findings", "/run_out/" + findings_path.relative_to(run_dir).as_posix(),
-            "--baseline-detected", "",  # populated by Phase E once integrated
+            "--baseline-detected", ",".join(detected_baselines),
             "--out-json", "/run_out/" + score_json.name,
             "--out-md", "/run_out/" + report_md.name,
         ])
