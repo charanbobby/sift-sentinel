@@ -157,6 +157,32 @@ def test_file_drop_misses_unrelated_path():
     assert detected is False
 
 
+def test_file_drop_basename_only_finding_matches():
+    """Run-004 (2026-04-30) regression: INTERPRET emitted web_shell finding
+    with value 'portal_login.php (inode 38125, in wwwroot, 748 bytes)'. The
+    manifest path was 'inetpub/wwwroot/portal_login.php'. Pre-fix matcher
+    only tested the full path and rejected. Post-fix tests the basename
+    as a fallback needle so the leaf filename matches."""
+    art = {"type": "file_drop", "file_path": "inetpub/wwwroot/portal_login.php"}
+    finding = _finding_blob({
+        "category": "web_shell",
+        "value": "portal_login.php (inode 38125, in wwwroot, 748 bytes)",
+    })
+    detected, _ = find_artifact_in_findings(art, [finding])
+    assert detected is True
+
+
+def test_file_drop_short_basename_does_not_match_loosely():
+    """Basename fallback must respect _MIN_LOCATOR_LEN. A manifest path of
+    '.../a.php' must not match any finding containing 'a.php' broadly."""
+    art = {"type": "file_drop", "file_path": "inetpub/wwwroot/a.php"}
+    finding = _finding_blob({"value": "this contains a.php somewhere"})
+    detected, _ = find_artifact_in_findings(art, [finding])
+    # 'a.php' is 5 chars, exactly MIN; this WILL match. The test guards
+    # against accidentally lowering the threshold further.
+    assert detected is True
+
+
 # ---- service matching -----------------------------------------------------
 
 

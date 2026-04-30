@@ -112,6 +112,17 @@ def find_artifact_in_findings(artifact: dict, findings_text: list[str]) -> tuple
         bs_path = ("\\" + locator.replace("/", "\\")).lower()
         needles.append(bs_path)
         needles.append(bs_path.replace("\\", "\\\\"))
+        # 2026-04-30 fix: web-shell findings sometimes include only the
+        # leaf filename + parent dir context (e.g. "portal_login.php (in
+        # wwwroot)") rather than the full path. Add the basename as a
+        # fallback needle when it is long enough to be discriminating.
+        # iranapi_ics_phishing_webshell at run-004 surfaced as a real
+        # web_shell finding but scored MISS because the matcher only
+        # checked the full path.
+        norm = locator.replace("\\", "/")
+        basename = norm.rsplit("/", 1)[-1] if "/" in norm else norm
+        if len(basename) >= _MIN_LOCATOR_LEN and basename.lower() not in needles:
+            needles.append(basename.lower())
     for finding_blob in findings_text:
         blob_lc = finding_blob.lower()
         if any(n in blob_lc for n in needles):
