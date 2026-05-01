@@ -284,7 +284,7 @@ def _parse_json_response(raw: str, model_cls):
 # the MCP call. Kept strict so malformed placeholders fail validation rather
 # than silently confusing the executor.
 PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
-KNOWN_EXTRACTORS = {"inode_by_name"}
+KNOWN_EXTRACTORS = {"inode_by_name", "nth_file_inode"}
 
 
 def _host_type_of(case_id: str) -> tuple[str, str]:
@@ -374,17 +374,18 @@ def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
             "description": (
                 "Extract ONE Windows Task XML file by inode from `\\Windows\\System32\\Tasks\\` and parse it server-side. "
                 "Chains icat + XML parse in one call. To cover all tasks, EMIT MULTIPLE scheduled_tasks_parse STEPS, one per "
-                "candidate task XML you want parsed; common names a defender investigates first are any non-Microsoft top-level "
-                "subdirectory of Tasks (Sandworm, Adversary, vendor-specific) and within Microsoft\\Windows the SystemRestore, "
-                "AppInit, Update, Cleanup family. Use the placeholder `{step:N.inode_by_name(<TASK_XML_FILENAME>)}` where "
-                "TASK_XML_FILENAME is the leaf XML filename (NOT a directory name) that you want parsed. The upstream step N "
-                "MUST be an fls_list of `Tasks` with `recurse=true` so the deeply-nested task XMLs are visible in the listing. "
-                "An unresolvable placeholder (filename not in listing) returns parse_error and is non-fatal, so emitting 3-5 "
-                "speculative steps is acceptable; INTERPRET will see the parsed tasks that did resolve and ignore the parse_error ones."
+                "task XML you want parsed. RECOMMENDED PATTERN: emit five steps that pick the 1st, 2nd, 3rd, 4th, 5th file "
+                "inodes from the upstream fls_list (recurse=true over Tasks\\), using `{step:N.nth_file_inode(0)}`, "
+                "`{step:N.nth_file_inode(1)}`, `{step:N.nth_file_inode(2)}`, `{step:N.nth_file_inode(3)}`, "
+                "`{step:N.nth_file_inode(4)}`. This works even when you do not know the task XML filenames at PLAN time, "
+                "because attacker tasks (Sandworm\\TorProxy, PyPackages\\xinference, NPMPackages\\pgserve, System\\AdminCheck) "
+                "have names that depend on the threat intel of the day. The upstream step N MUST be an fls_list with "
+                "`recurse=true` so deeply-nested task XMLs become first-class file entries in the listing. "
+                "An out-of-range nth_file_inode (host has fewer than N+1 task XMLs) returns parse_error and is non-fatal."
             ),
             "args": {
                 "e01_path": "absolute path to the E01",
-                "task_xml_inode": "int OR `{step:N.inode_by_name(<XML_FILENAME>)}` placeholder where N is the step id of an fls_list with recurse=true over Tasks/",
+                "task_xml_inode": "int OR placeholder. Preferred: `{step:N.nth_file_inode(K)}` where K is 0..4. Fallback: `{step:N.inode_by_name(<XML_FILENAME>)}` if you know the filename.",
                 "dest_filename": "plain filename; XML lands at <case>/analysis/extracted/<dest_filename>",
             },
         },
@@ -970,7 +971,57 @@ def _resolve_inode_by_name(fls_structured: dict, target_name: str) -> int:
     return next(iter(hits))
 
 
-_EXEC_EXTRACTORS = {"inode_by_name": _resolve_inode_by_name}
+def _resolve_nth_file_inode(fls_structured: dict, n_str: str) -> int:
+    """Pick the N-th distinct FILE inode from an upstream fls_list output.
+    Used when the LLM does not know the specific filename at PLAN time
+    (scheduled task XMLs under Tasks\\, web shells under inetpub\\, etc.).
+
+    Args:
+        fls_structured: an upstream fls_list result with `entries: [{inode, entry_type, filename_safe}, ...]`
+        n_str: the N-th file (0-indexed). Pass as a string from the placeholder.
+
+    Returns:
+        The inode of the N-th distinct file. Filters out directories,
+        $FILE_NAME-suffix duplicates (NTFS lists files twice when both
+        $FILE_NAME and the resident name attributes exist), and any
+        non-`file` entry_type.
+
+    Raises:
+        ResolverError if N is non-int or N >= number-of-distinct-files.
+    """
+    try:
+        n = int(n_str)
+    except ValueError:
+        raise ResolverError(f"nth_file_inode({n_str}) → not an int")
+    seen: set[int] = set()
+    files: list[int] = []
+    for entry in fls_structured.get("entries", []):
+        et = str(entry.get("entry_type", ""))
+        if et != "file":
+            continue
+        try:
+            inode = int(entry["inode"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Skip $FILE_NAME duplicates (same inode listed twice with different
+        # name attributes). Same inode -> same file content, no need to
+        # re-extract.
+        if inode in seen:
+            continue
+        seen.add(inode)
+        files.append(inode)
+    if n < 0 or n >= len(files):
+        raise ResolverError(
+            f"nth_file_inode({n}) → out of range; upstream has "
+            f"{len(files)} distinct file(s)"
+        )
+    return files[n]
+
+
+_EXEC_EXTRACTORS = {
+    "inode_by_name": _resolve_inode_by_name,
+    "nth_file_inode": _resolve_nth_file_inode,
+}
 
 
 def _resolve_args(args: dict, evidence_by_step_id: dict[int, "EvidenceRecord"]) -> dict:
