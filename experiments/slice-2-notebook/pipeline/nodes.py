@@ -1771,10 +1771,39 @@ def interpret_node(state: "PipelineState") -> dict:
                 ]},
             ]
             if state.corrective_instruction:
-                messages.append({
-                    "role": "system",
-                    "content": f"CRITIC CORRECTION (retry pass)\n\n{state.corrective_instruction}",
-                })
+                prior = state.findings.findings if state.findings else []
+                if prior:
+                    prior_lines = []
+                    for i, f in enumerate(prior):
+                        mech = (f.mechanism or "")[:120]
+                        prior_lines.append(
+                            f"  - finding[{i}]: category={f.category}, "
+                            f"classification={f.classification}, mechanism={mech!r}"
+                        )
+                    retry_msg = (
+                        f"CRITIC CORRECTION (retry pass)\n\n"
+                        f"On the previous interpretation pass you emitted "
+                        f"{len(prior)} findings:\n"
+                        + "\n".join(prior_lines)
+                        + "\n\nThe critic flagged ONLY the indices referenced "
+                        f"in the instruction(s) below. All other findings "
+                        f"passed the critic and MUST be preserved.\n\n"
+                        f"REQUIREMENTS for this retry pass:\n"
+                        f"  1. Re-emit ALL {len(prior)} prior findings in the "
+                        f"same order.\n"
+                        f"  2. Modify only the flagged finding(s) per the "
+                        f"critic instruction(s).\n"
+                        f"  3. Do NOT drop, add, or reorder findings.\n"
+                        f"  4. If the critic asks to downgrade, downgrade but "
+                        f"keep the slot.\n\n"
+                        f"Critic instruction(s):\n{state.corrective_instruction}"
+                    )
+                else:
+                    retry_msg = (
+                        f"CRITIC CORRECTION (retry pass)\n\n"
+                        f"{state.corrective_instruction}"
+                    )
+                messages.append({"role": "system", "content": retry_msg})
             messages.append({"role": "user", "content": json.dumps(bundle, indent=2)})
 
             _llm_cost_pre("interpret", model, messages)
