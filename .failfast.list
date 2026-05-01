@@ -1,0 +1,9 @@
+# Fail-fast enforce list. One glob pattern per line.
+# Used by scripts/fail-fast-gate.sh (PreToolUse) and scripts/pre-commit-fail-fast.sh.
+# Patterns are matched against repo-relative paths with bash [[ == ]] glob.
+# Lines starting with # and blank lines are ignored.
+
+experiments/slice-2-notebook/pipeline/*.py
+experiments/slice-2-notebook/pipeline/mcp/*.py
+experiments/synthetic-ai-workstation/*.py
+experiments/synthetic-ai-workstation/manifest_v1.json
