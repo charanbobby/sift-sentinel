@@ -325,7 +325,21 @@ def _parse_services_plugin(text: str) -> list[RegripperEntry]:
         # Field line inside a block?
         m = _RIP_SERVICES_FIELD.match(raw_line)
         if m:
-            current_block[m.group(1)] = m.group(2).strip()
+            field, value = m.group(1), m.group(2).strip()
+            # 2026-05-01: regripper services-plugin frequently outputs many
+            # service blocks under ONE timestamp (the LastWrite of the parent
+            # Services key, not per-service). The block separator is just a
+            # blank line. Pre-fix, the parser only flushed on timestamps, so
+            # all blocks under one timestamp collapsed into one merged entry
+            # and only the LAST service survived. Run-004 (2026-04-30):
+            # planted TermService and MaintenanceService were absorbed into
+            # the merged block of their timestamp group, dropped on overwrite.
+            # Fix: flush whenever a new "Name = X" line arrives AND the current
+            # block already has a Name. Same timestamp ts carries forward.
+            if field == "Name" and current_block.get("Name"):
+                _flush()
+                current_block = {}
+            current_block[field] = value
 
     _flush()  # final block
     return entries
