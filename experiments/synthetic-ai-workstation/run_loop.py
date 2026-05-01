@@ -130,7 +130,7 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def acquire_lock(owner: str = "daily-cron") -> None:
+def acquire_lock(owner: str = "unattended") -> None:
     """Acquire the shared run lock. Halts via check_fail(99, ...) if another
     run is in flight. Stale locks (dead pid or 60+ min heartbeat) are overridden."""
     CFG.STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -605,8 +605,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-cleanup", action="store_true",
                     help="Keep working file (debug mode)")
-    ap.add_argument("--owner", default="daily-cron",
-                    help="Lock owner identifier (e.g. daily-cron, judge-<id>). Used for the activity feed.")
+    ap.add_argument("--owner", default="unattended",
+                    help="Lock owner identifier (e.g. 'cron-daily' if actually fired from a scheduled job, or 'judge-<id>'). Used for the activity feed. Default 'unattended' means no explicit owner was passed; do not infer scheduled origin from this string.")
     args = ap.parse_args()
 
     run_dir = CFG.OUT_BASE / today_str()
