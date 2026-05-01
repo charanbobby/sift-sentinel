@@ -7,13 +7,15 @@ standalone CLI today so we can replace ad-hoc grep / cat invocations
 during loop debugging.
 
 Usage:
-    python3 loop_status.py             # current run + last 5 scorecards
-    python3 loop_status.py --history N # last N scorecards
-    python3 loop_status.py --json      # machine-readable JSON output
+    python3 loop_status.py                    # current run + last 5 scorecards
+    python3 loop_status.py --history N        # last N scorecards
+    python3 loop_status.py --json             # machine-readable JSON output
+    python3 loop_status.py --watch            # repaint every 5s until lock clears
+    python3 loop_status.py --watch --interval 30
 
 VPS one-liner:
     ssh -i ~/.ssh/id_hetzner sri@46.62.255.66 \
-        python3 /opt/find-evil/repo/experiments/synthetic-ai-workstation/loop_status.py
+        python3 /opt/find-evil/repo/experiments/synthetic-ai-workstation/loop_status.py --watch
 """
 from __future__ import annotations
 
@@ -175,7 +177,34 @@ def main() -> int:
                     help="Number of recent scorecards to show (default 5).")
     ap.add_argument("--json", action="store_true",
                     help="Emit machine-readable JSON instead of formatted text.")
+    ap.add_argument("--watch", action="store_true",
+                    help="Repaint every --interval seconds until the lock clears.")
+    ap.add_argument("--interval", type=int, default=5,
+                    help="Seconds between repaints in --watch mode (default 5).")
     args = ap.parse_args()
+
+    if args.watch and args.json:
+        print("error: --watch and --json are mutually exclusive", file=sys.stderr)
+        return 2
+
+    if args.watch:
+        import time
+        try:
+            while True:
+                lock = read_lock()
+                recent = list_recent_scorecards(args.history)
+                # ANSI clear screen + home; falls back to nothing on dumb terminals
+                sys.stdout.write("\x1b[2J\x1b[H")
+                sys.stdout.write(render_text(lock, recent))
+                sys.stdout.write(f"  (refreshing every {args.interval}s; Ctrl-C to stop)\n")
+                sys.stdout.flush()
+                if lock is None:
+                    print(f"  IDLE detected; exiting --watch")
+                    return 0
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            print("\n  --watch interrupted")
+            return 0
 
     lock = read_lock()
     recent = list_recent_scorecards(args.history)
