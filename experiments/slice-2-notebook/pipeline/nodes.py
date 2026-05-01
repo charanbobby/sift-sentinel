@@ -593,6 +593,7 @@ def plan_node(state: "PipelineState") -> dict:
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
+            temperature=0,
             extra_body=LLM_USAGE_INCLUDE,
         )
         _llm_cost_post("plan", model, resp.usage)
@@ -629,6 +630,7 @@ def plan_node(state: "PipelineState") -> dict:
                     model=model,
                     messages=messages,
                     response_format={"type": "json_object"},
+                    temperature=0,
                     extra_body=LLM_USAGE_INCLUDE,
                 )
                 _llm_cost_post("plan_retry_coverage", model, resp.usage)
@@ -855,6 +857,7 @@ def extract_node(state: "PipelineState") -> dict:
             model=model,
             messages=messages,
             response_format={"type": "json_object"},
+            temperature=0,
             extra_body=LLM_USAGE_INCLUDE,
         )
         _llm_cost_post("extract", model, resp.usage)
@@ -1776,6 +1779,7 @@ def interpret_node(state: "PipelineState") -> dict:
                 messages=messages,
                 response_format={"type": "json_object"},
                 max_tokens=8000,
+                temperature=0,
                 extra_body=LLM_USAGE_INCLUDE,
             )
             _llm_cost_post("interpret", model, resp.usage)
