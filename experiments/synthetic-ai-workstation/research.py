@@ -661,23 +661,39 @@ def main():
         print(prompt)
         return
 
-    raw, wrapper = call_claude(prompt, model=args.model, timeout_s=args.timeout_s)
+    # 2026-05-01: retry once on JSON parse failure. Haiku occasionally emits
+    # malformed JSON (missing comma in a deep-nested array, unescaped quote in
+    # a rationale string). One retry pass with the same prompt usually
+    # produces clean JSON because the model samples again and avoids the
+    # specific token sequence that broke the first pass. Falling back to the
+    # static template silently — as the loop did before this change — wastes
+    # the run by planting the wrong artifacts.
+    manifest: dict | None = None
+    last_err: str | None = None
+    for attempt in (1, 2):
+        raw, wrapper = call_claude(prompt, model=args.model, timeout_s=args.timeout_s)
 
-    # Save raw output + wrapper for debugging
-    raw_path = Path(args.out).with_suffix(".raw.txt")
-    raw_path.write_text(raw)
-    wrapper_path = Path(args.out).with_suffix(".wrapper.json")
-    wrapper_path.write_text(json.dumps(wrapper, indent=2))
-    info(f"raw claude output saved: {raw_path}")
+        # Save raw output + wrapper for debugging (overwrite per attempt; the
+        # last attempt's output is what failed or what landed).
+        raw_path = Path(args.out).with_suffix(".raw.txt")
+        raw_path.write_text(raw)
+        wrapper_path = Path(args.out).with_suffix(".wrapper.json")
+        wrapper_path.write_text(json.dumps(wrapper, indent=2))
+        info(f"raw claude output saved: {raw_path}")
 
-    # Hard check: did the model actually invoke web search?
-    validate_web_search_actually_used(wrapper, min_searches=5)
+        # Hard check: did the model actually invoke web search?
+        validate_web_search_actually_used(wrapper, min_searches=5)
 
-    json_str = extract_json(raw)
-    try:
-        manifest = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        fail(2, f"output is not valid JSON: {e}")
+        json_str = extract_json(raw)
+        try:
+            manifest = json.loads(json_str)
+            break  # success
+        except json.JSONDecodeError as e:
+            last_err = str(e)
+            if attempt == 1:
+                info(f"attempt {attempt} JSON parse failed: {e}; retrying once")
+                continue
+            fail(2, f"output is not valid JSON after 2 attempts: {last_err}")
 
     validate_shape(manifest, today, args.intel_window_days)
 
