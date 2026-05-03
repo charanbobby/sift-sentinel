@@ -110,7 +110,7 @@ def _next_run_id(case_dir: Path, case_id: str) -> str:
     return f"{case_id}-{highest + 1:03d}"
 
 
-def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memory_profile: str | None = None) -> int:
+def run(case_id: str, e01_path: str | None, memory_image_path: str | None = None, memory_profile: str | None = None) -> int:
     case_dir = Path("/workspace/out/runs") / case_id
     run_id = _next_run_id(case_dir, case_id)
     out_dir = case_dir / run_id
@@ -134,7 +134,7 @@ def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memor
     print(f"PIPELINE RUN")
     print(f"{'='*70}")
     print(f"  case_id        {case_id}")
-    print(f"  e01_path       {e01_path}")
+    print(f"  e01_path       {e01_path or '<NONE, memory-only run>'}")
     print(f"  run_id         {run_id}")
     print(f"  out_dir        {out_dir}")
     if memory_image_path:
@@ -302,12 +302,16 @@ def run(case_id: str, e01_path: str, memory_image_path: str | None = None, memor
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--case", required=True, help="case_id, e.g. srl-2018-base-dc")
-    ap.add_argument("--e01",  required=True, help="disk image path inside sift-mcp")
+    ap.add_argument("--e01",  default=None, help="disk image path inside sift-mcp (omit for memory-only)")
     ap.add_argument("--memory-image", default=None, dest="memory_image",
                     help="Memory dump path inside sift-mcp (optional)")
     ap.add_argument("--memory-profile", default=None, dest="memory_profile",
                     help="Volatility 2 profile string, e.g. Win2012R2x64 (optional)")
     args = ap.parse_args()
+    if not args.e01 and not args.memory_image:
+        ap.error("at least one of --e01 or --memory-image must be provided")
+    if args.memory_image and not args.memory_profile:
+        ap.error("--memory-image requires --memory-profile")
     return run(args.case, args.e01,
                memory_image_path=args.memory_image,
                memory_profile=args.memory_profile)

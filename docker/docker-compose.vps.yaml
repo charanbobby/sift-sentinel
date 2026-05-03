@@ -47,17 +47,24 @@ services:
       - MCP_TRANSPORT_TOKEN=${MCP_TRANSPORT_TOKEN}
       - CAPABILITY_TOKEN_KEY=${CAPABILITY_TOKEN_KEY}
       - PYTHONUTF8=1
+      - LOOP_RUNS_DIR=/loop_runs
     volumes:
       - "/opt/find-evil/repo/experiments/slice-2-notebook:/workspace"
       - "sift-home:/home/sansforensics:ro"
+      # Loop-runs dir exposed read-only so the site's /api/status can read
+      # latest cron + Phase G proposals without leaving the container.
+      - "/opt/find-evil/out/loop-runs:/loop_runs:ro"
     working_dir: /workspace
     ports:
-      # No 8080 (taken by claude-approver). Jupyter on 8889 for manual ad-hoc runs only.
+      # 8080 is taken by claude-approver on this VPS. Jupyter on 8889 for manual
+      # ad-hoc runs only. Site (/ + /viewer + /api) on 8081 (bound to localhost
+      # so it stays behind any reverse proxy).
       - "127.0.0.1:8889:8888"
+      - "127.0.0.1:8081:8081"
     networks:
       - default
       - findevil-internal
-    command: ["bash", "-c", "uv sync && uv run uvicorn pipeline.viewer:app --host 0.0.0.0 --port 8080 & uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
+    command: ["bash", "-c", "uv sync && uv run uvicorn pipeline.viewer:app --host 0.0.0.0 --port 8080 & uv run uvicorn pipeline.site:app --host 0.0.0.0 --port 8081 & uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
     restart: unless-stopped
 
 networks:

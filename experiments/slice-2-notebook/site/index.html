@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Find Evil Sentinel</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c232c;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --teal: #56d4dd;
+    --purple: #bc8cff;
+    --orange: #ffa657;
+    --red: #f85149;
+    --green: #3fb950;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 28px; display: flex; align-items: center; gap: 24px; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--accent); }
+  header nav { display: flex; gap: 4px; }
+  header nav a { color: var(--muted); padding: 6px 14px; border-radius: 18px; font-size: 13px; font-weight: 500; }
+  header nav a:hover { color: var(--text); background: rgba(255,255,255,0.04); text-decoration: none; }
+  header nav a.active { color: var(--accent); background: rgba(88,166,255,0.1); }
+  .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 8px; box-shadow: 0 0 6px rgba(63,185,80,0.6); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: 0.4; } }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 28px 80px; }
+  section { margin-bottom: 36px; }
+  section h2 { font-size: 16px; font-weight: 700; margin: 0 0 12px; color: var(--text); display: flex; align-items: center; gap: 10px; }
+  section h2 .count { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; }
+  .panel-row { display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: baseline; font-size: 13px; }
+  .panel-row:last-child { border-bottom: none; }
+  .panel-row .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .panel-row .v { color: var(--text); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; border: 1px solid; margin-right: 4px; }
+  .pill-pass { color: var(--green); border-color: rgba(63,185,80,0.4); background: rgba(63,185,80,0.1); }
+  .pill-fail { color: var(--red); border-color: rgba(248,81,73,0.4); background: rgba(248,81,73,0.1); }
+  .pill-flight { color: var(--amber); border-color: rgba(210,153,34,0.4); background: rgba(210,153,34,0.1); }
+  .pill-rule  { color: var(--purple); border-color: rgba(188,140,255,0.4); background: rgba(188,140,255,0.1); }
+
+  .grid-cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .grid-cols-2 { grid-template-columns: 1fr; } }
+
+  .rule { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
+  .rule-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .rule-id { font-family: ui-monospace,Menlo,monospace; color: var(--muted); font-size: 11px; }
+  .rule-text { font-size: 13px; line-height: 1.5; }
+  .rule-meta { color: var(--muted); font-size: 11px; margin-top: 6px; font-family: ui-monospace,Menlo,monospace; }
+
+  .commit { font-family: ui-monospace,Menlo,monospace; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 80px 110px 1fr; gap: 12px; align-items: baseline; }
+  .commit:last-child { border-bottom: none; }
+  .commit .h { color: var(--purple); }
+  .commit .w { color: var(--muted); }
+  .commit .s { color: var(--text); }
+
+  form.submit { display: grid; gap: 14px; }
+  form.submit label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  form.submit input, form.submit select, form.submit textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 4px; font: 13px ui-monospace,Menlo,monospace; }
+  form.submit textarea { min-height: 80px; resize: vertical; }
+  form.submit button { background: var(--accent); color: var(--bg); border: 0; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 4px; cursor: pointer; justify-self: start; }
+  form.submit button:hover { filter: brightness(1.1); }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .type-fields { display: none; }
+  .type-fields.active { display: grid; gap: 14px; }
+  #submit-result { padding: 10px 14px; border-radius: 4px; font-size: 13px; margin-top: 12px; display: none; }
+  #submit-result.ok { background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.4); color: var(--green); display: block; }
+  #submit-result.err { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.4); color: var(--red); display: block; }
+
+  .empty { color: var(--muted); font-style: italic; padding: 16px 0; text-align: center; }
+  .iframe-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; height: 720px; overflow: hidden; }
+  .iframe-wrap iframe { width: 100%; height: 100%; border: 0; }
+  .scroll-y { max-height: 480px; overflow-y: auto; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Find Evil Sentinel</h1>
+  <nav>
+    <a href="#live" class="active" data-tab="live"><span class="live-dot"></span>Live</a>
+    <a href="#learnings" data-tab="learnings">Learnings</a>
+    <a href="#findings" data-tab="findings">Findings</a>
+    <a href="#submit" data-tab="submit">Submit a test</a>
+  </nav>
+  <span style="margin-left:auto;color:var(--muted);font-size:12px" id="now-utc"></span>
+</header>
+
+<main>
+  <section id="section-live">
+    <h2>Latest cron run <span class="count" id="latest-cron-when"></span></h2>
+    <div class="panel" id="cron-panel">
+      <div class="empty">Loading...</div>
+    </div>
+
+    <h2 style="margin-top:24px">Currently in flight <span class="count" id="in-flight-count"></span></h2>
+    <div class="panel" id="in-flight-panel">
+      <div class="empty">Loading...</div>
+    </div>
+
+    <h2 style="margin-top:24px">Recent tweaks <span class="count">(local commits to pipeline + scripts)</span></h2>
+    <div class="panel" id="commits-panel">
+      <div class="empty">Loading...</div>
+    </div>
+  </section>
+
+  <section id="section-learnings" style="display:none">
+    <h2>Promoted rules <span class="count" id="learnings-count"></span></h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 14px">Rules that survived lint+dedup and human review. Each rule was synthesised by Haiku from a specific MISS in a past cron run, then promoted into the live store. Sentinel reads these on every plan/extract/interpret prompt build.</p>
+    <div id="learnings-list">
+      <div class="empty">Loading...</div>
+    </div>
+  </section>
+
+  <section id="section-findings" style="display:none">
+    <h2>Findings viewer</h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 14px">The full per-run viewer with evidence, plan, and integrity ledger.</p>
+    <div class="iframe-wrap"><iframe src="/viewer" title="Run viewer"></iframe></div>
+  </section>
+
+  <section id="section-submit" style="display:none">
+    <h2>Submit a test artifact</h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 14px">Got a tradecraft pattern sentinel should be tested against? File it here. Submissions are queued for human review before they enter the next manifest. Use <code>example.invalid</code> domains and <code>ALLCAPS_PLACEHOLDER</code> tokens for credentials, per the project convention.</p>
+
+    <div class="grid-cols-2">
+      <div>
+        <form class="submit" id="submit-form">
+          <div class="form-row-2">
+            <label>Your name<input name="submitter" required placeholder="e.g. Chetas"></label>
+            <label>Artifact id (snake_case)<input name="artifact_id" required pattern="[a-z0-9_]+" placeholder="e.g. exotic_lolbin_persistence"></label>
+          </div>
+          <div class="form-row-2">
+            <label>Type
+              <select name="type" id="submit-type" required>
+                <option value="">choose...</option>
+                <option value="file_drop">file_drop (web shell, script)</option>
+                <option value="registry_run_key">registry_run_key (HKLM/HKCU Run)</option>
+                <option value="scheduled_task_xml">scheduled_task_xml (Tasks\\)</option>
+              </select>
+            </label>
+            <label>Expected detection
+              <select name="expected_detection" required>
+                <option value="">choose...</option>
+                <option value="attacker_persistence">attacker_persistence</option>
+                <option value="attacker_persistence_ai_assisted">attacker_persistence_ai_assisted</option>
+                <option value="tradecraft_signal">tradecraft_signal</option>
+                <option value="expected_miss_documented_gap">expected_miss_documented_gap</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="fields-file_drop" class="type-fields">
+            <label>File path<input name="file_path" placeholder="inetpub/wwwroot/your_test.aspx"></label>
+            <label>File content text<textarea name="file_content_text" placeholder="<% Response.Write(Request.QueryString[&quot;c&quot;]); %>"></textarea></label>
+          </div>
+          <div id="fields-registry_run_key" class="type-fields">
+            <label>Hive
+              <select name="hive">
+                <option value="SOFTWARE">SOFTWARE</option>
+                <option value="SYSTEM">SYSTEM</option>
+                <option value="NTUSER.DAT">NTUSER.DAT</option>
+              </select>
+            </label>
+            <label>Key path<input name="key_path" placeholder="Microsoft\\Windows\\CurrentVersion\\Run"></label>
+            <label>Value name<input name="value_name" placeholder="MyAutoStart"></label>
+            <label>Value data<textarea name="value_data" placeholder="powershell.exe -NoP -W Hidden -C ..."></textarea></label>
+          </div>
+          <div id="fields-scheduled_task_xml" class="type-fields">
+            <label>Task install path<input name="task_install_path" placeholder="Microsoft\\Windows\\Diagnostics\\YourTask"></label>
+            <label>Task XML<textarea name="task_xml" placeholder="<?xml version=&quot;1.0&quot;?>&#10;<Task ...></Task>"></textarea></label>
+          </div>
+
+          <label>Source URL (optional, real threat-intel link)<input name="source_url" placeholder="https://www.cisa.gov/news-events/alerts/..."></label>
+          <label>Rationale (one paragraph; what tradecraft is this and why should sentinel catch it)<textarea name="rationale" required></textarea></label>
+
+          <button type="submit">Submit for review</button>
+          <div id="submit-result"></div>
+        </form>
+      </div>
+
+      <div>
+        <h3 style="margin:0 0 10px;font-size:14px">Pending submissions</h3>
+        <div class="scroll-y" id="submissions-list">
+          <div class="empty">Loading...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const TABS = ['live', 'learnings', 'findings', 'submit'];
+function setTab(name) {
+  document.querySelectorAll('header nav a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
+  TABS.forEach(t => {
+    const sec = document.getElementById('section-' + t);
+    if (sec) sec.style.display = (t === name) ? 'block' : 'none';
+  });
+  history.replaceState(null, '', '#' + name);
+  if (name === 'learnings') loadLearnings();
+  if (name === 'submit')    loadSubmissions();
+}
+document.querySelectorAll('header nav a').forEach(a => {
+  a.addEventListener('click', e => { e.preventDefault(); setTab(a.dataset.tab); });
+});
+const initial = (location.hash || '#live').slice(1);
+if (TABS.includes(initial)) setTab(initial);
+
+function escHtml(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    document.getElementById('now-utc').textContent = `now: ${s.now_utc} UTC`;
+
+    const cronEl = document.getElementById('cron-panel');
+    if (!s.latest_cron) {
+      cronEl.innerHTML = '<div class="empty">No cron runs found yet.</div>';
+    } else {
+      const c = s.latest_cron;
+      const reg = (c.regression_pass || []).length;
+      const regFail = (c.regression_fail || []).length;
+      cronEl.innerHTML = `
+        <div class="panel-row"><div class="k">date</div><div class="v"><strong>${escHtml(c.date)}</strong></div></div>
+        <div class="panel-row"><div class="k">regression</div><div class="v">
+          <span class="pill pill-pass">${reg} pass</span>
+          ${regFail ? `<span class="pill pill-fail">${regFail} fail</span>` : ''}
+        </div></div>
+        <div class="panel-row"><div class="k">extension scoring</div><div class="v">
+          <span class="pill pill-pass">${c.extension_pass ?? '?'} pass</span>
+          <span class="pill pill-fail">${c.extension_miss ?? '?'} miss</span>
+        </div></div>
+        <div class="panel-row"><div class="k">phase G proposals</div><div class="v">${c.phase_g_proposals_md ? `<a href="/loop_runs/${escHtml(c.phase_g_proposals_md)}">view</a>` : '<span style="color:var(--muted)">none for this run</span>'}</div></div>
+        <div class="panel-row"><div class="k">report</div><div class="v">${c.report_md_exists ? '✓ REPORT.md present' : '<span style="color:var(--muted)">no REPORT.md yet</span>'}</div></div>
+      `;
+    }
+
+    const flightEl = document.getElementById('in-flight-panel');
+    document.getElementById('in-flight-count').textContent = s.in_flight.length ? `(${s.in_flight.length})` : '';
+    if (!s.in_flight.length) {
+      flightEl.innerHTML = '<div class="empty">No pipelines running right now.</div>';
+    } else {
+      flightEl.innerHTML = s.in_flight.map(f => `
+        <div class="panel-row">
+          <div class="k">${escHtml(f.case_id)}</div>
+          <div class="v">
+            <span class="pill pill-flight">${escHtml(f.last_event_type || 'starting')}</span>
+            <span style="color:var(--muted);font-size:11px">${f.n_ledger_entries} ledger entries${f.last_event_at ? ` · last @ ${escHtml(f.last_event_at)}` : ''}</span>
+            <span style="color:var(--muted);font-size:11px;margin-left:6px">run ${escHtml(f.run_id)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    const commitsEl = document.getElementById('commits-panel');
+    if (!s.recent_tweaks || !s.recent_tweaks.length) {
+      commitsEl.innerHTML = '<div class="empty">No git history available (or this is not a git checkout).</div>';
+    } else {
+      commitsEl.innerHTML = s.recent_tweaks.map(c => `
+        <div class="commit">
+          <span class="h">${escHtml(c.hash)}</span>
+          <span class="w">${escHtml(c.when)}</span>
+          <span class="s">${escHtml(c.subject)}</span>
+        </div>
+      `).join('');
+    }
+  } catch (e) {
+    document.getElementById('cron-panel').innerHTML = `<div class="empty">status fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadLearnings() {
+  const el = document.getElementById('learnings-list');
+  el.innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const r = await fetch('/api/learnings');
+    const data = await r.json();
+    document.getElementById('learnings-count').textContent = `(${data.count} promoted)`;
+    if (!data.count) {
+      el.innerHTML = '<div class="empty">No promoted rules yet. Phase G proposals will appear here once promoted.</div>';
+      return;
+    }
+    el.innerHTML = data.rules.map(r => `
+      <div class="rule">
+        <div class="rule-head">
+          <span class="pill pill-rule">${escHtml(r.rule_kind || '?')}</span>
+          <span class="rule-id">${escHtml(r.id || '')}</span>
+        </div>
+        <div class="rule-text">${escHtml(r.rule_text || '')}</div>
+        ${r.rationale ? `<div style="color:var(--muted);font-size:12px;margin-top:6px;font-style:italic">${escHtml(r.rationale)}</div>` : ''}
+        <div class="rule-meta">
+          source: ${escHtml(r.source_miss_id || '?')}
+          · manifest: ${escHtml(r.source_manifest_id || '?')}
+          · gen: ${escHtml(r.generated_by_model || '?')}
+          · promoted: ${escHtml(r.promoted_at || '?')}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">learnings fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadSubmissions() {
+  const el = document.getElementById('submissions-list');
+  el.innerHTML = '<div class="empty">Loading...</div>';
+  try {
+    const r = await fetch('/api/submissions');
+    const data = await r.json();
+    if (!data.count) {
+      el.innerHTML = '<div class="empty">No submissions yet. Be the first.</div>';
+      return;
+    }
+    el.innerHTML = data.submissions.map(s => `
+      <div class="rule">
+        <div class="rule-head">
+          <span class="pill pill-rule">${escHtml(s.type)}</span>
+          <span class="rule-id">${escHtml(s.artifact_id || '')}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted)">by <strong style="color:var(--text)">${escHtml(s.submitter)}</strong> · ${escHtml(s.submitted_at || '')}</div>
+        <div class="rule-text" style="margin-top:6px">${escHtml(s.rationale || '')}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">submissions fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('submit-type').addEventListener('change', e => {
+  document.querySelectorAll('.type-fields').forEach(f => f.classList.remove('active'));
+  const target = document.getElementById('fields-' + e.target.value);
+  if (target) target.classList.add('active');
+});
+
+document.getElementById('submit-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const obj = {};
+  for (const [k, v] of fd.entries()) {
+    if (v != null && String(v).trim() !== '') obj[k] = v;
+  }
+  const out = document.getElementById('submit-result');
+  out.className = '';
+  out.style.display = 'none';
+  try {
+    const r = await fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(obj),
+    });
+    const j = await r.json();
+    if (r.ok) {
+      out.className = 'ok';
+      out.textContent = 'Submitted. Queued for human review.';
+      e.target.reset();
+      document.querySelectorAll('.type-fields').forEach(f => f.classList.remove('active'));
+      loadSubmissions();
+    } else {
+      out.className = 'err';
+      out.textContent = 'Rejected: ' + (j.detail || JSON.stringify(j));
+    }
+  } catch (err) {
+    out.className = 'err';
+    out.textContent = 'Network error: ' + err.message;
+  }
+});
+
+// Initial + auto-refresh on the live tab.
+loadStatus();
+setInterval(() => {
+  if (document.querySelector('header nav a.active').dataset.tab === 'live') loadStatus();
+}, 30000);
+</script>
+
+</body>
+</html>

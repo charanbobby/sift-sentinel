@@ -103,6 +103,9 @@ env/
 Thumbs.db
 desktop.ini
 
+# --- Probe staging (validated probes promoted to scripts/, staging cleared) ---
+experiments/slice-2-notebook/_judge_probe/
+
 # --- Logs / tmp ---
 *.log
 logs/

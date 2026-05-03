@@ -468,6 +468,21 @@ def phase_e_pipeline(run_dir: Path, working_raw: Path) -> Path:
     except Exception as e:
         check_fail(12, "findings.json valid", f"invalid JSON: {e}")
 
+    # Preserve upstream pipeline artifacts so the regression-replay gate can
+    # cheaply re-invoke just the interpret stage with a candidate counter_rule
+    # spliced in (no need to re-run the full planner+executor). Copy is
+    # best-effort: the gate handles missing files by falling back to full
+    # pipeline replay, so a single missing artifact is not check_fail.
+    for fname in (
+        "01_extract_candidates.json",
+        "02_plan_tool_plan.json",
+        "04_execute_evidence.jsonl",
+        "integrity_ledger.jsonl",
+    ):
+        src = case_dir / run_id / fname
+        if src.exists():
+            shutil.copy2(str(src), str(pipeline_out / fname))
+
     n = len(f.get("findings", []))
     check_pass(12, "findings.json valid", f"{n} findings, run_dir={case_dir / run_id}")
 
@@ -550,6 +565,34 @@ def phase_f_score(run_dir: Path, manifest_path: Path, findings_path: Path) -> No
                    f"baseline misses: {score['regression']['fail']}")
     check_pass(14, "regression assertion",
                f"all {len(score['regression']['expected'])} baseline findings re-detected")
+
+
+def phase_learn_from_misses(run_dir: Path) -> None:
+    """Phase G': feed today's misses back into the live rule store.
+
+    Wraps `scripts/cron_phase_g_hook.sh`. Synthesises one or more proposed
+    rules per MISS in the day's score JSON and writes them to
+    `<run_dir>/learned_rules.staged.jsonl`. Lints + dedupes against the
+    existing live store and emits a sidecar `learned_rules.proposed.md`
+    for human review the next morning. NEVER auto-promotes; promotion
+    into pipeline/learned_rules.jsonl is a deliberate human step via
+    scripts/regression_gate.py --mode promote.
+
+    Soft-fails: if the hook returns non-zero (Haiku rate-limit, parse
+    glitch, missing score artefact), log and continue. We do not want a
+    learning hiccup to block the cron's cleanup phase.
+    """
+    info("=== Phase G': learn from misses ===")
+    hook = CFG.REPO_ROOT / "scripts" / "cron_phase_g_hook.sh"
+    if not hook.exists():
+        info(f"learn hook missing at {hook}; skipping")
+        return
+    try:
+        run(["bash", str(hook), str(run_dir)], capture=False)
+        info("learn hook completed; proposals at "
+             f"{run_dir / 'learned_rules.proposed.md'}")
+    except subprocess.CalledProcessError as e:
+        info(f"learn hook exit {e.returncode} (soft-pass; promotions stay manual)")
 
 
 def phase_g_cleanup(working_raw: Path | None = None) -> None:
@@ -637,6 +680,8 @@ def main():
         findings_path = phase_e_pipeline(run_dir, working_raw)
         heartbeat_lock("phase_f")
         phase_f_score(run_dir, manifest_today, findings_path)
+        heartbeat_lock("phase_learn")
+        phase_learn_from_misses(run_dir)
 
         elapsed = time.time() - started
         info(f"=== LOOP COMPLETE in {elapsed:.1f}s ===")

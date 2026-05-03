@@ -85,6 +85,67 @@ MEMORY_PROFILE: Optional[str] = None
 OUT_DIR: Path = Path("out")
 
 
+# ============================================================================
+# Learned-rule store (sentinel learning loop, 2026-05-03)
+# ============================================================================
+# Day-by-day, the synthetic-workstation loop scores sentinel against a planted
+# manifest. Misses are translated into prompt-side rules that future runs read
+# back so we keep what we have detected before. The store lives at
+# `pipeline/learned_rules.jsonl`; promotion into it goes through
+# `scripts/regression_gate.py` (each new rule must catch the historical miss
+# AND not false-positive on base-wkstn-05 originals AND not false-positive on
+# a clean DFIR host before it is allowed in). Probe: d:/tmp/probe_load_learned_rules_2026-05-03.py.
+_LEARNED_RULES_PATH = Path(__file__).parent / "learned_rules.jsonl"
+_LEARNED_RULE_KINDS = ("counter_rule", "extract_location", "planner_hint")
+
+
+def _load_learned_rules(path: Optional[Path] = None) -> dict[str, list[str]]:
+    """Read the learned-rule store and group by `rule_kind`.
+
+    Returns a dict with keys = `_LEARNED_RULE_KINDS`, values = list of
+    `rule_text` strings in file order. Missing file, empty file, malformed
+    JSON, missing field, or unknown kind: each is skipped with a stderr
+    warning so a bad line cannot silently change the prompts.
+    """
+    p = path or _LEARNED_RULES_PATH
+    out: dict[str, list[str]] = {k: [] for k in _LEARNED_RULE_KINDS}
+    if not p.exists():
+        return out
+    for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            print(f"WARN learned_rules.jsonl:{n}: not JSON, skipped", flush=True)
+            continue
+        if not isinstance(obj, dict):
+            print(f"WARN learned_rules.jsonl:{n}: not an object, skipped", flush=True)
+            continue
+        kind = obj.get("rule_kind")
+        text = obj.get("rule_text")
+        if kind not in _LEARNED_RULE_KINDS:
+            print(f"WARN learned_rules.jsonl:{n}: unknown rule_kind={kind!r}, skipped", flush=True)
+            continue
+        if not isinstance(text, str) or not text.strip():
+            print(f"WARN learned_rules.jsonl:{n}: empty rule_text, skipped", flush=True)
+            continue
+        out[kind].append(text.strip())
+    return out
+
+
+def _render_learned_block(rules: list[str], header: str) -> str:
+    """Render a list of learned rules as appendable prompt text. Empty list
+    returns empty string so the block disappears cleanly when no rules apply.
+    Non-empty starts with two newlines so the block sits cleanly after the
+    preceding section."""
+    if not rules:
+        return ""
+    body = "\n".join(f"- {r}" for r in rules)
+    return f"\n\n## {header} (auto-generated, see pipeline/learned_rules.jsonl)\n{body}"
+
+
 def _require(name: str, value):
     """Fail-fast guard: a node tried to run before the notebook configured it."""
     if value is None:
@@ -205,6 +266,35 @@ def _ledger_append(event_type: str, **payload) -> None:
 LLM_USAGE_INCLUDE: dict = {"usage": {"include": True}}
 
 
+# Per-host OpenRouter budget ceiling. Added 2026-05-02 ahead of the 13-host
+# standalone memory sweep so a runaway retry on a server-class host cannot
+# silently overshoot the projected ~$1/host worst case. _llm_cost_post
+# accumulates `usage.cost` across every LLM call in this Python process and
+# raises BudgetExceeded once it crosses RUN_COST_LIMIT_USD (default $1.50).
+# Set RUN_COST_LIMIT_USD=0 to disable. Each `python run_case.py` invocation is
+# a fresh process so the accumulator starts at zero per host.
+class BudgetExceeded(RuntimeError):
+    """Cumulative LLM cost crossed RUN_COST_LIMIT_USD for this run."""
+
+
+_RUN_COST_USD: float = 0.0
+
+
+def _reset_run_cost() -> None:
+    """Reset the run-level cost accumulator. Used by probes between assertions;
+    not needed in production because each run_case.py is a fresh process."""
+    global _RUN_COST_USD
+    _RUN_COST_USD = 0.0
+
+
+def _budget_limit_usd() -> float:
+    raw = os.environ.get("RUN_COST_LIMIT_USD", "1.50").strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return 1.50
+
+
 def _cost_details_get(details, key: str, default: float = 0.0) -> float:
     """Read a cost subtotal from `usage.cost_details` regardless of whether
     OpenRouter returned it as a Pydantic model or a plain dict."""
@@ -252,6 +342,19 @@ def _llm_cost_post(phase: str, model: str, usage) -> None:
         f"output={ct:,} tok (${out_cost:.5f})  "
         f"total=${cost:.5f}"
     )
+    # Accumulate against the per-host budget ceiling. Raises BudgetExceeded
+    # AFTER printing the cost, so the operator can always see what the last
+    # call cost before the run halts. Limit <= 0 disables the check.
+    global _RUN_COST_USD
+    _RUN_COST_USD += float(cost)
+    limit = _budget_limit_usd()
+    print(f"           run_cost=${_RUN_COST_USD:.4f} / limit=${limit:.2f}")
+    if limit > 0 and _RUN_COST_USD > limit:
+        raise BudgetExceeded(
+            f"run cost ${_RUN_COST_USD:.4f} exceeded ceiling ${limit:.2f} "
+            f"after phase={phase!r}; halting before next LLM call. "
+            f"Set RUN_COST_LIMIT_USD=0 to disable, or raise it explicitly."
+        )
 
 
 def _parse_json_response(raw: str, model_cls):
@@ -315,20 +418,29 @@ def _host_type_of(case_id: str) -> tuple[str, str]:
         return ("dmz_host", "DMZ-facing host; web-shell + IIS abuse common")
     if "mail" in cid:
         return ("mail_server", "Mail server; transport-rule + Exchange-specific compromise possible")
+    # Added 2026-05-02 ahead of the standalone memory sweep so AV management
+    # and SharePoint hosts get role-aware memory guidance instead of the
+    # generic windows_host fallback (which has no guidance).
+    if "base-av" in cid or cid.endswith("-av"):
+        return ("av_server", "AV / EDR management server; legitimate AV hooks routinely look like attacker tradecraft, raise the bar on dll_load_anomaly")
+    if "base-sp" in cid or "sharepoint" in cid:
+        return ("sharepoint_server", "SharePoint server; w3wp + OWSTimer attack surface, ToolShell / ProxyShell-class web shells apply")
     return ("windows_host", "Generic Windows host")
 
 
-def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
+def _available_tools_spec(case_id: str, has_memory: bool = False, has_disk: bool = True) -> dict:
     """Return the tool/plugin spec advertised to the PLAN model. `case_id` only
     appears in the `regripper_run.args.hive_path` hint; everything else is
     case-agnostic. Kept as a function (not a module const) so two probes with
     different case_ids can't accidentally share a cached dict.
 
     `has_memory=False` (default) omits `volatility_run` entirely so disk-only
-    cases never see the memory tool surface — keeps the prompt tight AND prevents
-    the LLM from planning a memory call when no dump is staged.
+    cases never see the memory tool surface, keeping the prompt tight and
+    preventing the LLM from planning a memory call when no dump is staged.
+    `has_disk=False` symmetrically omits all disk tools (fsstat_e01, fls_list,
+    icat_extract, regripper_run, scheduled_tasks_parse) for memory-only runs.
     """
-    spec = {
+    spec = {} if not has_disk else {
         "fsstat_e01": {
             "description": "Run `fsstat` on an E01 image. Returns filesystem metadata (type, block size, MFT offset for NTFS).",
             "args": {"e01_path": "absolute path to the E01 under /mnt/hackathon/"},
@@ -374,12 +486,15 @@ def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
             "description": (
                 "Extract ONE Windows Task XML file by inode from `\\Windows\\System32\\Tasks\\` and parse it server-side. "
                 "Chains icat + XML parse in one call. To cover all tasks, EMIT MULTIPLE scheduled_tasks_parse STEPS, one per "
-                "task XML you want parsed. RECOMMENDED PATTERN: emit five steps that pick the 1st, 2nd, 3rd, 4th, 5th file "
-                "inodes from the upstream fls_list (recurse=true over Tasks\\), using `{step:N.nth_file_inode(0)}`, "
-                "`{step:N.nth_file_inode(1)}`, `{step:N.nth_file_inode(2)}`, `{step:N.nth_file_inode(3)}`, "
-                "`{step:N.nth_file_inode(4)}`. This works even when you do not know the task XML filenames at PLAN time, "
-                "because attacker tasks (Sandworm\\TorProxy, PyPackages\\xinference, NPMPackages\\pgserve, System\\AdminCheck) "
-                "have names that depend on the threat intel of the day. The upstream step N MUST be an fls_list with "
+                "task XML you want parsed. RECOMMENDED PATTERN: emit TEN steps that pick the 1st through 10th file "
+                "inodes from the upstream fls_list (recurse=true over Tasks\\), using `{step:N.nth_file_inode(0)}` "
+                "through `{step:N.nth_file_inode(9)}`. (Coverage was bumped from 5 to 10 on 2026-05-02 after the daily-loop "
+                "scoring missed 3 of 3 attacker scheduled tasks because the planted tasks landed past inode index 4. "
+                "Cost is bounded: parse_error on out-of-range is non-fatal and the per-step LLM impact is one tool call.) "
+                "This works even when you do not know the task XML filenames at PLAN time, "
+                "because attacker tasks (Sandworm\\TorProxy, PyPackages\\xinference, NPMPackages\\pgserve, System\\AdminCheck, "
+                "credential-enumeration tasks under \\Microsoft\\Windows\\<looks-legit>\\) have names that depend on the "
+                "threat intel of the day. The upstream step N MUST be an fls_list with "
                 "`recurse=true` so deeply-nested task XMLs become first-class file entries in the listing. "
                 "An out-of-range nth_file_inode (host has fewer than N+1 task XMLs) returns parse_error and is non-fatal."
             ),
@@ -418,7 +533,7 @@ def _available_tools_spec(case_id: str, has_memory: bool = False) -> dict:
 
 def _plan_system_prompt(
     case_id: str,
-    e01_path: str,
+    e01_path: str | None,
     memory_image_path: str | None = None,
     memory_profile: str | None = None,
 ) -> str:
@@ -429,10 +544,34 @@ def _plan_system_prompt(
     when a memory dump has been staged for this case. When both are None the
     prompt explicitly forbids `volatility_run` steps so disk-only cases don't
     pay any memory-prompt cost AND can't accidentally plan a memory call.
+
+    `e01_path` may be None for memory-only runs; in that mode the prompt
+    omits all disk-tool advertisements and disk-specific argument-templating /
+    navigation / hard-rule blocks so the LLM sees only the volatility surface.
     """
     has_memory = bool(memory_image_path and memory_profile)
-    tools_spec = json.dumps(_available_tools_spec(case_id, has_memory=has_memory), indent=2)
-    tool_plan_schema = json.dumps(ToolPlan.model_json_schema(), indent=2)
+    has_disk = bool(e01_path)
+    if not has_disk and not has_memory:
+        raise ValueError("PLAN prompt needs at least one of disk or memory channel")
+    tools_spec = json.dumps(_available_tools_spec(case_id, has_memory=has_memory, has_disk=has_disk), indent=2)
+    # Filter the ToolPlan JSON-schema enum so it only advertises tools the
+    # current channel mix actually supports. Without this, memory-only runs
+    # would still let the LLM emit fls_list / icat_extract / regripper_run
+    # steps that have no executor and would fail at runtime.
+    _allowed_tool_names = set(_available_tools_spec(case_id, has_memory=has_memory, has_disk=has_disk).keys())
+    _schema_dict = ToolPlan.model_json_schema()
+    _enum = (
+        _schema_dict.get("$defs", {})
+        .get("PlannedStep", {})
+        .get("properties", {})
+        .get("tool", {})
+        .get("enum")
+    )
+    if _enum is not None:
+        _schema_dict["$defs"]["PlannedStep"]["properties"]["tool"]["enum"] = [
+            t for t in _enum if t in _allowed_tool_names
+        ]
+    tool_plan_schema = json.dumps(_schema_dict, indent=2)
     if has_memory:
         memory_constants_block = (
             f"- memory_image:   {memory_image_path}\n"
@@ -440,13 +579,13 @@ def _plan_system_prompt(
         )
         memory_rules_block = """
 
-Memory-evidence rules (this case has a staged memory dump — use volatility_run):
+Memory-evidence rules (this case has a staged memory dump; use volatility_run):
 - Use the LITERAL `memory_image` and `memory_profile` from case constants. Do NOT
-  invent or guess profile strings — the case manifest pins them per host.
+  invent or guess profile strings; the case manifest pins them per host.
 - Plan `pslist` FIRST. Other plugins (cmdline, netscan, dlllist, malfind) need a
   process inventory to interpret their output; their steps MUST list the pslist
   step_id in `depends_on`.
-- COST GUARD — `dlllist` is high-volume. NEVER plan `dlllist` as a sweep over all
+- COST GUARD: `dlllist` is high-volume. NEVER plan `dlllist` as a sweep over all
   processes. Plan `dlllist` ONLY for specific PIDs already flagged by:
     * a `malfind` hit on that PID,
     * a suspicious `cmdline` (encoded payloads, AI-SDK invocations, unusual flags), or
@@ -454,31 +593,25 @@ Memory-evidence rules (this case has a staged memory dump — use volatility_run
   Without a triggering signal, skip `dlllist` entirely. A blanket `dlllist` call
   blows the INTERPRET bundle past safe-cost limits.
 - Typical memory triage shape (5 steps max for a clean run):
-    pslist → cmdline → netscan → malfind → (optional) dlllist for flagged PIDs.
-  Disk steps and memory steps are independent — they can interleave or run in
+    pslist, then cmdline, then netscan, then malfind, then (optional) dlllist for flagged PIDs.
+  Disk steps and memory steps are independent; they can interleave or run in
   parallel; do NOT manufacture cross-class dependencies."""
     else:
-        memory_constants_block = "- memory_image:   <NONE — disk-only case>"
+        memory_constants_block = "- memory_image:   <NONE; disk-only case>"
         memory_rules_block = ""
-    return f"""You design a tool-call plan to answer a forensic question, using ONLY the tools
-available below. You are NOT executing anything — only producing a plan that a human
-will review before any tool runs.
-
-Return a single JSON object matching exactly this schema (no prose, no markdown fences):
-
-{tool_plan_schema}
-
-Case constants (use these LITERAL values — do NOT invent paths):
-- case_id:        {case_id}
-- e01_path:       {e01_path}
-- extracted_dir:  /home/sansforensics/cases/{case_id}/analysis/extracted
-{memory_constants_block}
-
-Available tools:
-{tools_spec}
+    if has_disk:
+        # Single line spliced into the case-constants block. Leading newline
+        # owned here so the has_disk=False path can drop the line cleanly
+        # without leaving a blank gap.
+        disk_constants_line = f"\n- e01_path:       {e01_path}"
+        # Disk-channel rule sections (Argument templating + Filesystem
+        # navigation + Hard rules). Owns its leading "\n\n" so the
+        # has_disk=False path can splice memory_rules_block directly after
+        # tools_spec without a stray blank line.
+        disk_rules_block = """
 
 Argument templating (READ THIS BEFORE WRITING ANY STEP):
-- Inodes are not known at planning time — they come from upstream `fls_list` output.
+- Inodes are not known at planning time; they come from upstream `fls_list` output.
   DO NOT guess. DO NOT write `"inode": 0` or any made-up number. Write a placeholder:
       "{{step:N.EXTRACTOR(PARAM)}}"
   The executor substitutes it before calling the tool. Step N MUST appear in the same
@@ -496,17 +629,17 @@ Filesystem navigation (use placeholders; do NOT emit duplicate fls_list calls):
       step 6: icat_extract(inode="{{step:5.inode_by_name(SOFTWARE)}}", dest_filename="SOFTWARE")
       step 7: icat_extract(inode="{{step:5.inode_by_name(SYSTEM)}}",   dest_filename="SYSTEM")
 - If two steps would have identical (parent_inode, recurse) args, collapse them into
-  ONE step — downstream steps can reference the same fls_list output.
+  ONE step; downstream steps can reference the same fls_list output.
 
 Hard rules:
 - To inspect a registry hive you MUST first call `icat_extract` on it, then call
-  `regripper_run` with `hive_path` = /home/sansforensics/cases/{case_id}/analysis/extracted/<dest_filename>
+  `regripper_run` with `hive_path` = /home/sansforensics/cases/""" + case_id + """/analysis/extracted/<dest_filename>
   where <dest_filename> matches the upstream icat_extract step. Every `regripper_run`
   step MUST list the corresponding `icat_extract` step_id in `depends_on`.
 - `regripper_run.plugin` MUST be one of the allowlisted plugin names above. Do NOT
   invent plugin names. Pick the plugin whose expected hive matches the hive you extracted.
 - For per-user persistence (Run keys in NTUSER.DAT), plan one icat_extract per user's
-  NTUSER.DAT — use dest_filename like 'NTUSER-<username>.DAT' to keep them distinct.
+  NTUSER.DAT; use dest_filename like 'NTUSER-<username>.DAT' to keep them distinct.
   User profile directories live under /Users (Windows 10+) or /Documents and Settings (XP).
 - NEVER hardcode a specific scheduled-task XML basename (e.g. "At1", "At2", "Adobe
   Acrobat Update Task", "MicrosoftEdgeUpdateTaskMachineUA") in `scheduled_tasks_parse`
@@ -516,18 +649,54 @@ Hard rules:
   over Windows\\System32\\Tasks\\ to ENUMERATE every task XML actually present on
   this host. Do NOT add follow-up `scheduled_tasks_parse` calls for guessed names;
   the listing surfaces every task name and downstream interpretation reviews it.
-  Speculative parses on names that may not exist waste a tool call and a capability-
-  token grant, and were the failure mode that motivated this rule.{memory_rules_block}
+  Speculative parses on names that may not exist waste a tool call and a capability
+  token grant, and were the failure mode that motivated this rule."""
+    else:
+        disk_constants_line = ""
+        disk_rules_block = ""
+    # Confidence-scoring example uses tools the current channel mix actually
+    # exposes. Disk-having modes reference fsstat_e01 / fls_list; memory-only
+    # references pslist / dlllist so we never name tools the LLM cannot call.
+    if has_disk:
+        confidence_examples = (
+            "an `fsstat_e01` is usually \"high\" for confirming layout; "
+            "an `fls_list` navigation step is \"medium\" because its value "
+            "is discovering inodes, not producing findings"
+        )
+    else:
+        confidence_examples = (
+            "a `pslist` is usually \"high\" for confirming the live process "
+            "inventory; a `dlllist` per-PID step is \"medium\" because its "
+            "value is enriching context, not producing findings"
+        )
+    learned_planner_block = _render_learned_block(
+        _load_learned_rules()["planner_hint"],
+        "Learned planner hints",
+    )
+    return f"""You design a tool-call plan to answer a forensic question, using ONLY the tools
+available below. You are NOT executing anything; only producing a plan that a human
+will review before any tool runs.
+
+Return a single JSON object matching exactly this schema (no prose, no markdown fences):
+
+{tool_plan_schema}
+
+Case constants (use these LITERAL values; do NOT invent paths):
+- case_id:        {case_id}{disk_constants_line}
+- extracted_dir:  /home/sansforensics/cases/{case_id}/analysis/extracted
+{memory_constants_block}
+
+Available tools:
+{tools_spec}{disk_rules_block}{memory_rules_block}
 
 Soft rules:
 - Score `confidence` for each step INDEPENDENTLY. Do not default to "high". Rate each
-  step based on how directly its output contributes to answering the question (an
-  `fsstat_e01` is usually "high" for confirming layout; an `fls_list` navigation step
-  is "medium" because its value is discovering inodes, not producing findings).
+  step based on how directly its output contributes to answering the question
+  ({confidence_examples}).
 - Set `expected_findings_range` based on typical compromised Windows hosts (usually 1-5
   persistence mechanisms). Emit as a 2-element JSON array, e.g. [1, 5].
 - Every step MUST have a non-empty `purpose` (one sentence).
-- Dependencies: if step N needs output from step M, set depends_on=[M]. Otherwise [].
+- Dependencies: if step N needs output from step M, set depends_on=[M]. Otherwise [].{learned_planner_block}
 """
 
 
@@ -550,7 +719,9 @@ def plan_node(state: "PipelineState") -> dict:
     langfuse = _require("LANGFUSE", LANGFUSE)
     model = _require("PLAN_MODEL", PLAN_MODEL)
     case_id = _require("CASE_ID", CASE_ID)
-    e01_path = _require("E01_PATH", E01_PATH)
+    # E01_PATH may legitimately be None for memory-only runs; the prompt
+    # builder enforces "at least one channel" via its own ValueError.
+    e01_path = E01_PATH
 
     from langfuse import propagate_attributes  # local import — langfuse optional at module load
 
@@ -750,6 +921,88 @@ Mail-server-specific compromise patterns to consider in addition to the universa
     "windows_host": "",
 }
 
+
+# Memory-channel role guidance. Added 2026-05-02 ahead of the standalone memory
+# sweep so EXTRACT on a DC, mail, SharePoint, or AV server gets role-specific
+# expected-baseline + suspicious-shape hints instead of the generic prompt the
+# workstation smoke test was validated on. Each block is short on purpose:
+# enough to anchor the LLM's interpretation of pslist / cmdline / netscan /
+# malfind / dlllist for that role, without bloating the EXTRACT input.
+_MEMORY_HOST_GUIDANCE: dict[str, str] = {
+    "workstation": """
+Memory-channel baselines for a Windows workstation:
+- Expected processes: explorer.exe (one per logged-on user), OneDrive.exe, MicrosoftEdgeWebView2.exe, browser children
+- Suspicious shapes: powershell.exe / cmd.exe spawned by Office apps (winword, excel, outlook); rundll32.exe with no command-line arg; PowerShell with -EncodedCommand or -WindowStyle Hidden
+- Suspicious netscan: outbound :443 from non-browser, non-OneDrive processes; LLM-API endpoints from any non-CLI process; CLOSE_WAIT residue on uncommon ports
+- Watch for: process_anomaly with parent=Office and child=PowerShell/cmd; injected_region in Office or browser children
+""",
+    "domain_controller": """
+Memory-channel baselines for a Windows Domain Controller:
+- Expected processes: lsass.exe (single instance), wininit.exe, services.exe, multiple svchost groups (-k netsvcs / -k LocalServiceNetworkRestricted), dfsr.exe, dns.exe
+- Expected netscan: heavy traffic on Kerberos (88), LDAP (389/636), Global Catalog (3268/3269), SMB (445), DNS (53), RPC ephemeral (49152-65535); replication to peer DCs is baseline noise
+- Suspicious shapes: lsass.exe with non-system parent, multiple lsass instances, malfind hits inside lsass.exe (Mimikatz / credential-theft signature); svchost without a -k argument
+- Suspicious netscan: outbound from lsass or ntds to non-DC, non-domain-member endpoints; unexpected RDP outbound from svchost
+- Watch for: process_anomaly with masqueraded svchost (no -k, weird parent); injected_region inside lsass; dll_load_anomaly on lsass loading non-Microsoft DLLs
+""",
+    "mail_server": """
+Memory-channel baselines for a Microsoft Exchange mail server:
+- Expected processes: EdgeTransport.exe, Microsoft.Exchange.Store.Worker.exe, MSExchangeFrontendTransport.exe, w3wp.exe (OWA / EAS / EWS app pools), Microsoft.Exchange.Directory.TopologyService.exe
+- Expected netscan: SMTP (25 / 587 / 465), HTTPS (443), LDAP to DCs (389), high-volume internal connections; treat as baseline
+- Suspicious shapes: w3wp.exe spawning cmd.exe or powershell.exe (ProxyShell / ProxyLogon class); non-Exchange processes binding port 25; long-running PowerShell from Exchange worker parents
+- Suspicious netscan: outbound HTTP / HTTPS from EdgeTransport or Store.Worker to non-vendor endpoints; outbound to LLM API endpoints
+- Watch for: process_anomaly under w3wp parent with PowerShell child; dll_load_anomaly on Exchange workers loading unsigned or non-Microsoft DLLs
+""",
+    "file_server": """
+Memory-channel baselines for a Windows file server:
+- Expected processes: System (SMB kernel), svchost (-k netsvcs, -k LocalService), DfsrPrivate / DFSR if domain-joined
+- Expected netscan: many inbound :445 from domain clients; outbound DFSR replication to peer file servers
+- Suspicious shapes: powershell.exe or wscript.exe running interactively on a server; svchost without -k; explorer.exe (interactive logon to a file server is suspicious unless an admin session is expected)
+- Suspicious netscan: outbound :445 to external IPs; non-Microsoft processes binding :445
+- Watch for: process_anomaly with explorer parent on a server box; injected_region in svchost groups
+""",
+    "rdp_gateway": """
+Memory-channel baselines for an RDP / Remote Desktop server:
+- Expected processes: TermService via svchost, RDPClip.exe (one per active session), sihost.exe (one per session), LogonUI.exe at the logon screen
+- Expected netscan: inbound :3389 from authorized clients (one connection per active session)
+- Suspicious shapes: cmd.exe or powershell.exe whose parent is sethc.exe / utilman.exe / osk.exe / narrator.exe (sticky-keys / accessibility-tool backdoor); IFEO debugger artifacts in memory
+- Suspicious netscan: outbound :3389 from this host to internal hosts (RDP pivot); LLM-API endpoints from any session process
+- Watch for: process_anomaly where an accessibility tool is the parent of cmd.exe; long-running PowerShell sessions with no console window; injected_region in svchost hosting TermService
+""",
+    "ftp_server": """
+Memory-channel baselines for an FTP / DMZ web server:
+- Expected processes: w3wp.exe (IIS app pool workers), inetinfo.exe (legacy), ftpsvc via svchost
+- Expected netscan: inbound :21 control + ephemeral data ports, :80, :443; outbound DNS and vendor-update endpoints
+- Suspicious shapes: w3wp.exe spawning cmd.exe or powershell.exe (web-shell signature); ftp.exe spawning interpreters; any interactive shell at all
+- Suspicious netscan: outbound from w3wp to non-CDN, non-vendor endpoints; reverse-shell shapes (long-lived outbound :443/:80)
+- Watch for: process_anomaly with w3wp parent and PowerShell or net.exe child; injected_region in w3wp
+""",
+    "dmz_host": """
+Memory-channel baselines for a DMZ-facing host:
+- Expected processes: web-server workers (w3wp, httpd), tightly scoped service accounts, no interactive sessions
+- Expected netscan: inbound :80, :443; outbound :53 DNS, :443 to known vendor update endpoints
+- Suspicious shapes: any interactive shell on a DMZ host (cmd, powershell, mstsc) is suspicious; web-server worker spawning interpreters
+- Suspicious netscan: outbound to LLM API endpoints; long-running outbound :443 to non-CDN IPs
+- Watch for: process_anomaly with web-server parent and shell child; injected_region in any web worker
+""",
+    "av_server": """
+Memory-channel baselines for an AV / EDR management server:
+- Expected processes: vendor management consoles (e.g. Symantec SEPM, McAfee ePO, Kaspersky Security Center, Trend Micro OSCE), backing SQL Server (sqlservr.exe), vendor agent service
+- Expected dlllist surprises: legitimate AV products inject hooks into many processes and load module DLLs that LOOK suspicious in isolation. RAISE the bar on dll_load_anomaly here: require unsigned DLL, non-vendor path, or load into a process the vendor does not document hooking
+- Suspicious shapes: PowerShell or cmd.exe spawned by AV worker processes; non-vendor processes binding the AV management ports
+- Suspicious netscan: outbound to non-vendor endpoints from AV processes (vendors do call home, but to known IPs)
+- Watch for: process_anomaly where the AV worker's parent is unexpected (services.exe is normal, explorer.exe is not); only emit dll_load_anomaly with strong corroboration on this host type
+""",
+    "sharepoint_server": """
+Memory-channel baselines for a SharePoint server:
+- Expected processes: many w3wp.exe workers (one per app pool), OWSTimer.exe (timer service), mssearch.exe, sqlservr.exe (content database), DistributedCacheService
+- Expected netscan: inbound :80, :443 from clients; outbound :1433 to SQL, :389 / :636 / :88 / :445 to DCs; many ephemeral connections
+- Suspicious shapes: w3wp.exe spawning cmd.exe or powershell.exe (ToolShell / ProxyShell-class web shell signature); OWSTimer running non-Microsoft scripts; PowerShell with SharePoint-specific cmdlets running outside admin sessions
+- Suspicious netscan: outbound from w3wp to non-Microsoft, non-vendor endpoints; LLM-API endpoints from any SharePoint worker
+- Watch for: process_anomaly under w3wp parent with PowerShell child; dll_load_anomaly when an unusual managed assembly is mapped into a w3wp worker
+""",
+    "windows_host": "",
+}
+
 _MEMORY_GUIDANCE = """
 
 MEMORY-CHANNEL EVIDENCE (the case has a staged RAM image, propose memory candidates too):
@@ -775,16 +1028,20 @@ under their on-disk launch point (e.g. AppInit_DLLs is a registry_hive entry
 even though it loads code into process memory).
 """
 
-_BASE_EXTRACT_PROMPT_TEMPLATE = """You are listing the candidate artifact locations that could contain persistence
-or compromise evidence on a Windows host. You are NOT analyzing evidence yet, just enumerating where to look.
+_MEMORY_ONLY_GUIDANCE = """
 
-HOST TYPE: {host_type} ({host_description})
-EVIDENCE CHANNELS AVAILABLE: {channels}
+MEMORY-ONLY CASE (no disk image staged): you MUST NOT propose disk artifact_types
+(registry_hive, scheduled_task_xml, service_config, file_drop). Every candidate
+must be a memory-channel artifact_type (process_anomaly, network_connection,
+injected_region, dll_load_anomaly). Persistence concepts that live on disk are
+out of scope for this run; describe what the implant LOOKS LIKE in RAM, not where
+it would have come from.
+"""
 
-Return a single JSON object matching exactly this schema (no prose, no markdown fences):
-
-{schema}
-
+# Disk-channel artifact-location guidance. Spliced into the EXTRACT prompt only
+# when `has_disk=True`. Owns its leading and trailing newline so the
+# memory-only path can drop it cleanly without leaving an extra blank line.
+_DISK_PERSISTENCE_SECTION = """
 Universal Windows persistence locations (always applicable, regardless of host type):
 - HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run, RunOnce, RunOnceEx
 - HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run, RunOnce, RunOnceEx (per-user, in NTUSER.DAT)
@@ -795,20 +1052,31 @@ Universal Windows persistence locations (always applicable, regardless of host t
 - Image File Execution Options (debugger hijack, accessibility tools)
 - WMI event subscriptions (HKLM\\SOFTWARE\\Microsoft\\Wbem)
 - Startup folder (per user)
-- HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest (UseLogonCredential value enables plaintext credential caching; Storm-1175 / Medusa Mimikatz prep — covered by the wdigest regripper plugin against the SYSTEM hive)
+- HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest (UseLogonCredential value enables plaintext credential caching; Storm-1175 / Medusa Mimikatz prep, covered by the wdigest regripper plugin against the SYSTEM hive)
 
 File-drop staging locations (use artifact_type=file_drop; reach via fls_list of the parent dir):
-- ProgramData\\ — world-writable; common landing zone for staging scripts (.ps1, .bat, .cfg) launched by services or scheduled tasks.
-- Users\\Public\\ — world-writable; attackers stage hidden tooling here, especially under leading-dot subdirs (e.g. Users\\Public\\.tools).
-- Users\\<username>\\AppData\\Roaming\\.huggingface\\, AppData\\Local\\hf-cache\\ — AI-attacker tradecraft: cached HuggingFace tokens and prompt-history JSONL files indicate on-host LLM inference for adversary command generation (PROMPTFLUX / PromptSteal / QuietVault pattern).
-- Any .venv\\Lib\\site-packages\\huggingface_hub\\ or sibling AI-SDK package paths under user-writable dirs — hidden Python virtualenvs with AI tooling are a known concealment pattern.
+- ProgramData\\, world-writable; common landing zone for staging scripts (.ps1, .bat, .cfg) launched by services or scheduled tasks.
+- Users\\Public\\, world-writable; attackers stage hidden tooling here, especially under leading-dot subdirs (e.g. Users\\Public\\.tools).
+- Users\\<username>\\AppData\\Roaming\\.huggingface\\, AppData\\Local\\hf-cache\\, AI-attacker tradecraft: cached HuggingFace tokens and prompt-history JSONL files indicate on-host LLM inference for adversary command generation (PROMPTFLUX / PromptSteal / QuietVault pattern).
+- Any .venv\\Lib\\site-packages\\huggingface_hub\\ or sibling AI-SDK package paths under user-writable dirs; hidden Python virtualenvs with AI tooling are a known concealment pattern.
 
 Web-shell drop locations (use artifact_type=file_drop with web-shell extensions: .aspx, .asp, .jsp, .jspx, .php, .cfm; MITRE T1505.003):
-- inetpub\\wwwroot\\ — IIS default document root. Any .aspx / .asp dropped here is server-side executable on HTTP request.
-- Program Files\\<vendor>\\ subtrees that contain web-server content directories — vendor products with embedded webapps (PaperCut: server\\webapps\\ROOT, ConnectWise ScreenConnect: webserver, Dell KACE: admin web, JetBrains TeamCity: webapps, Synacor Zimbra: jetty\\webapps, Cisco SD-WAN: api/plugins) are common post-exploitation web-shell targets when the vendor product is RCE-vulnerable.
-- Tomcat-style webapps\\ROOT\\ subdirectories under any Java app server install — JSP shells dropped here run with the app-server service account.
+- inetpub\\wwwroot\\, IIS default document root. Any .aspx / .asp dropped here is server-side executable on HTTP request.
+- Program Files\\<vendor>\\ subtrees that contain web-server content directories; vendor products with embedded webapps (PaperCut: server\\webapps\\ROOT, ConnectWise ScreenConnect: webserver, Dell KACE: admin web, JetBrains TeamCity: webapps, Synacor Zimbra: jetty\\webapps, Cisco SD-WAN: api/plugins, Apache OFBiz: framework\\webapp\\ and applications\\<app>\\webapp\\<app>\\, SAP NetWeaver: irj\\, JBoss / WildFly: standalone\\deployments\\<app>.war\\) are common post-exploitation web-shell targets when the vendor product is RCE-vulnerable. CVE-driven additions 2026-05-02: OFBiz CVE-2024-38856 JSP shells, SAP CVE-class ASPX shells (Mini Shai-Hulud npm campaign).
+- Tomcat-style webapps\\ROOT\\ subdirectories under any Java app server install; JSP shells dropped here run with the app-server service account. Same applies to OFBiz framework\\webapp\\ and SAP usr\\sap\\<SID>\\<instance>\\j2ee\\cluster\\apps\\ trees.
 - **Always priority-1** for inetpub\\wwwroot if it exists on disk; priority-1 for known-RCE-vulnerable vendor webapp paths if any vendor RMM/webapp service is visible. List these P1 even before fls_list confirms the directory exists, because the plan-coverage gate enforces tool calls only for P1 candidates and web shells are only detectable via fls_list of the parent directory.
-{host_guidance}{channel_guidance}
+"""
+
+_BASE_EXTRACT_PROMPT_TEMPLATE = """You are listing the candidate artifact locations that could contain persistence
+or compromise evidence on a Windows host. You are NOT analyzing evidence yet, just enumerating where to look.
+
+HOST TYPE: {host_type} ({host_description})
+EVIDENCE CHANNELS AVAILABLE: {channels}
+
+Return a single JSON object matching exactly this schema (no prose, no markdown fences):
+
+{schema}
+{disk_section}{host_guidance}{channel_guidance}
 
 Rules:
 - Output 8-15 candidates total. Prioritize by likelihood for THIS host type.
@@ -819,14 +1087,53 @@ Rules:
 """
 
 
-def _build_extract_prompt(host_type: str, host_description: str, has_memory: bool) -> str:
+def _channels_label(has_disk: bool, has_memory: bool) -> str:
+    if has_disk and has_memory:
+        return "disk + memory"
+    if has_disk:
+        return "disk only"
+    return "memory only"
+
+
+def _build_extract_prompt(host_type: str, host_description: str, has_memory: bool, has_disk: bool = True) -> str:
+    """Construct the EXTRACT system prompt for a given channel mix.
+
+    `has_disk=False` omits the disk-persistence catalog entirely AND swaps
+    `_HOST_GUIDANCE` away (current host_guidance text is full of registry
+    paths that do not apply in memory-only mode). `_MEMORY_ONLY_GUIDANCE`
+    replaces the channel guidance to forbid disk artifact_types.
+    """
+    if not has_disk and not has_memory:
+        raise ValueError("EXTRACT prompt needs at least one of disk or memory channel")
+    if has_disk:
+        host_guidance = _HOST_GUIDANCE.get(host_type, "")
+    else:
+        # Memory-only mode pulls from _MEMORY_HOST_GUIDANCE: role-aware hints
+        # framed in pslist / cmdline / netscan / malfind / dlllist terms with
+        # zero disk-path references. Empty string for unrecognized host_types
+        # (e.g. windows_host fallback) preserves the prior generic behavior.
+        host_guidance = _MEMORY_HOST_GUIDANCE.get(host_type, "")
+    if has_memory and not has_disk:
+        channel_guidance = _MEMORY_ONLY_GUIDANCE
+    elif has_memory:
+        channel_guidance = _MEMORY_GUIDANCE
+    else:
+        channel_guidance = _NO_MEMORY_GUIDANCE
+    disk_section = _DISK_PERSISTENCE_SECTION if has_disk else ""
+    if has_disk:
+        learned_extract = _render_learned_block(
+            _load_learned_rules()["extract_location"],
+            "Learned extract locations",
+        )
+        disk_section = disk_section + learned_extract
     return _BASE_EXTRACT_PROMPT_TEMPLATE.format(
         host_type=host_type,
         host_description=host_description,
-        channels="disk + memory" if has_memory else "disk only",
+        channels=_channels_label(has_disk, has_memory),
         schema=_EXTRACT_SCHEMA,
-        host_guidance=_HOST_GUIDANCE.get(host_type, ""),
-        channel_guidance=_MEMORY_GUIDANCE if has_memory else _NO_MEMORY_GUIDANCE,
+        disk_section=disk_section,
+        host_guidance=host_guidance,
+        channel_guidance=channel_guidance,
     )
 
 
@@ -841,7 +1148,8 @@ def extract_node(state: "PipelineState") -> dict:
     case_id = _require("CASE_ID", CASE_ID)
     host_type, host_description = _host_type_of(case_id)
     has_memory = bool(MEMORY_IMAGE_PATH)
-    extract_system_prompt = _build_extract_prompt(host_type, host_description, has_memory)
+    has_disk = bool(E01_PATH)
+    extract_system_prompt = _build_extract_prompt(host_type, host_description, has_memory, has_disk=has_disk)
     with propagate_attributes(
         session_id=state.run_id,
         user_id=case_id,
@@ -904,7 +1212,11 @@ MCP_URL_DEFAULT = "http://sift-mcp:8000/mcp"
 # The regex is identical to the one C8 used in stdio days; the resolver below
 # is what changed. Slice-5 resolution pulls structured fields off an upstream
 # `EvidenceRecord`, no longer parses an `fls -m /` bodyfile from raw stdout.
-_EXEC_PLACEHOLDER_RE = re.compile(r"^\{step:(\d+)\.(\w+)\(([^)]*)\)\}$")
+# Allow 1 OR 2 braces on each side. The prompt template renders single braces
+# in its examples but Sonnet has been observed (rd-01 dual run, 2026-05-02) to
+# emit "{{step:N.foo()}}" verbatim; the resolver should handle that without
+# making the LLM rewrite the plan.
+_EXEC_PLACEHOLDER_RE = re.compile(r"^\{{1,2}step:(\d+)\.(\w+)\(([^)]*)\)\}{1,2}$")
 
 # Slice 6 Step 5 P4: this set now governs evidence-substantiveness, NOT
 # halt-vs-skip. As of 2026-04-26, execute_node never halts the entire plan
@@ -1240,7 +1552,14 @@ async def execute_node(state: "PipelineState") -> dict:
         },
     ):
         with langfuse.start_as_current_observation(name="execute", as_type="span") as exec_span:
-            async with streamablehttp_client(mcp_url, headers=mcp_headers) as (read, write, _sid):
+            # sse_read_timeout default is 300s (5 min). Long Volatility plugins
+            # (netscan / malfind on a busy Win10 host took 14+ minutes during the
+            # 2026-05-02 dual sweep) silently broke the SSE connection: the
+            # current tool call returned successfully, but the next one hung
+            # forever because the connection was wedged. Lift to 1 hour so single
+            # plugin runs can complete; if anything ever exceeds that, fix the
+            # plugin not the timeout.
+            async with streamablehttp_client(mcp_url, headers=mcp_headers, sse_read_timeout=3600) as (read, write, _sid):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     for step in state.tool_plan.steps:
@@ -1575,6 +1894,105 @@ Use `web_shell` for a server-side script dropped under a web server's content ro
 """
 
 
+# Pre-INTERPRET combined-bundle size guard. Added 2026-05-02 ahead of the
+# 13-host standalone memory sweep. Per-plugin trims (netscan listening-strip,
+# dlllist malfind-PID filter, malfind hex-strip) bound the inputs to the bundle
+# but not the bundle itself: a busy server with 200+ processes plus long
+# cmdlines can still combine into a 600KB+ blob that drives one INTERPRET call
+# above the per-host budget on its own. Pure function; no LLM call. Always
+# called by interpret_node between _build_interpret_bundle and the user-message
+# json.dumps.
+_BUNDLE_SOFT_WARN_BYTES = 400_000
+_BUNDLE_HARD_CAP_BYTES = 600_000
+
+
+def _bundle_size_bytes(bundle: dict) -> int:
+    return len(json.dumps(bundle))
+
+
+def _trim_string(s, cap: int):
+    if not isinstance(s, str) or len(s) <= cap:
+        return s
+    return s[:cap] + "...[truncated]"
+
+
+# Known list-shaped fields produced by Volatility 2 plugins via the MCP
+# server. Caps are sized so the largest field (connections on a DC) is bounded
+# at <=200 rows post-trim, matching the existing per-plugin netscan cap that
+# happens earlier in _build_interpret_bundle.
+_BUNDLE_LIST_CAPS = (
+    ("connections", 200),
+    ("processes", 300),
+    ("ps_entries", 300),
+    ("cmdlines", 300),
+    ("cmdline_entries", 300),
+    ("dll_entries", 300),
+    ("malfind_hits", 100),
+)
+
+
+def _cap_bundle_size(bundle: dict) -> dict:
+    """Soft-warn at 400KB, hard-trim at 600KB.
+
+    Trim strategy at the hard cap:
+    1. Cap each known list field under structured_fields to its per-field limit.
+    2. Truncate any string value under structured_fields longer than 4KB.
+    3. Truncate the per-step `purpose` to 2KB and elements of
+       `expected_paths_covered` to 1KB.
+
+    Re-measures and logs post-trim size. Returns the same `bundle` object
+    unchanged when under the soft threshold.
+    """
+    size = _bundle_size_bytes(bundle)
+    if size <= _BUNDLE_SOFT_WARN_BYTES:
+        return bundle
+    print(
+        f"  [bundle] size={size:,} bytes  "
+        f"soft={_BUNDLE_SOFT_WARN_BYTES:,}  hard={_BUNDLE_HARD_CAP_BYTES:,}"
+    )
+    if size <= _BUNDLE_HARD_CAP_BYTES:
+        print(f"  [bundle] WARN above soft threshold; passing through")
+        return bundle
+    print(f"  [bundle] HARD-CAP triggered; trimming")
+
+    out = dict(bundle)
+    new_steps = []
+    for step in bundle.get("steps") or []:
+        s2 = dict(step)
+        sf = s2.get("structured_fields")
+        if isinstance(sf, dict):
+            sf = dict(sf)
+            for key, list_cap in _BUNDLE_LIST_CAPS:
+                lst = sf.get(key)
+                if isinstance(lst, list) and len(lst) > list_cap:
+                    print(
+                        f"  [bundle] step={s2.get('step_id')} "
+                        f"{key}: {len(lst)} -> {list_cap}"
+                    )
+                    sf[key] = lst[:list_cap]
+            sf = {
+                k: _trim_string(v, 4_000) if isinstance(v, str) else v
+                for k, v in sf.items()
+            }
+            s2["structured_fields"] = sf
+        v = s2.get("purpose")
+        if isinstance(v, str):
+            s2["purpose"] = _trim_string(v, 2_000)
+        v = s2.get("expected_paths_covered")
+        if isinstance(v, list):
+            s2["expected_paths_covered"] = [
+                _trim_string(x, 1_000) if isinstance(x, str) else x for x in v
+            ]
+        elif isinstance(v, str):
+            s2["expected_paths_covered"] = _trim_string(v, 2_000)
+        new_steps.append(s2)
+    out["steps"] = new_steps
+
+    new_size = _bundle_size_bytes(out)
+    print(f"  [bundle] post-trim size={new_size:,} bytes")
+    return out
+
+
 def _build_interpret_bundle(state: "PipelineState") -> dict:
     """Construct the LLM-facing bundle from state. Pure function — no LLM
     call — so probes can test bundle shape + content without hitting the API.
@@ -1633,11 +2051,33 @@ def _build_interpret_bundle(state: "PipelineState") -> dict:
             sf = ev.structured_fields
         else:
             sf = None  # navigation/staging artifact; stripped for INTERPRET
-        # Step 8: quarantine filter — if any injection flag has severity=="quarantine",
+        # Step 8: quarantine filter. If any injection flag has severity=="quarantine",
         # strip structured_fields regardless of tool type. Quarantined data stays in
         # state.evidence for the Critic's audit trail but must not enter the LLM context.
-        if sf is not None and any(f.severity == "quarantine" for f in ev.injection_flags):
+        # Override (added 2026-05-02): when HUMAN_APPROVED_QUARANTINE_OVERRIDE=1 is set,
+        # the strip is skipped. This is for the rescan-after-approval workflow where a
+        # human has reviewed the quarantined evidence, confirmed it is benign data
+        # (e.g. raw hive bytes containing the literal "T1033" tripping INJ_ATTCK_EMIT),
+        # and approved a re-run with the full bundle so INTERPRET can do a complete
+        # persistence analysis. The original 07_terminal.QUARANTINED marker stays on
+        # the original run dir; the rescan output is written to a sibling path.
+        _human_override = os.environ.get("HUMAN_APPROVED_QUARANTINE_OVERRIDE") == "1"
+        if (
+            sf is not None
+            and any(f.severity == "quarantine" for f in ev.injection_flags)
+            and not _human_override
+        ):
             sf = None
+        elif (
+            sf is not None
+            and any(f.severity == "quarantine" for f in ev.injection_flags)
+            and _human_override
+        ):
+            print(
+                f"  [bundle] HUMAN_APPROVED_QUARANTINE_OVERRIDE active: "
+                f"step {plan_step.step_id} quarantined evidence INCLUDED in bundle "
+                f"(was stripped at original run; human adjudicated as false positive)"
+            )
         # Slice 6 Step 3b.6 — dlllist PID trim. Applies after quarantine filter so
         # quarantined dlllist evidence is already None-stripped. Copy-on-write:
         # we mutate a shallow copy so we don't taint state.evidence.
@@ -1755,6 +2195,7 @@ def interpret_node(state: "PipelineState") -> dict:
         raise RuntimeError("state.plan_digest is None — plan_node must populate it")
 
     bundle = _build_interpret_bundle(state)
+    bundle = _cap_bundle_size(bundle)
     started_at = datetime.now(timezone.utc)
 
     with propagate_attributes(
@@ -1766,11 +2207,22 @@ def interpret_node(state: "PipelineState") -> dict:
         with langfuse.start_as_current_observation(
             name="interpret", as_type="span"
         ) as interpret_span:
+            # Cached static prompt FIRST (cache_control marks the prefix);
+            # learned counter-rules ride as a second uncached text block so
+            # the prompt-cache key does not invalidate every time the rule
+            # store grows. Empty-rules path skips the second block entirely.
+            system_content = [
+                {"type": "text", "text": INTERPRET_SYSTEM_PROMPT,
+                 "cache_control": {"type": "ephemeral"}},
+            ]
+            learned_counter = _render_learned_block(
+                _load_learned_rules()["counter_rule"],
+                "Learned counter-rules",
+            )
+            if learned_counter:
+                system_content.append({"type": "text", "text": learned_counter})
             messages = [
-                {"role": "system", "content": [
-                    {"type": "text", "text": INTERPRET_SYSTEM_PROMPT,
-                     "cache_control": {"type": "ephemeral"}},
-                ]},
+                {"role": "system", "content": system_content},
             ]
             if state.corrective_instruction:
                 prior = state.findings.findings if state.findings else []

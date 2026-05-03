@@ -30,7 +30,7 @@ app = FastAPI(title="Sift Sentinel Viewer", docs_url=None, redoc_url=None)
 # escalate path stopped being mistaken for INCOMPLETE; without it, runs like
 # base-file-003 (3 HIGH dual-channel findings, held for review) were filtered
 # out of the dashboard entirely.
-_TERMINAL_MARKERS = ("SUCCESS", "HUMAN_REVIEW", "FAIL", "QUARANTINED")
+_TERMINAL_MARKERS = ("SUCCESS", "HUMAN_APPROVED", "HUMAN_REVIEW", "FAIL", "QUARANTINED")
 
 
 def _terminal_status(run_path: Path) -> str:

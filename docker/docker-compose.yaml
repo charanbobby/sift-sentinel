@@ -94,7 +94,8 @@ services:
     working_dir: /workspace
     ports:
       - "8888:8888"                             # Jupyter only; MCP is NOT published to host
-      - "8080:8080"                             # Run viewer UI
+      - "8080:8080"                             # Run viewer UI (legacy entry point)
+      - "8081:8081"                             # Find Evil Sentinel site (live + learnings + submit)
     networks:
       # `default` keeps outbound reachability for OpenRouter / Langfuse over the
       # internet; `findevil-internal` is the bridge to sift-mcp only.
@@ -102,7 +103,9 @@ services:
       - findevil-internal
     # Single line avoids YAML folded-block quirks. `--allow-root` is required
     # because the sift-sentinel container runs as root (it's a dev container).
-    command: ["bash", "-c", "uv sync && uv run uvicorn pipeline.viewer:app --host 0.0.0.0 --port 8080 & uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
+    # site.py mounts viewer.app at /viewer so port 8081 is the unified entry
+    # point; port 8080 is kept for direct-viewer callers and bookmarks.
+    command: ["bash", "-c", "uv sync && uv run uvicorn pipeline.viewer:app --host 0.0.0.0 --port 8080 & uv run uvicorn pipeline.site:app --host 0.0.0.0 --port 8081 & uv run jupyter lab --allow-root --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --ServerApp.allow_origin='*'"]
     restart: unless-stopped
 
 networks:
