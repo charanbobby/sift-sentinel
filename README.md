@@ -57,6 +57,31 @@ Per the contest [rules](docs/reference/hackathon/rules.md), all eight components
 | [docs/submission/](docs/submission/) | Submission-component documents (accuracy report, sampled-review aggregate) |
 | [docs/reference/hackathon/](docs/reference/hackathon/) | Verbatim contest materials (rules, dataset manifest, overview) |
 
+## Try it out
+
+Two paths, depending on how much you want to set up.
+
+### Path A: clone + run on your own E01 (recommended for judges)
+
+```bash
+git clone https://github.com/charanbobby/sift-sentinel.git
+cd sift-sentinel
+docker compose up -d
+# point the orchestrator at any Windows E01 + optional memory dump:
+docker compose exec sift-sentinel python experiments/slice-2-notebook/run_case.py \
+  --case-id my-case \
+  --disk /workspace/inputs/your-disk.E01 \
+  --memory /workspace/inputs/your-memory.img
+```
+
+Open the run viewer at `http://localhost:8080/viewer/`. Full step-by-step setup notes live in [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md).
+
+### Path B: live submission on the public site
+
+Visit [https://sentinel.sshub.dev/site/dashboard.html](https://sentinel.sshub.dev/site/dashboard.html), scroll to "Submit a test", upload an E01 + optional memory image, watch the pipeline run. Lower friction; output retention is best-effort while the hackathon is live.
+
+For the For-judges walk-through, see [https://sentinel.sshub.dev/site/submission.html](https://sentinel.sshub.dev/site/submission.html).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

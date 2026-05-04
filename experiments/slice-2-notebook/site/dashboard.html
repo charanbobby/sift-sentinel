@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="pragma" content="no-cache" />
+<meta http-equiv="expires" content="0" />
+<title>Today's run · Sift Sentinel</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b1020;
+    --surface: #111827;
+    --surface-2: #172033;
+    --surface-3: #1f2937;
+    --line: #334155;
+    --line-soft: #243044;
+    --text: #f8fafc;
+    --text-2: #e2e8f0;
+    --muted: #cbd5e1;
+    --muted-2: #94a3b8;
+    --accent: #60a5fa;
+    --accent-soft: rgba(96,165,250,0.12);
+    --green: #34d399;
+    --green-soft: rgba(52,211,153,0.12);
+    --amber: #fbbf24;
+    --amber-soft: rgba(251,191,36,0.12);
+    --red: #fb7185;
+    --red-soft: rgba(251,113,133,0.12);
+    --purple: #a78bfa;
+    --purple-soft: rgba(167,139,250,0.12);
+    --cyan: #22d3ee;
+    --cyan-soft: rgba(34,211,238,0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background:
+      radial-gradient(circle at top left, rgba(96,165,250,0.10), transparent 32rem),
+      radial-gradient(circle at 80% 10%, rgba(34,211,238,0.06), transparent 28rem),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, .mono { font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace; }
+  h1, h2, h3, h4 { letter-spacing: -0.01em; color: var(--text); }
+
+  /* nav */
+  .fe-nav {
+    position: sticky; top: 0; z-index: 100;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    padding: 14px 32px;
+    display: flex; align-items: center; gap: 4px;
+    backdrop-filter: blur(8px);
+  }
+  .fe-nav .brand { font-weight: 700; color: var(--text); margin-right: 28px; font-size: 15px; text-decoration: none; letter-spacing: -0.01em; }
+  .fe-nav a.nav-link { padding: 7px 14px; border-radius: 6px; color: var(--muted); font-size: 13px; text-decoration: none; }
+  .fe-nav a.nav-link:hover { color: var(--text); background: var(--surface-2); text-decoration: none; }
+  .fe-nav a.nav-link.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .clock { color: var(--muted-2); font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 32px 32px 96px; }
+  section { margin-bottom: 56px; scroll-margin-top: 80px; }
+
+  /* hero */
+  .hero { padding: 0 0 12px; }
+  .hero h1 { font-size: 28px; font-weight: 700; margin: 0 0 8px; }
+  .hero .lede { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0; max-width: 720px; }
+  .hero-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .stat .v { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .stat .v.green { color: var(--green); }
+  .stat .v.amber { color: var(--amber); }
+  .stat .v.red { color: var(--red); }
+  .stat .l { color: var(--muted-2); font-size: 12px; margin-top: 4px; }
+
+  /* section heads */
+  section > h2 { font-size: 20px; font-weight: 700; margin: 0 0 6px; }
+  section > .caption { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 18px; max-width: 720px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; }
+
+  .pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 4px; line-height: 1.5; border: 1px solid transparent; }
+  .pill-green { color: var(--green); background: var(--green-soft); border-color: rgba(52,211,153,0.3); }
+  .pill-amber { color: var(--amber); background: var(--amber-soft); border-color: rgba(251,191,36,0.3); }
+  .pill-red { color: var(--red); background: var(--red-soft); border-color: rgba(251,113,133,0.3); }
+  .pill-blue { color: var(--accent); background: var(--accent-soft); border-color: rgba(96,165,250,0.3); }
+  .pill-purple { color: var(--purple); background: var(--purple-soft); border-color: rgba(167,139,250,0.3); }
+  .pill-cyan { color: var(--cyan); background: var(--cyan-soft); border-color: rgba(34,211,238,0.3); }
+  .pill-neutral { color: var(--muted); background: var(--surface-2); border-color: var(--line); }
+
+  /* sources (collapsible) */
+  .sources-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  .sources-summary { padding: 14px 20px; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .sources-summary:hover { background: var(--surface-2); }
+  .sources-summary .chev { color: var(--muted-2); transition: transform 0.15s; font-size: 12px; }
+  .sources-wrap.open .chev { transform: rotate(90deg); }
+  .sources-list { padding: 0 20px 16px; display: none; flex-direction: column; gap: 6px; }
+  .sources-wrap.open .sources-list { display: flex; }
+  .source-item { display: flex; gap: 12px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .source-host { color: var(--text); font-weight: 500; min-width: 200px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .source-link { color: var(--accent); word-break: break-all; font-size: 12px; }
+
+  /* category cards */
+  .cat-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 12px; }
+  .cat-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .cat-name { font-weight: 600; color: var(--text); font-size: 14px; }
+  .cat-sub { color: var(--muted-2); font-size: 12px; }
+  .cat-rationale { color: var(--text-2); font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+  .cat-arts { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .art-chip { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 3px 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; color: var(--text-2); }
+
+  /* findings */
+  .find-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); align-items: center; font-size: 13px; }
+  .find-row:last-child { border-bottom: none; }
+  .find-row .label { color: var(--muted-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .find-row .val { color: var(--text); margin-top: 4px; }
+  .find-row .val .red { color: var(--red); }
+
+  /* learnings */
+  .learn-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 10px; }
+  .learn-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+  .learn-text { color: var(--text); font-size: 13px; line-height: 1.55; margin-bottom: 6px; }
+  .learn-rationale { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 6px; font-style: italic; }
+  .learn-meta { color: var(--muted-2); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
+  .learn-meta strong { color: var(--text-2); }
+
+  /* in-flight */
+  .flight-row { display: grid; grid-template-columns: 240px 1fr; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); align-items: center; font-size: 13px; }
+  .flight-row:last-child { border-bottom: none; }
+  .flight-row .case { font-family: 'IBM Plex Mono', monospace; color: var(--text); font-size: 12px; }
+
+  /* form */
+  .submit-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  form.submit { display: grid; gap: 12px; }
+  form.submit label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  form.submit input, form.submit select, form.submit textarea {
+    background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    padding: 8px 10px; border-radius: 6px;
+    font: 13px 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  form.submit input:focus, form.submit select:focus, form.submit textarea:focus {
+    outline: 2px solid var(--accent-soft); border-color: var(--accent);
+  }
+  form.submit textarea { min-height: 76px; resize: vertical; }
+  form.submit button {
+    background: var(--accent); color: var(--bg); border: 0; padding: 9px 18px;
+    font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; justify-self: start;
+  }
+  form.submit button:hover { filter: brightness(1.1); }
+  .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .type-fields { display: none; }
+  .type-fields.active { display: grid; gap: 12px; }
+  #submit-result { padding: 9px 12px; border-radius: 6px; font-size: 12px; margin-top: 10px; display: none; }
+  #submit-result.ok { background: var(--green-soft); color: var(--green); border: 1px solid rgba(52,211,153,0.3); display: block; }
+  #submit-result.err { background: var(--red-soft); color: var(--red); border: 1px solid rgba(251,113,133,0.3); display: block; }
+
+  .empty { color: var(--muted-2); font-style: italic; padding: 14px 0; text-align: center; font-size: 13px; }
+  .scroll-y { max-height: 400px; overflow-y: auto; }
+
+  .pending-list { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .pending-item { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .pending-item:last-child { border-bottom: none; }
+
+  @media (max-width: 760px) {
+    .hero-stats { grid-template-columns: 1fr 1fr; }
+    .form-row-2 { grid-template-columns: 1fr; }
+    main { padding: 24px 18px 64px; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="fe-nav">
+  <a href="/" class="brand">Sift Sentinel</a>
+  <a href="/" class="nav-link">How it works</a>
+  <a href="/site/dashboard.html" class="nav-link active">Today's run</a>
+  <a href="/viewer/" class="nav-link">Past cases</a>
+  <a href="/site/submission.html" class="nav-link">For judges</a>
+  <span style="margin-left: auto;" class="clock" id="now-utc"></span>
+</nav>
+
+<main>
+
+  <section class="hero" id="section-hero">
+    <h1 id="hero-title">Today's autonomous run</h1>
+    <p class="lede" id="hero-lede">Every night, Sift Sentinel reads recent threat-intel news, picks attacker tradecraft worth testing, plants synthetic versions of it on a baseline Windows workstation, runs the autonomous pipeline against it, and writes down what it caught and what it missed. Below is the most recent run.</p>
+    <div class="hero-stats" id="hero-stats">
+      <div class="stat"><div class="v" id="stat-date">,</div><div class="l">run date</div></div>
+      <div class="stat"><div class="v green" id="stat-pass">,</div><div class="l">tests passed</div></div>
+      <div class="stat"><div class="v amber" id="stat-miss">,</div><div class="l">misses to learn from</div></div>
+      <div class="stat"><div class="v" id="stat-rules">,</div><div class="l">rules promoted (all time)</div></div>
+    </div>
+  </section>
+
+  <section id="section-sources">
+    <h2>What it read</h2>
+    <p class="caption">Haiku searched public threat-intel for recent attacker tradecraft, then cited the sources it used to build today's test plan. Click to expand the full URLs.</p>
+    <div class="sources-wrap" id="sources-wrap">
+      <div class="sources-summary" onclick="document.getElementById('sources-wrap').classList.toggle('open')">
+        <span class="chev">&rsaquo;</span>
+        <span id="sources-summary-text">Loading sources...</span>
+      </div>
+      <div class="sources-list" id="sources-list"></div>
+    </div>
+  </section>
+
+  <section id="section-categories">
+    <h2>What it asked sentinel to find</h2>
+    <p class="caption">From the sources above, Haiku grouped attacker tradecraft into categories and planted synthetic test artifacts for each. The pipeline then has to find them.</p>
+    <div id="categories-list"><div class="empty">Loading...</div></div>
+  </section>
+
+  <section id="section-results">
+    <h2>What it caught vs missed</h2>
+    <p class="caption">Each test artifact has an expected detection. The autonomous pipeline either matches the expected outcome (pass) or does not (miss). Misses become the seed for tomorrow's learnings.</p>
+    <div class="panel" id="results-panel"><div class="empty">Loading...</div></div>
+  </section>
+
+  <section id="section-learnings">
+    <h2>What it learned <span class="pill pill-purple" id="learnings-count" style="margin-left: 8px; vertical-align: middle;"></span></h2>
+    <p class="caption">For every miss, Haiku synthesises a candidate rule. After lint, dedup, and human review, the rule joins the live store and changes future runs immediately. These are the rules currently shipped.</p>
+    <div id="learnings-list"><div class="empty">Loading...</div></div>
+  </section>
+
+  <section id="section-flight">
+    <h2>What is running right now</h2>
+    <p class="caption">Pipelines that have started but have not yet hit a terminal state. Quiet here means the daily run has finished and no manual runs are open.</p>
+    <div class="panel" id="flight-panel"><div class="empty">Loading...</div></div>
+  </section>
+
+  <section id="section-submit">
+    <h2>Submit a test</h2>
+    <p class="caption">Got a tradecraft pattern sentinel should be tested against? File it here. Use <code>example.invalid</code> domains and <code>ALLCAPS_PLACEHOLDER</code> tokens for credentials so we know it is a test. Submissions are queued for human review before the next run picks them up.</p>
+
+    <div class="submit-wrap">
+      <form class="submit" id="submit-form">
+        <div class="form-row-2">
+          <label>Your name<input name="submitter" required placeholder="e.g. Chetas"></label>
+          <label>Artifact id (snake_case)<input name="artifact_id" required pattern="[a-z0-9_]+" placeholder="e.g. exotic_lolbin_persistence"></label>
+        </div>
+        <div class="form-row-2">
+          <label>Type
+            <select name="type" id="submit-type" required>
+              <option value="">choose...</option>
+              <option value="file_drop">file_drop (web shell, script)</option>
+              <option value="registry_run_key">registry_run_key (HKLM/HKCU Run)</option>
+              <option value="scheduled_task_xml">scheduled_task_xml (Tasks\\)</option>
+            </select>
+          </label>
+          <label>Expected detection
+            <select name="expected_detection" required>
+              <option value="">choose...</option>
+              <option value="attacker_persistence">attacker_persistence</option>
+              <option value="attacker_persistence_ai_assisted">attacker_persistence_ai_assisted</option>
+              <option value="tradecraft_signal">tradecraft_signal</option>
+              <option value="expected_miss_documented_gap">expected_miss_documented_gap</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="fields-file_drop" class="type-fields">
+          <label>File path<input name="file_path" placeholder="inetpub/wwwroot/your_test.aspx"></label>
+          <label>File content text<textarea name="file_content_text" placeholder="<% Response.Write(Request.QueryString[&quot;c&quot;]); %>"></textarea></label>
+        </div>
+        <div id="fields-registry_run_key" class="type-fields">
+          <label>Hive
+            <select name="hive">
+              <option value="SOFTWARE">SOFTWARE</option>
+              <option value="SYSTEM">SYSTEM</option>
+              <option value="NTUSER.DAT">NTUSER.DAT</option>
+            </select>
+          </label>
+          <label>Key path<input name="key_path" placeholder="Microsoft\\Windows\\CurrentVersion\\Run"></label>
+          <label>Value name<input name="value_name" placeholder="MyAutoStart"></label>
+          <label>Value data<textarea name="value_data" placeholder="powershell.exe -NoP -W Hidden -C ..."></textarea></label>
+        </div>
+        <div id="fields-scheduled_task_xml" class="type-fields">
+          <label>Task install path<input name="task_install_path" placeholder="Microsoft\\Windows\\Diagnostics\\YourTask"></label>
+          <label>Task XML<textarea name="task_xml" placeholder="<?xml version=&quot;1.0&quot;?>&#10;<Task ...></Task>"></textarea></label>
+        </div>
+
+        <label>Source URL (optional, real threat-intel link)<input name="source_url" placeholder="https://www.cisa.gov/news-events/alerts/..."></label>
+        <label>Why should sentinel catch this? (one paragraph)<textarea name="rationale" required></textarea></label>
+
+        <button type="submit">Submit for review</button>
+        <div id="submit-result"></div>
+      </form>
+    </div>
+
+    <h3 style="margin: 24px 0 10px; font-size: 14px; color: var(--text);">Pending submissions</h3>
+    <div class="pending-list scroll-y" id="submissions-list"><div class="empty">Loading...</div></div>
+  </section>
+
+</main>
+
+<script>
+function escHtml(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pluralize(n, singular, plural) { return n + ' ' + (n === 1 ? singular : (plural || singular + 's')); }
+function hostnameOf(u) { try { return new URL(u).hostname; } catch (_) { return u; } }
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    document.getElementById('now-utc').textContent = s.now_utc + ' UTC';
+
+    const c = s.latest_cron;
+    if (c) {
+      document.getElementById('stat-date').textContent = c.date || ',';
+      document.getElementById('stat-pass').textContent = (c.regression_pass ? c.regression_pass.length : 0) + (c.extension_pass != null ? ' + ' + c.extension_pass : '');
+      document.getElementById('stat-miss').textContent = (c.regression_fail ? c.regression_fail.length : 0) + (c.extension_miss != null ? ' + ' + c.extension_miss : '');
+    } else {
+      document.getElementById('stat-date').textContent = 'no run yet';
+    }
+    document.getElementById('stat-rules').textContent = s.learnings ? (s.learnings.promoted_total || 0) : 0;
+
+    const resEl = document.getElementById('results-panel');
+    if (!c) {
+      resEl.innerHTML = '<div class="empty">No run found yet.</div>';
+    } else {
+      const regPass = (c.regression_pass || []).length;
+      const regFail = (c.regression_fail || []).length;
+      resEl.innerHTML = `
+        <div class="find-row">
+          <div><div class="label">tests we expected to pass</div><div class="val">${regPass} pass${regFail ? ` · <span class="red">${regFail} regressed</span>` : ''}</div></div>
+          <div>${regFail ? '<span class="pill pill-red">regression</span>' : '<span class="pill pill-green">all green</span>'}</div>
+        </div>
+        <div class="find-row">
+          <div><div class="label">new tradecraft we tried</div><div class="val">${c.extension_pass ?? '?'} caught · ${c.extension_miss ?? '?'} missed</div></div>
+          <div>${c.extension_miss ? '<span class="pill pill-amber">' + c.extension_miss + ' to learn</span>' : '<span class="pill pill-green">all caught</span>'}</div>
+        </div>
+        <div class="find-row">
+          <div><div class="label">written proposals from misses</div><div class="val">${c.phase_g_proposals_md ? '<a href="/loop_runs/' + escHtml(c.phase_g_proposals_md) + '">view markdown</a>' : 'none for this run'}</div></div>
+          <div>${c.phase_g_proposals_md ? '<span class="pill pill-blue">draft rules</span>' : '<span class="pill pill-neutral">none</span>'}</div>
+        </div>
+      `;
+    }
+
+    const fEl = document.getElementById('flight-panel');
+    if (!s.in_flight || !s.in_flight.length) {
+      fEl.innerHTML = '<div class="empty">Nothing running right now.</div>';
+    } else {
+      fEl.innerHTML = s.in_flight.map(f => `
+        <div class="flight-row">
+          <div class="case">${escHtml(f.case_id)}</div>
+          <div>
+            <span class="pill pill-amber">${escHtml(f.last_event_type || 'starting')}</span>
+            <span style="color: var(--muted-2); font-size: 12px;">${f.n_ledger_entries} steps logged${f.last_event_at ? ` · last @ ${escHtml(f.last_event_at)}` : ''}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch (e) {
+    console.warn('status fetch failed', e);
+  }
+}
+
+async function loadIntel() {
+  try {
+    const r = await fetch('/api/research');
+    if (r.status === 404) {
+      document.getElementById('sources-summary-text').textContent = 'No threat-intel run available yet.';
+      document.getElementById('categories-list').innerHTML = '<div class="empty">No categories planted yet.</div>';
+      return;
+    }
+    const data = await r.json();
+    if (!data || !data.manifest_id) {
+      document.getElementById('sources-summary-text').textContent = 'No manifest found.';
+      return;
+    }
+
+    document.getElementById('hero-title').textContent = `Run for ${data.manifest_id}`;
+
+    const sources = data.intel_sources || [];
+    document.getElementById('sources-summary-text').innerHTML = `<strong>${sources.length}</strong> source${sources.length === 1 ? '' : 's'} cited by Haiku <span style="color: var(--muted-2); font-weight: 400;">(${data.intel_window_days || '?'}-day window)</span>`;
+    const listEl = document.getElementById('sources-list');
+    if (!sources.length) {
+      listEl.innerHTML = '<div class="empty">No sources cited.</div>';
+    } else {
+      listEl.innerHTML = sources.map(u => `
+        <div class="source-item">
+          <span class="source-host">${escHtml(hostnameOf(u))}</span>
+          <a class="source-link" href="${escHtml(u)}" target="_blank" rel="noopener">${escHtml(u)}</a>
+        </div>
+      `).join('');
+    }
+
+    const cats = data.categories || [];
+    const catEl = document.getElementById('categories-list');
+    if (!cats.length) {
+      catEl.innerHTML = '<div class="empty">No categories planted.</div>';
+    } else {
+      catEl.innerHTML = cats.map(c => {
+        const arts = (c.artifacts || []).map(a => `<span class="art-chip" title="expects ${escHtml(a.expected_detection || '?')}">${escHtml(a.id || a.type || '?')}</span>`).join('');
+        return `
+          <div class="cat-card">
+            <div class="cat-head">
+              <span class="pill pill-blue">${escHtml(c.name || '?')}</span>
+              <span class="cat-sub">${pluralize((c.artifacts || []).length, 'artifact')} planted</span>
+            </div>
+            <div class="cat-rationale">${escHtml(c.rationale || '')}</div>
+            ${arts ? `<div class="cat-arts">${arts}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (e) {
+    document.getElementById('sources-summary-text').textContent = 'Sources fetch failed.';
+    document.getElementById('categories-list').innerHTML = `<div class="empty">Categories fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadLearnings() {
+  const el = document.getElementById('learnings-list');
+  const cnt = document.getElementById('learnings-count');
+  try {
+    const r = await fetch('/api/learnings');
+    const data = await r.json();
+    cnt.textContent = `${data.count} promoted`;
+    if (!data.count) {
+      el.innerHTML = '<div class="empty">No promoted rules yet. Misses become draft proposals each night; once humans review and promote them, they show up here.</div>';
+      return;
+    }
+    el.innerHTML = data.rules.map(r => `
+      <div class="learn-card">
+        <div class="learn-head">
+          <span class="pill pill-purple">${escHtml(r.rule_kind || '?')}</span>
+          <span class="learn-meta">${escHtml(r.id || '')}</span>
+        </div>
+        <div class="learn-text">${escHtml(r.rule_text || '')}</div>
+        ${r.rationale ? `<div class="learn-rationale">${escHtml(r.rationale)}</div>` : ''}
+        <div class="learn-meta">
+          from miss: <strong>${escHtml(r.source_miss_id || '?')}</strong>
+          · manifest: ${escHtml(r.source_manifest_id || '?')}
+          · authored by: ${escHtml(r.generated_by_model || '?')}
+          · promoted ${escHtml(r.promoted_at || '?')}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Learnings fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadSubmissions() {
+  const el = document.getElementById('submissions-list');
+  try {
+    const r = await fetch('/api/submissions');
+    const data = await r.json();
+    if (!data.count) {
+      el.innerHTML = '<div class="empty">No submissions yet. Be the first.</div>';
+      return;
+    }
+    el.innerHTML = data.submissions.map(s => `
+      <div class="pending-item">
+        <div style="display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px;">
+          <span class="pill pill-blue">${escHtml(s.type)}</span>
+          <span class="mono" style="color: var(--text); font-size: 12px;">${escHtml(s.artifact_id || '')}</span>
+          <span style="color: var(--muted-2); font-size: 11px; margin-left: auto;">${escHtml(s.submitted_at || '')}</span>
+        </div>
+        <div style="font-size: 12px; color: var(--muted);">by <strong style="color: var(--text);">${escHtml(s.submitter)}</strong></div>
+        <div style="font-size: 13px; color: var(--text-2); margin-top: 6px; line-height: 1.5;">${escHtml(s.rationale || '')}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Submissions fetch failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('submit-type').addEventListener('change', e => {
+  document.querySelectorAll('.type-fields').forEach(f => f.classList.remove('active'));
+  const target = document.getElementById('fields-' + e.target.value);
+  if (target) target.classList.add('active');
+});
+
+document.getElementById('submit-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const obj = {};
+  for (const [k, v] of fd.entries()) {
+    if (v != null && String(v).trim() !== '') obj[k] = v;
+  }
+  const out = document.getElementById('submit-result');
+  out.className = '';
+  out.style.display = 'none';
+  try {
+    const r = await fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(obj),
+    });
+    const j = await r.json();
+    if (r.ok) {
+      out.className = 'ok';
+      out.textContent = 'Submitted. Queued for human review.';
+      e.target.reset();
+      document.querySelectorAll('.type-fields').forEach(f => f.classList.remove('active'));
+      loadSubmissions();
+    } else {
+      out.className = 'err';
+      out.textContent = 'Rejected: ' + (j.detail || JSON.stringify(j));
+    }
+  } catch (err) {
+    out.className = 'err';
+    out.textContent = 'Network error: ' + err.message;
+  }
+});
+
+loadStatus();
+loadIntel();
+loadLearnings();
+loadSubmissions();
+setInterval(loadStatus, 30000);
+</script>
+
+</body>
+</html>

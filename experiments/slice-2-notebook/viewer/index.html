@@ -3,16 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sift Sentinel - Run Viewer</title>
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="pragma" content="no-cache" />
+<meta http-equiv="expires" content="0" />
+<title>Past cases · Sift Sentinel</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
-    --bg: #0d1117; --surface: #161b22; --surface-2: #1c232c; --border: #30363d;
-    --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
-    --orange: #ffa657; --teal: #56d4dd;
+    --bg: #0b1020; --surface: #111827; --surface-2: #172033; --border: #334155;
+    --text: #f8fafc; --muted: #94a3b8; --accent: #60a5fa; --accent-soft: rgba(96,165,250,0.12);
+    --green: #34d399; --yellow: #fbbf24; --red: #fb7185; --purple: #a78bfa;
+    --orange: #fb923c; --teal: #22d3ee;
   }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; height: 100vh; overflow: hidden; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  code, .mono, pre { font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace; }
+
+  /* unified-site sticky nav */
+  .fe-nav { flex-shrink: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 4px; }
+  .fe-nav .brand { font-weight: 700; color: var(--text); margin-right: 24px; font-size: 15px; text-decoration: none; letter-spacing: -0.01em; }
+  .fe-nav a.nav-link { padding: 7px 14px; border-radius: 6px; color: var(--muted); font-size: 13px; text-decoration: none; }
+  .fe-nav a.nav-link:hover { color: var(--text); background: var(--surface-2); }
+  .fe-nav a.nav-link.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  #shell { flex: 1; display: flex; min-height: 0; overflow: hidden; }
 
   /* sidebar */
   #sidebar { width: 340px; min-width: 340px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; transition: width 0.2s ease, min-width 0.2s ease, border-right-width 0.2s ease; }
@@ -291,6 +304,16 @@
 </head>
 <body>
 
+<nav class="fe-nav">
+  <a href="/" class="brand">Sift Sentinel</a>
+  <a href="/" class="nav-link">How it works</a>
+  <a href="/site/dashboard.html" class="nav-link">Today's run</a>
+  <a href="/viewer/" class="nav-link active">Past cases</a>
+  <a href="/site/submission.html" class="nav-link">For judges</a>
+</nav>
+
+<div id="shell">
+
 <div id="sidebar">
   <h1>Sift Sentinel <span>Run Viewer</span></h1>
   <div id="view-toggle">
@@ -358,8 +381,10 @@
   </div>
 </div>
 
+</div><!-- /#shell -->
+
 <script>
-const API = '';
+const API = '/viewer';
 let currentRun = null;
 let activeFilter = 'all';
 // 'good' = filter via keep_runs.json (default dashboard view); 'all' = bypass.

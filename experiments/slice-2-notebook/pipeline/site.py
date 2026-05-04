@@ -185,6 +185,61 @@ def learnings() -> JSONResponse:
     return JSONResponse({"count": len(rules), "rules": rules})
 
 
+# ── research endpoint ────────────────────────────────────────────────────────
+
+@app.get("/api/research")
+def research() -> JSONResponse:
+    """Latest manifest produced by the autonomous research step.
+
+    Walks LOOP_RUNS_DIR newest-first, picks the first dated dir that contains
+    a real `manifest_<date>.json` (excluding `*.wrapper.json` from the Haiku
+    CLI envelope), parses it and returns the fields that the dashboard's
+    "Recent threat intel" section renders. 404 if no manifest is found.
+    """
+    if not LOOP_RUNS_DIR.exists():
+        return JSONResponse({"detail": "loop-runs dir not present"}, status_code=404)
+    date_dirs = sorted(
+        [d for d in LOOP_RUNS_DIR.iterdir()
+         if d.is_dir() and re.match(r"\d{4}-\d{2}-\d{2}$", d.name)],
+        reverse=True,
+    )
+    for d in date_dirs:
+        candidates = [
+            p for p in d.glob("manifest_*.json")
+            if not p.name.endswith(".wrapper.json")
+        ]
+        if not candidates:
+            continue
+        try:
+            data = json.loads(candidates[0].read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict) or not data.get("manifest_id"):
+            continue
+        return JSONResponse({
+            "manifest_id": data.get("manifest_id"),
+            "intel_window_days": data.get("intel_window_days"),
+            "intel_sources": data.get("intel_sources") or [],
+            "categories": [
+                {
+                    "name": c.get("name"),
+                    "rationale": c.get("rationale"),
+                    "artifacts": [
+                        {
+                            "id": a.get("id"),
+                            "type": a.get("type"),
+                            "expected_detection": a.get("expected_detection"),
+                        }
+                        for a in (c.get("artifacts") or [])
+                    ],
+                }
+                for c in (data.get("categories") or [])
+            ],
+            "loop_run_date": d.name,
+        })
+    return JSONResponse({"detail": "no manifest in any loop-run dir"}, status_code=404)
+
+
 # ── submissions ──────────────────────────────────────────────────────────────
 
 # Submission schema. Anyone can propose a test artifact; the cron picks
