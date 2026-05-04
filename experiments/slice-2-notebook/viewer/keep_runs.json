@@ -1,8 +1,9 @@
 {
   "dfirmadness-001-desktop": ["dfirmadness-001-desktop-002"],
-  "srl-2018-base-dc": ["srl-2018-base-dc-003"],
-  "srl-2018-base-file": ["srl-2018-base-file-003"],
-  "srl-2018-base-rd-02": ["srl-2018-base-rd-02-002"],
-  "srl-2018-dmz-ftp": ["srl-2018-dmz-ftp-002"],
+  "srl-2018-base-dc": ["srl-2018-base-dc-005"],
+  "srl-2018-base-dc-dual": ["srl-2018-base-dc-dual-003"],
+  "srl-2018-base-file": ["srl-2018-base-file-005"],
+  "srl-2018-base-rd-02": ["srl-2018-base-rd-02-004"],
+  "srl-2018-dmz-ftp": ["srl-2018-dmz-ftp-004"],
   "srl-2018-wkstn-05": ["srl-2018-wkstn-05-005", "srl-2018-wkstn-05-006", "srl-2018-wkstn-05-007"]
 }
