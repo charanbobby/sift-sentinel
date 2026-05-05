@@ -212,7 +212,7 @@ def phase_a_preflight(run_dir: Path) -> None:
     # hard-fail-on-git-pull behavior was wrong for that environment.
     if (CFG.REPO_ROOT / ".git").exists():
         try:
-            run(["git", "-C", str(CFG.REPO_ROOT), "pull", "--ff-only"], capture=True)
+            run(["git", "-C", str(CFG.REPO_ROOT), "pull", "--ff-only", "origin", "main"], capture=True)
             check_pass(1, "repo current", "git fast-forward")
         except subprocess.CalledProcessError as e:
             check_fail(1, "repo current", f"git pull exit {e.returncode}")
