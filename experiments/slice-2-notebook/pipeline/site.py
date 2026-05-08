@@ -128,8 +128,11 @@ def status() -> JSONResponse:
                 ),
             }
 
-    # In-flight runs: scan for cases whose latest run lacks a 07_terminal.* marker
+    # In-flight runs: scan for cases whose latest run lacks a 07_terminal.* marker.
+    # Skip entries with no ledger activity in the last 6 hours, otherwise a
+    # killed-mid-run case sits in this list forever and confuses "today's run".
     in_flight = []
+    stale_cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=6)
     if RUNS_ROOT.exists():
         for case_dir in sorted(RUNS_ROOT.iterdir()):
             if not case_dir.is_dir():
@@ -150,12 +153,19 @@ def status() -> JSONResponse:
                 continue
             ledger = _read_jsonl(run_path / "integrity_ledger.jsonl")
             last_event = ledger[-1] if ledger else None
+            last_event_at = (last_event or {}).get("timestamp_utc")
+            if last_event_at:
+                try:
+                    if _dt.datetime.fromisoformat(last_event_at) < stale_cutoff:
+                        continue
+                except Exception:
+                    pass
             in_flight.append({
                 "case_id": case_dir.name,
                 "run_id": run_id,
                 "n_ledger_entries": len(ledger),
                 "last_event_type": (last_event or {}).get("event_type"),
-                "last_event_at": (last_event or {}).get("timestamp_utc"),
+                "last_event_at": last_event_at,
             })
     out["in_flight"] = in_flight
 

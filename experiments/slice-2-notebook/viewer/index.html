@@ -402,8 +402,8 @@ function viewParam() { return viewMode === 'all' ? '?all=1' : ''; }
 
 // ── utilities ──────────────────────────────────────────────────────────────
 
-const STATUS_LABEL = { SUCCESS:'Committed', HUMAN_REVIEW:'Awaiting Review', QUARANTINED:'Quarantined', FAIL:'Failed', INCOMPLETE:'In Progress' };
-const STATUS_BADGE = { SUCCESS:'badge-success', HUMAN_REVIEW:'badge-review', QUARANTINED:'badge-quarantine', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
+const STATUS_LABEL = { SUCCESS:'Committed', HUMAN_APPROVED:'Committed', HUMAN_REVIEW:'Awaiting Review', QUARANTINED:'Quarantined', FAIL:'Failed', INCOMPLETE:'In Progress' };
+const STATUS_BADGE = { SUCCESS:'badge-success', HUMAN_APPROVED:'badge-success', HUMAN_REVIEW:'badge-review', QUARANTINED:'badge-quarantine', FAIL:'badge-fail', INCOMPLETE:'badge-incomplete' };
 
 function statusBadge(s) {
   return `<span class="badge ${STATUS_BADGE[s]||'badge-incomplete'}">${STATUS_LABEL[s]||s}</span>`;
@@ -449,11 +449,13 @@ function shortHash(s) { return (s || '').slice(0, 10); }
 // 2018 (SANS hackathon evidence). Anything else falls in "Other".
 function datasetOf(caseId) {
   if (!caseId) return 'Other';
+  if (caseId.startsWith('synthetic-')) return 'Synthetic Daily Loop';
   if (caseId.startsWith('dfirmadness')) return 'DFIR Madness';
   if (caseId.startsWith('srl-2018')) return 'SRL 2018 (SANS hackathon)';
+  if (caseId.startsWith('srl-2015')) return 'SRL 2015 (SANS hackathon)';
   return 'Other';
 }
-const DATASET_ORDER = ['SRL 2018 (SANS hackathon)', 'DFIR Madness', 'Other'];
+const DATASET_ORDER = ['Synthetic Daily Loop', 'SRL 2018 (SANS hackathon)', 'SRL 2015 (SANS hackathon)', 'DFIR Madness', 'Other'];
 
 function relTime(isoStr) {
   if (!isoStr) return '';
