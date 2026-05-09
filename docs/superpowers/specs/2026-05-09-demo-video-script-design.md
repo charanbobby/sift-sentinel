@@ -34,7 +34,7 @@ The hard requirement "≥1 self-correction sequence on real case data" is hit tw
 - Recording: Playwright captures the dashboard + viewer at sentinel.sshub.dev. Each beat is a Playwright scene with deterministic navigation steps.
 - Resolution: 1920x1080 (1080p) at 30fps for clean YouTube upload. Browser viewport set to 1920x1080.
 - Stitching: Studio (manual). Audio aligned to scene timestamps.
-- Captions: produce an SRT file from the script for accessibility + scrub previews.
+- Captions: burned into the visuals (hardcoded), NOT a soft SRT track. Generated from the same voiceover text so the caption is the truth. Burning happens BEFORE voice generation so the visuals + captions lock together first.
 
 ## Beat-by-beat script
 
@@ -209,16 +209,64 @@ display end-card image (15 seconds)
 
 ## Production checklist
 
-1. Pre-record: confirm `sentinel.sshub.dev/site/dashboard.html` shows fresh data for today (the cron will refresh tonight; record on a stable day or use a staged date for the visual).
-2. Pre-record: confirm rd-02-dual-002 is in keep_runs.json on the VPS so the viewer renders it.
-3. Pre-record: pick the specific rule to promote in beat 4. Recommend `apt28_cve_2026_32202_lnk_spoofing_task-c99bf8f051` (counter_rule, easy-to-explain ATT&CK tie-in). Verify it is still in `/api/proposed-rules` at record time.
-4. Record each Playwright scene as a separate MP4 at 1920x1080, 30fps, no audio.
-5. Generate ElevenLabs audio for each beat as a separate file, one per beat. Name them `beat1_open.mp3` through `beat5_outro.mp3`.
-6. In Studio: place visuals on track 1, audio on track 2, captions on track 3. Match audio start times to the timing table at the top of this script.
-7. Add a one-frame end-card image (PNG, 1920x1080, dark) for beat 5.
-8. Generate SRT captions from the voiceover text. Keep caption lines under 80 chars.
-9. Export at 1080p H.264, target file size under 200 MB so it uploads cleanly to YouTube and the Devpost mirror.
-10. Upload to YouTube as unlisted, paste the URL into `docs/submission/devpost-description.md` under the Demo Video field.
+**Ordering principle:** visuals first, voice last. ElevenLabs voice generation is the most token-expensive step and the hardest to iterate on, so all other elements (scene recordings, timings, captions, transitions, end-card) get locked before any voice is generated. Probe before each step; do not advance without a verified result.
+
+### Phase A: pre-record probes (no recording yet)
+
+A1. Probe: `curl -sI https://sentinel.sshub.dev/site/dashboard.html` returns 200 and the `last-modified` header is recent. Probe: `curl -s /api/proposed-rules | head` returns the staged rules.
+A2. Probe: rd-02-dual-002 appears in `viewer/keep_runs.json` on the VPS (`ssh sri@vps grep srl-2018-base-rd-02-dual /opt/find-evil/repo/.../keep_runs.json`). If missing, fix before recording.
+A3. Probe: pick the specific rule to promote in beat 4 by checking the live `/api/proposed-rules` response. Recommend `apt28_cve_2026_32202_lnk_spoofing_task-c99bf8f051` (counter_rule, easy-to-explain ATT&CK tie-in) IF still pending. Confirm it has not been already approved or rejected since the spec was written.
+A4. Probe: Playwright server starts and a one-frame screenshot of dashboard.html captures successfully at 1920x1080. This is the cheap fail-fast for the recording rig.
+
+### Phase B: scene recording (silent, no voice yet)
+
+B1. Record each Playwright scene as a separate MP4 at 1920x1080, 30fps, no audio. One file per beat: `scene1_open.mp4` through `scene5_outro.mp4`.
+B2. After each recording: probe the file plays cleanly, has the expected scene length, and contains no Cloudflare cache miss frames. Re-record if any frame shows the wrong content.
+
+### Phase C: silent assembly + timing verification
+
+C1. In Studio, place all 5 silent MP4s end-to-end on the visuals track. Total length BEFORE voice should be at most 4:55 (leaving 5 seconds of buffer for the voice to settle).
+C2. Probe: read the timeline cursor at each beat boundary. The timestamps should be 0:00, 0:15, 1:00, 4:00, 4:45, 5:00 plus or minus 1 second.
+C3. If any beat is over budget: trim the scene (Playwright wait shortened, scroll faster) before moving on. If under budget: accept (silence is fine; voice will fill).
+C4. Generate placeholder audio: a silent WAV file matching the locked length of each beat. Drop into Studio audio track 2. This proves the voice slots fit.
+C5. Probe: scrub the timeline at 0:15, 1:00, 4:00, 4:45 boundaries. The visuals at each boundary match what the voiceover lines describe. If a visual mismatch exists (e.g., voiceover says "click apt28" but the scene has scrolled past it), fix the scene now, before voice.
+
+### Phase D: captions (burned in, not soft track)
+
+D1. Generate the SRT file from the voiceover text. Keep caption lines under 80 chars per line, max 2 lines on screen at once.
+D2. Pick a caption style that reads cleanly over the dashboard's dark background: white text, semi-transparent black box behind, IBM Plex Sans regular, ~24pt at 1080p, anchored to the lower third (avoid covering the dashboard's top nav and the rule cards mid-page).
+D3. Drop the SRT into Studio. Render captions as a burned-in overlay on the visuals track, NOT as a soft track. Captions must be part of the rendered video so they show up on Devpost, YouTube, anywhere the file plays, with no viewer-side toggle needed.
+D4. Probe: scrub timestamps 0:15, 1:00, 4:00, 4:45. Caption text matches the voiceover line for that moment. Caption does NOT cover dashboard chrome (top nav, hero, widget board labels, rule-card kind badges).
+D5. Read every caption line aloud yourself. If a line is awkward to read, change the script HERE (before generating voice). The voiceover line is the line in the burned-in caption, so the caption is the truth and they cannot drift apart later.
+D6. Burn the captions into the silent visuals track now (Phase D, before voice). This way the timing of the caption text against the visuals is locked, and Phase E only needs to layer audio on top. Re-burning captions requires a video re-export, which is cheap; re-generating voice burns ElevenLabs tokens, which is not.
+
+### Phase E: voice generation (the expensive step)
+
+E1. Confirm Phase C and Phase D are locked. Do not proceed if any boundary is still being moved.
+E2. Generate ElevenLabs audio for each beat as a separate file, one per beat. Name them `voice1_open.mp3` through `voice5_outro.mp3`.
+E3. Probe per file: total length matches or is shorter than the beat slot (leave 1-2 sec of breathing room at the end).
+E4. If a beat's voice is too long: shorten the script TEXT (not the voice; regenerating burns more tokens). Re-generate that ONE beat only.
+E5. Replace the placeholder silent WAV in Studio with the ElevenLabs MP3 per beat.
+
+### Phase F: final assembly + export
+
+F1. Final probe: full timeline plays end to end at 5:00 with no audio gaps, no caption desyncs, no jump cuts mid-voice.
+F2. Add a one-frame end-card image (PNG, 1920x1080, dark, IBM Plex Mono) for beat 5.
+F3. Export at 1080p H.264, target file size under 200 MB.
+F4. Upload to YouTube as unlisted, paste the URL into `docs/submission/devpost-description.md` under the Demo Video field.
+
+### Probe-budget summary
+
+| Phase | Probes | Cost |
+|---|---|---|
+| A | 4 cheap HTTP + grep checks | $0 |
+| B | 5 file integrity checks per recording | $0 |
+| C | 5 timeline scrubs | $0 |
+| D | 1 SRT validation, manual read-aloud | $0 |
+| E | 1 voice gen per beat (5 total), re-gen only the beats that drift | ElevenLabs tokens |
+| F | 1 final playthrough, 1 export, 1 upload | $0 |
+
+ElevenLabs voice tokens are the only paid cost in this pipeline. Phase E runs LAST and only on the locked script. Re-generations only happen when a single beat needs a re-cut, never the whole video.
 
 ## Out of scope
 
