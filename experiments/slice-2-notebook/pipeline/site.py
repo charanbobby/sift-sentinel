@@ -271,9 +271,7 @@ def reject_rule(body: _RejectBody, request: Request) -> JSONResponse:
     rejected_path = date_dir / "learned_rules.rejected.jsonl"
     with rejected_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record) + "\n")
-    audit_path = LOOP_RUNS_DIR / "promotions.audit.jsonl"
-    with audit_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps({**record, "action": "reject", "date": body.date}) + "\n")
+    _append_audit_best_effort({**record, "action": "reject", "date": body.date})
     return JSONResponse({"ok": True})
 
 
@@ -329,17 +327,28 @@ def promote_rule(body: _PromoteBody, request: Request) -> JSONResponse:
     if not date_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"no run for date {body.date}")
     promoted = _promote_rule_inline(body.date, body.rule_id)
-    audit_path = LOOP_RUNS_DIR / "promotions.audit.jsonl"
-    audit_record = {
+    _append_audit_best_effort({
         "rule_id": body.rule_id,
         "date": body.date,
         "action": "promote",
         "promoted_at": promoted["promoted_at"],
         "source_ip": request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown"),
-    }
-    with audit_path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(audit_record) + "\n")
+    })
     return JSONResponse({"ok": True, "promoted": promoted})
+
+
+def _append_audit_best_effort(record: dict) -> None:
+    """Append to LOOP_RUNS_DIR/promotions.audit.jsonl if the path is writable.
+    Audit failure must NOT 500 the user-facing call; the user-visible action
+    (the promote or reject) already landed by the time we reach here. Silently
+    log to stderr if the audit path cannot be written.
+    """
+    audit_path = LOOP_RUNS_DIR / "promotions.audit.jsonl"
+    try:
+        with audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except OSError as e:
+        print(f"WARN audit write failed for {audit_path}: {e}", flush=True)
 
 
 # ── research endpoint ────────────────────────────────────────────────────────

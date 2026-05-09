@@ -51,9 +51,12 @@ services:
     volumes:
       - "/opt/find-evil/repo/experiments/slice-2-notebook:/workspace"
       - "sift-home:/home/sansforensics:ro"
-      # Loop-runs dir exposed read-only so the site's /api/status can read
-      # latest cron + Phase G proposals without leaving the container.
-      - "/opt/find-evil/out/loop-runs:/loop_runs:ro"
+      # Loop-runs dir exposed read-write so the site can append to
+      # learned_rules.rejected.jsonl (per-date) and promotions.audit.jsonl when
+      # a user clicks Approve or Reject on a drafted rule on the dashboard.
+      # The cron itself runs in this container as root, so RW is the natural
+      # state; the prior :ro was a precaution that no longer applies.
+      - "/opt/find-evil/out/loop-runs:/loop_runs:rw"
     working_dir: /workspace
     ports:
       # 8080 is taken by claude-approver on this VPS. Jupyter on 8889 for manual
