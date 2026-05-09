@@ -69,7 +69,18 @@
 </nav>
 
 <main id="main-root">
-  <!-- hero, sections, and footer-cta inserted in later tasks -->
+  <section class="hero" style="padding: 80px 32px 60px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+    <div style="font-size: 11px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 22px;">SIFT SENTINEL · BUILT BY CHARAN</div>
+    <h1 id="hero-tagline" style="font-size: 36px; font-weight: 700; line-height: 1.2; max-width: 700px; margin-bottom: 22px;">An AI agent that gets better every night.</h1>
+    <div id="hero-dots" style="display: flex; gap: 8px; margin-bottom: 36px;">
+      <span class="tag-dot" data-i="0" onclick="pinTagline(0)" style="width: 28px; height: 3px; background: var(--accent); border-radius: 2px; cursor: pointer;"></span>
+      <span class="tag-dot" data-i="1" onclick="pinTagline(1)" style="width: 28px; height: 3px; background: var(--line); border-radius: 2px; cursor: pointer;"></span>
+      <span class="tag-dot" data-i="2" onclick="pinTagline(2)" style="width: 28px; height: 3px; background: var(--line); border-radius: 2px; cursor: pointer;"></span>
+    </div>
+    <a href="/site/dashboard.html" style="background: var(--accent); color: var(--bg); border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; text-decoration: none; display: inline-block;">See last night's run &rarr;</a>
+    <div style="margin-top: 8px; font-size: 11px; color: var(--muted-2);">runs nightly at 22:30 UTC, autonomous</div>
+  </section>
+  <!-- sections-and-footer-cta-anchor -->
 </main>
 
 <script>
@@ -78,6 +89,31 @@ function fmtUtc() {
   return d.toISOString().slice(0, 19) + ' UTC';
 }
 document.getElementById('now-utc').textContent = fmtUtc();
+
+const taglines = [
+  'An AI agent that gets better every night.',
+  'Hunts attackers on Windows machines, with receipts.',
+  'A study in how to make AI agents trustworthy.',
+];
+let activeTag = 0;
+let tagTimer = null;
+
+function setTagline(i) {
+  activeTag = i;
+  document.getElementById('hero-tagline').textContent = taglines[i];
+  document.querySelectorAll('.tag-dot').forEach((d, j) => {
+    d.style.background = j === i ? 'var(--accent)' : 'var(--line)';
+  });
+}
+function cycleTagline() {
+  setTagline((activeTag + 1) % taglines.length);
+}
+function pinTagline(i) {
+  if (tagTimer) { clearInterval(tagTimer); tagTimer = null; }
+  setTagline(i);
+}
+setTagline(0);
+tagTimer = setInterval(cycleTagline, 4000);
 </script>
 
 </body>
