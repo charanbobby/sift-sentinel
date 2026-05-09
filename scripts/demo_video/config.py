@@ -10,7 +10,7 @@ CASE_ID = "srl-2018-base-rd-02-dual"
 RUN_ID = "srl-2018-base-rd-02-dual-002"
 SECOND_CASE_ID = "srl-2018-base-file"
 SECOND_RUN_ID = "srl-2018-base-file-005"
-RULE_ID_FOR_PROMOTE = "apt28_cve_2026_32202_lnk_spoofing_task-c99bf8f051"
+RULE_ID_FOR_PROMOTE = "lnk_ntlm_coercion_folder_trigger-58245f5aa9"
 
 VIEWPORT_WIDTH = 1920
 VIEWPORT_HEIGHT = 1080

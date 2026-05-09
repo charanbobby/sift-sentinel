@@ -30,16 +30,16 @@ PHRASES: list[dict] = [
     {"beat": "beat3_case", "text": "The case: a Windows server from a 2018 enterprise compromise.", "duration_s": 5.0, "selector": ".case-header:has-text('srl-2018-base-rd-02-dual')"},
     {"beat": "beat3_case", "text": "The agent ran in dual-channel mode,", "duration_s": 3.5, "selector": ".channel-pill.channel-dual"},
     {"beat": "beat3_case", "text": "looking at both the disk image and a memory snapshot in the same run.", "duration_s": 6.0, "selector": None},
-    {"beat": "beat3_case", "text": "The first finding is a Windows service called Microsoft Advanced API thirty-two,", "duration_s": 6.0, "selector": ".finding.cls-attacker_persistence:nth-of-type(1) .finding-mech"},
-    {"beat": "beat3_case", "text": "set to auto-start, running a binary called msadvapi2_32.exe out of Program Files.", "duration_s": 7.0, "selector": ".finding.cls-attacker_persistence:nth-of-type(1) .finding-value"},
-    {"beat": "beat3_case", "text": "That product does not exist. The agent flagged it with high confidence.", "duration_s": 4.5, "selector": ".finding.cls-attacker_persistence:nth-of-type(1) .finding-meta-row"},
+    {"beat": "beat3_case", "text": "The first finding is a Windows service called Microsoft Advanced API thirty-two,", "duration_s": 6.0, "selector": ".finding-mech"},
+    {"beat": "beat3_case", "text": "set to auto-start, running a binary called msadvapi2_32.exe out of Program Files.", "duration_s": 7.0, "selector": ".finding-value"},
+    {"beat": "beat3_case", "text": "That product does not exist. The agent flagged it with high confidence.", "duration_s": 4.5, "selector": ".finding-meta-row"},
 
     # 3b audit trail (50s, 10 phrases)
-    {"beat": "beat3_case", "text": "Every finding is a citation.", "duration_s": 3.0, "selector": ".finding.cls-attacker_persistence:nth-of-type(1) .finding-evidence-row"},
+    {"beat": "beat3_case", "text": "Every finding is a citation.", "duration_s": 3.0, "selector": ".finding-evidence-row"},
     {"beat": "beat3_case", "text": "Click the citation and you reach the actual tool output that produced it.", "duration_s": 7.0, "selector": "[data-tab='evidence']"},
-    {"beat": "beat3_case", "text": "Here is the RegRipper services dump where the service was registered.", "duration_s": 7.0, "selector": ".evidence-record:nth-of-type(1)"},
-    {"beat": "beat3_case", "text": "ImagePath, type, start mode, all there.", "duration_s": 4.0, "selector": None},
-    {"beat": "beat3_case", "text": "Click the second citation, and you are in the memory-side pslist.", "duration_s": 5.5, "selector": ".evidence-record:nth-of-type(2)"},
+    {"beat": "beat3_case", "text": "Here is the RegRipper services dump where the service was registered.", "duration_s": 7.0, "selector": ".ev-record"},
+    {"beat": "beat3_case", "text": "ImagePath, type, start mode, all there.", "duration_s": 4.0, "selector": ".ev-fields"},
+    {"beat": "beat3_case", "text": "Click the second citation, and you are in the memory-side pslist.", "duration_s": 5.5, "selector": ".ev-tool"},
     {"beat": "beat3_case", "text": "The same binary is running right now at PID 2292.", "duration_s": 4.5, "selector": None},
     {"beat": "beat3_case", "text": "Disk says it should be running. Memory confirms it is running.", "duration_s": 5.5, "selector": None},
     {"beat": "beat3_case", "text": "That is what dual-channel means here.", "duration_s": 4.0, "selector": ".channel-pill.channel-dual"},
@@ -49,12 +49,12 @@ PHRASES: list[dict] = [
     # 3c critic disagreement (57.5s, 11 phrases)
     {"beat": "beat3_case", "text": "Now the self-correction.", "duration_s": 3.0, "selector": "[data-tab='pipeline']"},
     {"beat": "beat3_case", "text": "While the agent was producing findings,", "duration_s": 3.5, "selector": None},
-    {"beat": "beat3_case", "text": "the critic noticed something in one of the tool outputs.", "duration_s": 7.0, "selector": ".pipeline-event:has-text('critic')"},
-    {"beat": "beat3_case", "text": "A byte sequence in the raw registry hive contained the substring T1033,", "duration_s": 6.5, "selector": ".pipeline-event:has-text('INJECTION_QUARANTINE')"},
-    {"beat": "beat3_case", "text": "matching a pattern the injection scanner uses to detect adversarial prompt content.", "duration_s": 8.5, "selector": ".pipeline-event:has-text('INJ_ATTCK_EMIT')"},
+    {"beat": "beat3_case", "text": "the critic noticed something in one of the tool outputs.", "duration_s": 7.0, "selector": ".phase-critic-row"},
+    {"beat": "beat3_case", "text": "A byte sequence in the raw registry hive contained the substring T1033,", "duration_s": 6.5, "selector": ".badge.badge-quarantine"},
+    {"beat": "beat3_case", "text": "matching a pattern the injection scanner uses to detect adversarial prompt content.", "duration_s": 8.5, "selector": ".phase-critic-row.escalate"},
     {"beat": "beat3_case", "text": "It was random binary noise, not a real injection.", "duration_s": 4.5, "selector": None},
     {"beat": "beat3_case", "text": "But the agent did not silently dismiss it.", "duration_s": 4.0, "selector": None},
-    {"beat": "beat3_case", "text": "It quarantined the tool output, escalated to human review,", "duration_s": 7.5, "selector": ".pipeline-event:has-text('escalate')"},
+    {"beat": "beat3_case", "text": "It quarantined the tool output, escalated to human review,", "duration_s": 7.5, "selector": ".phase-critic-row.escalate"},
     {"beat": "beat3_case", "text": "and refused to act on findings that depended on it.", "duration_s": 4.5, "selector": None},
     {"beat": "beat3_case", "text": "Three findings escalated. None silently approved.", "duration_s": 4.5, "selector": None},
     {"beat": "beat3_case", "text": "That is what auditable autonomy looks like.", "duration_s": 4.0, "selector": None},
@@ -73,7 +73,7 @@ PHRASES: list[dict] = [
     {"beat": "beat4_loop", "text": "Every night, the cron at 22:30 UTC runs the agent against fresh threat intel.", "duration_s": 6.5, "selector": "#widget-input"},
     {"beat": "beat4_loop", "text": "When it misses something, a drafter agent synthesizes a candidate rule.", "duration_s": 6.0, "selector": "#widget-queued"},
     {"beat": "beat4_loop", "text": "Today, twelve rules are waiting.", "duration_s": 3.5, "selector": "#widget-queued #w-queued-num"},
-    {"beat": "beat4_loop", "text": "I read one, decide it is safe, click approve.", "duration_s": 5.0, "selector": "#rule-card-apt28_cve_2026_32202_lnk_spoofing_task-c99bf8f051"},
+    {"beat": "beat4_loop", "text": "I read one, decide it is safe, click approve.", "duration_s": 5.0, "selector": "#rule-card-lnk_ntlm_coercion_folder_trigger-58245f5aa9"},
     {"beat": "beat4_loop", "text": "The rule is now in the live agent's rule store.", "duration_s": 5.0, "selector": "#widget-live"},
     {"beat": "beat4_loop", "text": "Tomorrow night's run picks it up automatically.", "duration_s": 5.0, "selector": None},
     {"beat": "beat4_loop", "text": "This is not a demo, this is the production system.", "duration_s": 5.0, "selector": None},
@@ -81,9 +81,9 @@ PHRASES: list[dict] = [
 
     # -- beat5_outro (15s, 4 phrases) -----------------------------------------
     {"beat": "beat5_outro", "text": "Sift Sentinel.", "duration_s": 2.0, "selector": ".name"},
-    {"beat": "beat5_outro", "text": "Live at sentinel.sshub.dev.", "duration_s": 3.5, "selector": ".row:nth-of-type(1) .v"},
-    {"beat": "beat5_outro", "text": "Code on GitHub at github.com/charanbobby/sift-sentinel.", "duration_s": 5.5, "selector": ".row:nth-of-type(2) .v"},
-    {"beat": "beat5_outro", "text": "Built by Charan Bobby for the SANS Find Evil hackathon. Thanks for watching.", "duration_s": 4.0, "selector": ".row:nth-of-type(3) .v"},
+    {"beat": "beat5_outro", "text": "Live at sentinel.sshub.dev.", "duration_s": 3.5, "selector": ".row:has-text('sentinel.sshub.dev') .v"},
+    {"beat": "beat5_outro", "text": "Code on GitHub at github.com/charanbobby/sift-sentinel.", "duration_s": 5.5, "selector": ".row:has-text('github.com') .v"},
+    {"beat": "beat5_outro", "text": "Built by Charan Bobby for the SANS Find Evil hackathon. Thanks for watching.", "duration_s": 4.0, "selector": ".row:has-text('Charan Bobby') .v"},
 ]
 
 
