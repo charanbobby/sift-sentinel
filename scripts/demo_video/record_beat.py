@@ -23,34 +23,36 @@ from .config import OUT_DIR, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
 
 
 async def _record(beat_name: str) -> Path:
-    scene_module = importlib.import_module(f"demo_video.scenes.{beat_name}")
+    scene_module = importlib.import_module(f".scenes.{beat_name}", package=__package__)
     raw_dir = OUT_DIR / "_raw" / beat_name
     raw_dir.mkdir(parents=True, exist_ok=True)
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
-            record_video_dir=str(raw_dir),
-            record_video_size={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            context = await browser.new_context(
+                viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
+                record_video_dir=str(raw_dir),
+                record_video_size={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
+            )
+            page = await context.new_page()
+            try:
+                await scene_module.record(page)
+            finally:
+                await context.close()
+                await browser.close()
+        webms = list(raw_dir.glob("*.webm"))
+        if not webms:
+            raise RuntimeError(f"no webm produced in {raw_dir}")
+        webm = webms[0]
+        out_path = OUT_DIR / f"{beat_name}.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(webm), "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(out_path)],
+            check=True,
         )
-        page = await context.new_page()
-        try:
-            await scene_module.record(page)
-        finally:
-            await context.close()
-            await browser.close()
-    webms = list(raw_dir.glob("*.webm"))
-    if not webms:
-        raise RuntimeError(f"no webm produced in {raw_dir}")
-    webm = webms[0]
-    out_path = OUT_DIR / f"{beat_name}.mp4"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(webm), "-c:v", "libx264", "-preset", "veryfast",
-         "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(out_path)],
-        check=True,
-    )
-    shutil.rmtree(raw_dir, ignore_errors=True)
-    return out_path
+        return out_path
+    finally:
+        shutil.rmtree(raw_dir, ignore_errors=True)
 
 
 def main() -> int:
