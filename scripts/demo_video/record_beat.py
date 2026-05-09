@@ -19,7 +19,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-from .config import OUT_DIR, VIEWPORT_WIDTH, VIEWPORT_HEIGHT
+from .config import OUT_DIR, VIEWPORT_WIDTH, VIEWPORT_HEIGHT, DURATIONS
 
 
 async def _record(beat_name: str) -> Path:
@@ -45,11 +45,32 @@ async def _record(beat_name: str) -> Path:
             raise RuntimeError(f"no webm produced in {raw_dir}")
         webm = webms[0]
         out_path = OUT_DIR / f"{beat_name}.mp4"
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(webm), "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(out_path)],
-            check=True,
-        )
+        # The recording always overshoots because page load + setup happens
+        # inside the recording context. Trim to keep the LAST <target> seconds
+        # so the final stable frame is preserved (load + early frames go).
+        target_s = DURATIONS.get(beat_name, 0)
+        if target_s > 0:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(webm)],
+                capture_output=True, text=True, check=True,
+            )
+            total_s = float(probe.stdout.strip())
+            start_s = max(0.0, total_s - target_s)
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{start_s:.3f}", "-i", str(webm),
+                 "-t", f"{target_s:.3f}",
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                 "-pix_fmt", "yuv420p", "-an", str(out_path)],
+                check=True,
+            )
+        else:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(webm),
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                 "-pix_fmt", "yuv420p", "-an", str(out_path)],
+                check=True,
+            )
         return out_path
     finally:
         shutil.rmtree(raw_dir, ignore_errors=True)
