@@ -95,6 +95,33 @@
       </div>
     </div>
   </section>
+  <section class="section">
+    <div class="label">HOW IT WORKS</div>
+    <h3>A learning loop, run nightly.</h3>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 24px 0; align-items: stretch;">
+      <div style="background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 12px; font-size: 11px; text-align: center; color: var(--muted);">
+        <div style="color: var(--accent); font-weight: 700; margin-bottom: 4px;">1. READ</div>
+        fresh threat-intel from the public web
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--cyan); border-radius: 8px; padding: 12px; font-size: 11px; text-align: center; color: var(--muted);">
+        <div style="color: var(--cyan); font-weight: 700; margin-bottom: 4px;">2. PLANT</div>
+        synthetic copies of new attacker tradecraft
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 12px; font-size: 11px; text-align: center; color: var(--muted);">
+        <div style="color: var(--green); font-weight: 700; margin-bottom: 4px;">3. HUNT</div>
+        run the agent against the prepared image
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--amber); border-radius: 8px; padding: 12px; font-size: 11px; text-align: center; color: var(--muted);">
+        <div style="color: var(--amber); font-weight: 700; margin-bottom: 4px;">4. SCORE</div>
+        what did it catch, what did it miss
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--purple); border-radius: 8px; padding: 12px; font-size: 11px; text-align: center; color: var(--muted);">
+        <div style="color: var(--purple); font-weight: 700; margin-bottom: 4px;">5. LEARN</div>
+        draft a new rule from each miss; ship it tomorrow
+      </div>
+    </div>
+    <p class="body">The agent is not a static demo. Every night it reads new attacker tradecraft from public sources, plants synthetic copies on a fresh test machine, runs against them, and writes down a candidate rule for every miss. A human reviewer approves the rules. Tomorrow's run picks them up automatically. The system improves while I sleep.</p>
+  </section>
   <!-- sections-and-footer-cta-anchor -->
 </main>
 
