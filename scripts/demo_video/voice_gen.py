@@ -19,8 +19,13 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 
-from .captions import BEATS
+from .phrases import PHRASES, BEAT_ORDER
 from .config import OUT_DIR
+
+
+def _voiceover_for_beat(beat_name: str) -> str:
+    """Concatenate all phrases in this beat into the voice line."""
+    return " ".join(p["text"] for p in PHRASES if p["beat"] == beat_name)
 
 
 API_URL_TEMPLATE = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
@@ -56,17 +61,18 @@ def main() -> int:
     if not api_key or not voice_id:
         print("ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID env vars required", file=sys.stderr)
         return 2
-    selected = [b for b in BEATS if (args.beat is None or b["name"] == args.beat)]
+    selected = [b for b in BEAT_ORDER if (args.beat is None or b == args.beat)]
     if not selected:
         print(f"unknown beat {args.beat!r}", file=sys.stderr)
         return 1
-    for b in selected:
-        out_path = OUT_DIR / f"voice_{b['name']}.mp3"
+    for beat_name in selected:
+        out_path = OUT_DIR / f"voice_{beat_name}.mp3"
         if out_path.exists():
-            print(f"skip {b['name']} (already exists at {out_path}); delete to regenerate")
+            print(f"skip {beat_name} (already exists at {out_path}); delete to regenerate")
             continue
-        print(f"generating {b['name']} -> {out_path}")
-        _generate_one(api_key, voice_id, b["voiceover"], out_path)
+        text = _voiceover_for_beat(beat_name)
+        print(f"generating {beat_name} -> {out_path} ({len(text)} chars)")
+        _generate_one(api_key, voice_id, text, out_path)
         print(f"  wrote {out_path.stat().st_size} bytes")
     return 0
 
