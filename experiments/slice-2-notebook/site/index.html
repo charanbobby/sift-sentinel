@@ -80,6 +80,21 @@
     <a href="/site/dashboard.html" style="background: var(--accent); color: var(--bg); border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; text-decoration: none; display: inline-block;">See last night's run &rarr;</a>
     <div style="margin-top: 8px; font-size: 11px; color: var(--muted-2);">runs nightly at 22:30 UTC, autonomous</div>
   </section>
+  <section class="section">
+    <div class="label">WHAT IT DOES</div>
+    <h3>Reads a Windows machine and tells you who broke in.</h3>
+    <p class="body">Sift Sentinel takes a forensic image of a compromised Windows computer and works through it the way a human investigator would. It looks at the registry, scheduled tasks, services, and memory. It writes down what it found, with the exact file or registry key as proof. Every claim is cited. Then it grades itself: did it find the real attacker, or did it miss?</p>
+    <div style="display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap;">
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
+        <div style="color: var(--accent); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">EXAMPLE FROM A REAL RUN</div>
+        A registry key on a workstation pointing to <code style="color: var(--amber); font-size: 11px;">c:\windows\system32\dllhost\svchost.exe</code>. There is no real folder by that name; the attacker hid a fake svchost there.
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
+        <div style="color: var(--purple); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">SAME PATTERN, THREE HOSTS</div>
+        Sentinel found the same key on three different Windows machines in the same network. That is independent corroboration of one intrusion.
+      </div>
+    </div>
+  </section>
   <!-- sections-and-footer-cta-anchor -->
 </main>
 
