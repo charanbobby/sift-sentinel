@@ -144,28 +144,8 @@ def test_reject_rule_truncates_long_reason(site_client, tmp_loop_runs):
     assert len(line["reason"]) == 500
 
 
-def test_promote_rule_calls_subprocess(site_client, tmp_loop_runs, tmp_live_rules, tmp_path, monkeypatch):
-    fake_gate = tmp_path / "fake_regression_gate.py"
-    fake_gate.write_text(
-        "import sys, json\n"
-        "args = sys.argv\n"
-        "live = args[args.index('--live') + 1]\n"
-        "promote_id = args[args.index('--promote-id') + 1]\n"
-        "with open(live, 'a') as fh:\n"
-        "    fh.write(json.dumps({'rule_kind':'counter_rule','rule_text':'Flag X as malicious.','id':promote_id}) + '\\n')\n"
-        "print('promoted', promote_id)\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("REGRESSION_GATE_PATH", str(fake_gate))
-    if "pipeline.site" in sys.modules:
-        del sys.modules["pipeline.site"]
-    import pipeline as _pipeline_pkg
-    if hasattr(_pipeline_pkg, "site"):
-        delattr(_pipeline_pkg, "site")
-    from pipeline import site
-    client = TestClient(site.app)
-
-    r = client.post(
+def test_promote_rule_appends_to_live(site_client, tmp_loop_runs, tmp_live_rules):
+    r = site_client.post(
         "/api/promote-rule",
         json={"date": "2026-05-08", "rule_id": "rule_a-aaaa"},
     )
@@ -173,6 +153,7 @@ def test_promote_rule_calls_subprocess(site_client, tmp_loop_runs, tmp_live_rule
     body = r.json()
     assert body["ok"] is True
     assert body["promoted"]["id"] == "rule_a-aaaa"
+    assert "promoted_at" in body["promoted"]
     live_lines = tmp_live_rules.read_text(encoding="utf-8").splitlines()
     assert any("rule_a-aaaa" in line for line in live_lines)
 
@@ -183,3 +164,15 @@ def test_promote_rule_unknown_id_400(site_client):
         json={"date": "2026-05-08", "rule_id": "does-not-exist"},
     )
     assert r.status_code == 400
+
+
+def test_promote_rule_dedup_409(site_client, tmp_live_rules):
+    site_client.post(
+        "/api/promote-rule",
+        json={"date": "2026-05-08", "rule_id": "rule_a-aaaa"},
+    )
+    r = site_client.post(
+        "/api/promote-rule",
+        json={"date": "2026-05-08", "rule_id": "rule_a-aaaa"},
+    )
+    assert r.status_code == 409, r.text
