@@ -237,6 +237,20 @@
 <script>
 function escHtml(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+const KIND_META = {
+  counter_rule: { label: 'counter_rule', color: 'pill-blue', changes: 'teaches INTERPRET to flag this TTP as malicious' },
+  extract_location: { label: 'extract_location', color: 'pill-cyan', changes: 'tells EXTRACT to also scan this directory' },
+  planner_hint: { label: 'planner_hint', color: 'pill-amber', changes: 'teaches PLAN to enumerate this tool/arg combination' },
+};
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.getUTCHours().toString().padStart(2, '0') + ':' + d.getUTCMinutes().toString().padStart(2, '0') + ' UTC';
+}
+
+let CURRENT_DATE = null;
+
 async function loadStatus() {
   try {
     const r = await fetch('/api/status');
@@ -271,9 +285,50 @@ async function loadIntel() {
 }
 
 async function loadRules() {
-  document.getElementById('rules-list').innerHTML = '<div class="empty">Rules section will be wired up in the next task.</div>';
-  document.getElementById('w-queued-num').textContent = '0';
-  document.getElementById('rules-count').textContent = '0 pending';
+  const list = document.getElementById('rules-list');
+  try {
+    const r = await fetch('/api/proposed-rules');
+    if (r.status !== 200) {
+      list.innerHTML = '<div class="empty">No drafted rules for the latest run.</div>';
+      document.getElementById('w-queued-num').textContent = '0';
+      document.getElementById('rules-count').textContent = '0 pending';
+      return;
+    }
+    const d = await r.json();
+    CURRENT_DATE = d.date;
+    document.getElementById('w-queued-num').textContent = d.count;
+    document.getElementById('rules-count').textContent = d.count + ' pending';
+    if (!d.count) {
+      list.innerHTML = '<div class="empty">No drafted rules pending review for this run. Tomorrow at 22:30 UTC, the cron may produce more.</div>';
+      return;
+    }
+    list.innerHTML = d.rules.map(renderRule).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty" style="color: var(--red);">Failed to load drafted rules: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderRule(rule) {
+  const meta = KIND_META[rule.rule_kind] || { label: rule.rule_kind, color: 'pill-neutral', changes: '' };
+  const id = rule.id;
+  const time = fmtTime(rule.generated_at);
+  return `
+    <div class="panel" id="rule-card-${escHtml(id)}" style="margin-bottom: 10px;">
+      <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+        <span class="pill ${meta.color}">${escHtml(meta.label)}</span>
+        <span style="color: var(--muted-2); font-size: 12px;">${escHtml(meta.changes)}</span>
+        <span style="margin-left: auto; color: var(--muted-2); font-size: 11px; font-family: 'IBM Plex Mono', monospace;">${escHtml(rule.source_miss_id || '')}</span>
+      </div>
+      <div style="color: var(--text); font-size: 14px; line-height: 1.55; margin-bottom: 8px;">${escHtml(rule.rule_text || '')}</div>
+      <div style="color: var(--text-2); font-size: 12px; line-height: 1.55; margin-bottom: 12px; padding-left: 10px; border-left: 2px solid var(--line);">${escHtml(rule.rationale || '')}</div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button onclick="openApproveModal('${escHtml(id)}')" style="background: var(--green); color: var(--bg); border: none; padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Approve</button>
+        <button onclick="openRejectForm('${escHtml(id)}')" style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Reject with reason</button>
+        <span style="margin-left: auto; color: var(--muted-2); font-size: 11px;">drafted by ${escHtml(rule.generated_by_model || 'haiku')} at ${escHtml(time)}</span>
+      </div>
+      <div id="rule-form-${escHtml(id)}" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);"></div>
+    </div>
+  `;
 }
 
 loadStatus();
