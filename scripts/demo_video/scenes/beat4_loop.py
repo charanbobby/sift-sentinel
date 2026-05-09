@@ -1,13 +1,6 @@
-"""Beat 4: loop closing live. 45 seconds.
-
-Scrolls past the hero + widgets to the drafted-rules section, hovers the
-locked rule card, clicks Approve, confirms in the modal. The card disappears,
-queued widget decrements, live widget increments. Recording captures the
-state change in real time.
-
-SIDE EFFECT: this actually promotes the rule in the live store. The
-RULE_ID_FOR_PROMOTE in config.py is consumed by this run; pick a fresh
-rule before re-recording.
+"""Beat 4: loop closing. 45s, 9 phrases. At the "click approve" phrase the
+scene calls openApproveModal + confirmPromote on the live dashboard.
+SIDE EFFECT: actually promotes RULE_ID_FOR_PROMOTE on the live store.
 """
 from __future__ import annotations
 
@@ -15,6 +8,8 @@ import asyncio
 from playwright.async_api import Page
 
 from ..config import SITE_URL, RULE_ID_FOR_PROMOTE
+from ..phrases import phrases_for
+from ._helpers import highlight, unhighlight
 
 
 async def record(page: Page) -> None:
@@ -23,33 +18,36 @@ async def record(page: Page) -> None:
     await page.wait_for_function(
         "() => document.querySelectorAll('[id^=\"rule-card-\"]').length > 0"
     )
-    await asyncio.sleep(2)
-    # Slow scroll past hero + widgets down to drafted-rules section
+    # Scroll past hero into the drafted-rules section so the widgets are in
+    # view for the first phrases.
     await page.evaluate(
-        """async () => {
+        """() => {
             const target = document.getElementById('section-rules');
-            const top = target.getBoundingClientRect().top + window.scrollY;
-            const start = window.scrollY;
-            const steps = 60;
-            for (let i = 0; i <= steps; i++) {
-                window.scrollTo(0, start + (top - start) * (i / steps));
-                await new Promise(r => setTimeout(r, 100));
-            }
+            if (target) target.scrollIntoView({behavior: 'instant', block: 'start'});
         }"""
     )
-    await asyncio.sleep(2)
-    # Scroll the locked rule into view
-    rule_id = RULE_ID_FOR_PROMOTE
-    await page.evaluate(
-        f"document.getElementById('rule-card-{rule_id}')?.scrollIntoView("
-        f"{{behavior:'smooth', block:'center'}})"
-    )
-    await asyncio.sleep(3)
-    # Click Approve
-    await page.evaluate(f"openApproveModal('{rule_id}', CURRENT_DATE)")
-    await asyncio.sleep(4)
-    # Click Yes, promote
-    await page.evaluate(f"confirmPromote('{rule_id}', CURRENT_DATE)")
-    await asyncio.sleep(2)
-    # Settle on the new widget counts
-    await asyncio.sleep(11)
+    await asyncio.sleep(0.4)
+
+    for phrase in phrases_for("beat4_loop"):
+        text = phrase["text"]
+
+        # When the narrator says "I read one, decide it is safe, click approve"
+        # actually scroll to the rule card. When the narrator says "The rule is
+        # now in the live agent's rule store", actually open + confirm the modal.
+        if text.startswith("I read one"):
+            await page.evaluate(
+                f"document.getElementById('rule-card-{RULE_ID_FOR_PROMOTE}')"
+                f"?.scrollIntoView({{behavior: 'smooth', block: 'center'}})"
+            )
+            await asyncio.sleep(0.5)
+        elif text.startswith("The rule is now"):
+            await page.evaluate(f"openApproveModal('{RULE_ID_FOR_PROMOTE}', CURRENT_DATE)")
+            await asyncio.sleep(0.6)
+            await page.evaluate(f"confirmPromote('{RULE_ID_FOR_PROMOTE}', CURRENT_DATE)")
+            await asyncio.sleep(0.4)
+
+        if phrase["selector"]:
+            await highlight(page, phrase["selector"])
+        await asyncio.sleep(phrase["duration_s"])
+        if phrase["selector"]:
+            await unhighlight(page, phrase["selector"])
