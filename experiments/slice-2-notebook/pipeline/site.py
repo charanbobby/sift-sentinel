@@ -20,6 +20,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -274,6 +275,63 @@ def reject_rule(body: _RejectBody, request: Request) -> JSONResponse:
     with audit_path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps({**record, "action": "reject", "date": body.date}) + "\n")
     return JSONResponse({"ok": True})
+
+
+# ── promote-rule endpoint ────────────────────────────────────────────────────
+
+REGRESSION_GATE_PATH = Path(os.environ.get(
+    "REGRESSION_GATE_PATH",
+    "/workspace/../scripts/regression_gate.py",
+))
+
+
+class _PromoteBody(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    rule_id: str = Field(min_length=1, max_length=200)
+
+
+def _run_promote_subprocess(date: str, rule_id: str) -> tuple[int, str, str]:
+    """Run regression_gate.py --mode promote --promote-id <id> and capture
+    stdout, stderr, and exit code. Pure subprocess wrapper, no business logic.
+    """
+    staged = LOOP_RUNS_DIR / date / "learned_rules.staged.jsonl"
+    cmd = [
+        sys.executable, str(REGRESSION_GATE_PATH),
+        "--staged", str(staged),
+        "--live", str(LEARNED_RULES_PATH),
+        "--mode", "promote",
+        "--promote-id", rule_id,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+@app.post("/api/promote-rule")
+def promote_rule(body: _PromoteBody, request: Request) -> JSONResponse:
+    """Promote a single staged rule into the live learned_rules.jsonl by
+    invoking scripts/regression_gate.py. Tomorrow's cron picks it up.
+    """
+    date_dir = LOOP_RUNS_DIR / body.date
+    if not date_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"no run for date {body.date}")
+    staged = _read_jsonl(date_dir / "learned_rules.staged.jsonl")
+    match = next((r for r in staged if r.get("id") == body.rule_id), None)
+    if match is None:
+        raise HTTPException(status_code=400, detail=f"rule_id not in staged file for date {body.date}")
+    rc, out, err = _run_promote_subprocess(body.date, body.rule_id)
+    if rc != 0:
+        return JSONResponse({"ok": False, "error": err or out}, status_code=500)
+    audit_path = LOOP_RUNS_DIR / "promotions.audit.jsonl"
+    audit_record = {
+        "rule_id": body.rule_id,
+        "date": body.date,
+        "action": "promote",
+        "promoted_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "source_ip": request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown"),
+    }
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(audit_record) + "\n")
+    return JSONResponse({"ok": True, "promoted": match, "stdout": out})
 
 
 # ── research endpoint ────────────────────────────────────────────────────────
