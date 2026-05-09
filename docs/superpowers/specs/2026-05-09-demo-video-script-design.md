@@ -239,10 +239,17 @@ D3. Drop the SRT into Studio. Render captions as a burned-in overlay on the visu
 D4. Probe: scrub timestamps 0:15, 1:00, 4:00, 4:45. Caption text matches the voiceover line for that moment. Caption does NOT cover dashboard chrome (top nav, hero, widget board labels, rule-card kind badges).
 D5. Read every caption line aloud yourself. If a line is awkward to read, change the script HERE (before generating voice). The voiceover line is the line in the burned-in caption, so the caption is the truth and they cannot drift apart later.
 D6. Burn the captions into the silent visuals track now (Phase D, before voice). This way the timing of the caption text against the visuals is locked, and Phase E only needs to layer audio on top. Re-burning captions requires a video re-export, which is cheap; re-generating voice burns ElevenLabs tokens, which is not.
+D7. Export a single combined silent-with-captions MP4 at 1080p (e.g. `demo_silent_with_captions.mp4`). This is the artifact for the review gate.
+
+### Phase D.5: human review gate (HARD STOP before any voice spend)
+
+D5.1. Charan watches `demo_silent_with_captions.mp4` end-to-end with the speakers off. The captions alone should carry the story: a viewer who watches with no sound should understand what the agent did, what self-corrected, and what the loop closed.
+D5.2. If anything feels wrong (visual mismatch, caption awkwardness, beat too slow or too fast, missing context), edit the script + re-cut the affected beat in Phase B/C/D. Re-export the silent-with-captions cut. Repeat D5.1.
+D5.3. Only when D5.1 returns "yes, this makes sense" do we advance to Phase E. Voice token spend does NOT begin until this gate clears.
 
 ### Phase E: voice generation (the expensive step)
 
-E1. Confirm Phase C and Phase D are locked. Do not proceed if any boundary is still being moved.
+E1. Confirm Phase D.5 review gate has cleared with explicit Charan signoff. The silent-with-captions cut must read as a coherent story on its own; voice is enhancement, not rescue.
 E2. Generate ElevenLabs audio for each beat as a separate file, one per beat. Name them `voice1_open.mp3` through `voice5_outro.mp3`.
 E3. Probe per file: total length matches or is shorter than the beat slot (leave 1-2 sec of breathing room at the end).
 E4. If a beat's voice is too long: shorten the script TEXT (not the voice; regenerating burns more tokens). Re-generate that ONE beat only.
