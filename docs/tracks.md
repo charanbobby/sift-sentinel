@@ -15,19 +15,19 @@ Single page of every active track. Updated on every significant event by Claude.
 
 ## ui-redesign
 
-- **Branch:** main (started before the branch convention; remaining tasks stay on main)
+- **Branch:** main
 - **Goal:** Replace `experiments/slice-2-notebook/site/dashboard.html` with a 4-widget status board plus a drafted-rules section that lets the user approve or reject staged learned rules from the website without CLI commands. Spec at `docs/superpowers/specs/2026-05-09-todays-run-redesign-design.md`. Plan at `docs/superpowers/plans/2026-05-09-todays-run-redesign.md`.
-- **State:** implementing under subagent-driven-development. Task 1 of 8 done (commit `fa6d072`: failing test for `/api/proposed-rules`). Spec compliance review and code quality review queued for Task 1.
-- **Waiting on:** nothing (auto mode running).
-- **Last update:** 2026-05-09 (right after Task 1 completed).
+- **State:** SHIPPED. All 8 tasks done. 9 pytest tests pass. Endpoints `/api/proposed-rules`, `/api/promote-rule`, `/api/reject-rule` live on the VPS. Dashboard renders hero + 4 widgets + 12 drafted-rule cards with Approve modal and Reject-reason form. Verified live via Playwright at https://sentinel.sshub.dev/site/dashboard.html.
+- **Waiting on:** nothing.
+- **Last update:** 2026-05-09 13:13 UTC (deploy verified).
 
 ## memory-sweep
 
 - **Branch:** main
 - **Goal:** Complete dataset coverage on `sentinel.sshub.dev/viewer/`. Every host in `docs/reference/hackathon/dataset_manifest.md` should have at least one curated run.
-- **State:** 7 memory-only pipeline runs in flight in parallel (file, rd-02, wkstn-01, dc, mail, hunt, sp). Adjudication agent already landed 8 APPROVED + 4 REJECTED for the existing uncurated runs. keep_runs.json now has 32 entries.
-- **Waiting on:** 7 background bash IDs to finish. ETAs 5 to 60 min each; mail (18 GB memory) likely the longest.
-- **Last update:** 2026-05-09 (after the 7 runs were launched).
+- **State:** PARTIAL. Adjudication agent landed 8 APPROVED + 4 REJECTED for prior runs (keep_runs grew to 32). First batch of 4 new memory-only runs (dc, mail, hunt, sp) ALL REJECTED for Vol2 profile mismatch (`Win10x64_15063` was wrong). dc rerun launched with `Win2016x64_14393`. mail/hunt/sp imageinfo and kdbgscan both timed out, leaving us without confirmed profiles. Three other runs (file, rd-02, wkstn-01) still in flight from earlier launch.
+- **Waiting on:** dc rerun (`bw2bhjv6v`), file/rd-02/wkstn-01 in-flight runs (`bueq3efss`, `bhm8e6ua0`, `bnva25x6z`). Need a profile-fallback strategy for mail/hunt/sp (try `Win2012R2x64` for mail, `Win2008R2SP1x64` for hunt and sp; if those also fail, accept REJECTED with "profile undetermined" reason).
+- **Last update:** 2026-05-09 13:14 UTC.
 
 ---
 
