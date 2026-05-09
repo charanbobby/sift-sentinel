@@ -67,4 +67,4 @@ Single page of every active track. Updated on every significant event by Claude.
 
 # Closed tracks
 
-(none yet)
+- 2026-05-09: landing-page track shipped at https://sentinel.sshub.dev/, replacing the architecture diagram homepage. See docs/superpowers/specs/2026-05-09-landing-page-design.md.
