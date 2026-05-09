@@ -128,11 +128,14 @@ def status() -> JSONResponse:
                 ),
             }
 
-    # In-flight runs: scan for cases whose latest run lacks a 07_terminal.* marker.
-    # Skip entries with no ledger activity in the last 6 hours, otherwise a
-    # killed-mid-run case sits in this list forever and confuses "today's run".
+    # In-flight runs: scan for cases whose latest run lacks ANY 07_terminal.* marker.
+    # Skip entries that are genesis-only (1 ledger event, the run never produced a plan)
+    # OR older than 2 hours (a killed-mid-run case otherwise haunts this list forever).
+    # Match terminal markers by glob so HUMAN_REJECTED, HUMAN_APPROVED.audit, and
+    # similar suffixed variants are recognized; the previous hard-coded set missed them
+    # and pushed already-adjudicated runs into "in flight".
     in_flight = []
-    stale_cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=6)
+    stale_cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=2)
     if RUNS_ROOT.exists():
         for case_dir in sorted(RUNS_ROOT.iterdir()):
             if not case_dir.is_dir():
@@ -147,11 +150,12 @@ def status() -> JSONResponse:
             run_path = case_dir / run_id
             if not run_path.is_dir():
                 continue
-            terminal_present = any((run_path / f"07_terminal.{m}").exists()
-                                   for m in ("SUCCESS", "HUMAN_APPROVED", "HUMAN_REVIEW", "FAIL", "QUARANTINED"))
+            terminal_present = any(run_path.glob("07_terminal.*"))
             if terminal_present:
                 continue
             ledger = _read_jsonl(run_path / "integrity_ledger.jsonl")
+            if len(ledger) <= 1:
+                continue
             last_event = ledger[-1] if ledger else None
             last_event_at = (last_event or {}).get("timestamp_utc")
             if last_event_at:
@@ -329,8 +333,11 @@ async def submit_test(req: Request) -> JSONResponse:
 
 @app.get("/api/submissions")
 def list_submissions() -> JSONResponse:
-    """List submitted test ideas. Newest first."""
+    """List submitted test ideas. Newest first. Filters out smoke-test entries
+    (submitter == 'smoke-test') so the public dashboard does not advertise them.
+    """
     rows = _read_jsonl(SUBMISSIONS_PATH)
+    rows = [r for r in rows if r.get("submitter") != "smoke-test"]
     rows.reverse()
     return JSONResponse({"count": len(rows), "submissions": rows})
 
@@ -353,3 +360,11 @@ app.mount("/viewer", viewer_app, name="viewer")
 # ── static for the site directory ────────────────────────────────────────────
 if SITE_HTML.parent.exists():
     app.mount("/site", StaticFiles(directory=str(SITE_HTML.parent)), name="site")
+
+
+# ── static for the daily cron loop_runs output ───────────────────────────────
+# The dashboard's "view markdown" link generates /loop_runs/<date>/<file>; this
+# mount serves those files (REPORT.md, learned_rules.proposed.md, score JSON,
+# etc.) directly. Without this mount the link 404s at the edge.
+if LOOP_RUNS_DIR.exists():
+    app.mount("/loop_runs", StaticFiles(directory=str(LOOP_RUNS_DIR)), name="loop_runs")

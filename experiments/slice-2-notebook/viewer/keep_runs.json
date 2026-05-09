@@ -1,9 +1,26 @@
 {
   "dfirmadness-001-desktop": ["dfirmadness-001-desktop-002"],
+  "hadi3-win81-challenge3": ["hadi3-win81-challenge3-001"],
+  "openuni22-server-cdrive": ["openuni22-server-cdrive-001"],
+  "srl-2015-win2008R2-dc": ["srl-2015-win2008R2-dc-001"],
+  "srl-2015-win7-32-nromanoff": ["srl-2015-win7-32-nromanoff-001"],
+  "srl-2015-win7-64-nfury": ["srl-2015-win7-64-nfury-001"],
+  "srl-2015-xp-tdungan": ["srl-2015-xp-tdungan-001"],
   "srl-2018-base-dc": ["srl-2018-base-dc-005"],
   "srl-2018-base-dc-dual": ["srl-2018-base-dc-dual-003"],
   "srl-2018-base-file": ["srl-2018-base-file-005"],
   "srl-2018-base-rd-02": ["srl-2018-base-rd-02-004"],
+  "srl-2018-base-rd-03-memonly": ["srl-2018-base-rd-03-memonly-004"],
+  "srl-2018-base-rd-05-memonly": ["srl-2018-base-rd-05-memonly-003"],
+  "srl-2018-base-wkstn-03-memonly": ["srl-2018-base-wkstn-03-memonly-001"],
+  "srl-2018-base-wkstn-04-memonly": ["srl-2018-base-wkstn-04-memonly-001"],
+  "srl-2018-base-wkstn-06-memonly": ["srl-2018-base-wkstn-06-memonly-002"],
   "srl-2018-dmz-ftp": ["srl-2018-dmz-ftp-004"],
-  "srl-2018-wkstn-05": ["srl-2018-wkstn-05-005", "srl-2018-wkstn-05-006", "srl-2018-wkstn-05-007"]
+  "srl-2018-wkstn-05": ["srl-2018-wkstn-05-005", "srl-2018-wkstn-05-006", "srl-2018-wkstn-05-007"],
+  "synthetic-2026-04-29": ["synthetic-2026-04-29-003"],
+  "synthetic-2026-04-30": ["synthetic-2026-04-30-004"],
+  "synthetic-2026-05-01": ["synthetic-2026-05-01-005"],
+  "synthetic-2026-05-02": ["synthetic-2026-05-02-001"],
+  "synthetic-2026-05-07": ["synthetic-2026-05-07-001"],
+  "synthetic-2026-05-08": ["synthetic-2026-05-08-001"]
 }
