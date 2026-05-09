@@ -122,6 +122,33 @@
     </div>
     <p class="body">The agent is not a static demo. Every night it reads new attacker tradecraft from public sources, plants synthetic copies on a fresh test machine, runs against them, and writes down a candidate rule for every miss. A human reviewer approves the rules. Tomorrow's run picks them up automatically. The system improves while I sleep.</p>
   </section>
+  <section class="section">
+    <div class="label">PROOF</div>
+    <h3>Real numbers from real runs.</h3>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px;">
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px;">
+        <div id="stat-runs" style="font-size: 24px; font-weight: 700; color: var(--text);">32</div>
+        <div style="color: var(--muted-2); font-size: 11px;">audited runs</div>
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px;">
+        <div id="stat-halluc" style="font-size: 24px; font-weight: 700; color: var(--green);">0</div>
+        <div style="color: var(--muted-2); font-size: 11px;">factual hallucinations</div>
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px;">
+        <div id="stat-hosts" style="font-size: 24px; font-weight: 700; color: var(--text);">15+</div>
+        <div style="color: var(--muted-2); font-size: 11px;">Windows hosts covered</div>
+      </div>
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px;">
+        <div id="stat-promoted" style="font-size: 24px; font-weight: 700; color: var(--purple);">2</div>
+        <div style="color: var(--muted-2); font-size: 11px;">rules promoted into live agent</div>
+      </div>
+    </div>
+    <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px;">
+      <div style="font-size: 11px; color: var(--green); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;">CONCRETE FIND</div>
+      <div style="color: var(--text); font-size: 14px; line-height: 1.6; margin-bottom: 8px;">On a 2026 Windows Server image, Sentinel surfaced a scheduled task using PsExec to push a payload called <code class="mono" style="color: var(--amber); font-size: 12px;">rename.exe</code> to six other workstations with the password <code class="mono" style="color: var(--amber); font-size: 12px;">letmein</code>. A real attacker artifact, with a real citation, on a real disk image.</div>
+      <div style="color: var(--muted-2); font-size: 12px;">Backed by a 24-line citation chain to the source disk evidence record.</div>
+    </div>
+  </section>
   <!-- sections-and-footer-cta-anchor -->
 </main>
 
