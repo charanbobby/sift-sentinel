@@ -231,6 +231,18 @@
     <div id="rules-list"><div class="empty">Loading...</div></div>
   </section>
 
+  <section id="section-past-rules">
+    <details style="background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0;">
+      <summary style="padding: 14px 20px; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 10px;">
+        <span style="color: var(--muted-2); font-size: 12px;">›</span>
+        <span style="font-weight: 600; font-size: 15px;">Older drafted rules from past runs</span>
+        <span id="past-dates-summary" style="margin-left: auto; color: var(--muted-2); font-size: 12px;">, </span>
+      </summary>
+      <div id="past-dates-list" style="padding: 0 20px 16px;"></div>
+    </details>
+    <p class="caption" style="margin: 8px 0 0; font-size: 12px; color: var(--muted-2);">Yesterday's queue does not get replaced when tomorrow's cron runs; every past date with pending rules stays here until you approve or reject them all.</p>
+  </section>
+
   <div id="modal-root"></div>
 </main>
 
@@ -311,9 +323,10 @@ async function loadRules() {
 function renderRule(rule) {
   const meta = KIND_META[rule.rule_kind] || { label: rule.rule_kind, color: 'pill-neutral', changes: '' };
   const id = rule.id;
+  const date = rule.source_manifest_id || CURRENT_DATE;
   const time = fmtTime(rule.generated_at);
   return `
-    <div class="panel" id="rule-card-${escHtml(id)}" style="margin-bottom: 10px;">
+    <div class="panel" id="rule-card-${escHtml(id)}" data-date="${escHtml(date)}" style="margin-bottom: 10px;">
       <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
         <span class="pill ${meta.color}">${escHtml(meta.label)}</span>
         <span style="color: var(--muted-2); font-size: 12px;">${escHtml(meta.changes)}</span>
@@ -322,29 +335,30 @@ function renderRule(rule) {
       <div style="color: var(--text); font-size: 14px; line-height: 1.55; margin-bottom: 8px;">${escHtml(rule.rule_text || '')}</div>
       <div style="color: var(--text-2); font-size: 12px; line-height: 1.55; margin-bottom: 12px; padding-left: 10px; border-left: 2px solid var(--line);">${escHtml(rule.rationale || '')}</div>
       <div style="display: flex; gap: 8px; align-items: center;">
-        <button onclick="openApproveModal('${escHtml(id)}')" style="background: var(--green); color: var(--bg); border: none; padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Approve</button>
-        <button onclick="openRejectForm('${escHtml(id)}')" style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Reject with reason</button>
-        <span style="margin-left: auto; color: var(--muted-2); font-size: 11px;">drafted by ${escHtml(rule.generated_by_model || 'haiku')} at ${escHtml(time)}</span>
+        <button onclick="openApproveModal('${escHtml(id)}', '${escHtml(date)}')" style="background: var(--green); color: var(--bg); border: none; padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Approve</button>
+        <button onclick="openRejectForm('${escHtml(id)}', '${escHtml(date)}')" style="background: transparent; color: var(--red); border: 1px solid var(--red); padding: 7px 16px; border-radius: 6px; font-weight: 600; font-size: 12px; cursor: pointer;">Reject with reason</button>
+        <span style="margin-left: auto; color: var(--muted-2); font-size: 11px;">drafted by ${escHtml(rule.generated_by_model || 'haiku')} ${escHtml(date)} at ${escHtml(time)}</span>
       </div>
       <div id="rule-form-${escHtml(id)}" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line);"></div>
     </div>
   `;
 }
 
-function openApproveModal(ruleId) {
+function openApproveModal(ruleId, date) {
   const card = document.getElementById('rule-card-' + ruleId);
   if (!card) return;
+  date = date || card.dataset.date || CURRENT_DATE;
   const ruleText = card.querySelector('div[style*="font-size: 14px"]').textContent;
   const root = document.getElementById('modal-root');
   root.innerHTML = `
     <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000;" onclick="this.remove()">
       <div onclick="event.stopPropagation()" style="background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 24px; max-width: 560px; width: 90%;">
         <h3 style="margin: 0 0 8px;">Confirm: promote this rule into the live agent</h3>
-        <p class="caption" style="margin: 0 0 12px;">Tomorrow's 22:30 UTC run will pick it up. You can revert by editing pipeline/learned_rules.jsonl and committing.</p>
+        <p class="caption" style="margin: 0 0 12px;">Drafted on ${escHtml(date)}. Tomorrow's 22:30 UTC run picks it up. You can revert by editing pipeline/learned_rules.jsonl and committing.</p>
         <div style="background: var(--surface-2); border-radius: 6px; padding: 12px; font-size: 13px; line-height: 1.55; margin-bottom: 16px;">${escHtml(ruleText)}</div>
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
           <button onclick="document.getElementById('modal-root').innerHTML = ''" style="background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer;">Cancel</button>
-          <button id="confirm-promote-btn" onclick="confirmPromote('${escHtml(ruleId)}')" style="background: var(--green); color: var(--bg); border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;">Yes, promote</button>
+          <button id="confirm-promote-btn" onclick="confirmPromote('${escHtml(ruleId)}', '${escHtml(date)}')" style="background: var(--green); color: var(--bg); border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;">Yes, promote</button>
         </div>
         <div id="modal-error" style="color: var(--red); font-size: 12px; margin-top: 12px;"></div>
       </div>
@@ -352,7 +366,23 @@ function openApproveModal(ruleId) {
   `;
 }
 
-async function confirmPromote(ruleId) {
+function _decrementCardCounters(ruleId, isPromote) {
+  const card = document.getElementById('rule-card-' + ruleId);
+  const cardDate = card ? card.dataset.date : null;
+  if (card) card.remove();
+  if (cardDate === CURRENT_DATE) {
+    const w = document.getElementById('w-queued-num');
+    w.textContent = Math.max(0, (parseInt(w.textContent, 10) || 1) - 1);
+    document.getElementById('rules-count').textContent = w.textContent + ' pending';
+  }
+  if (isPromote) {
+    const wl = document.getElementById('w-live-num');
+    wl.textContent = (parseInt(wl.textContent, 10) || 0) + 1;
+  }
+  if (typeof loadPastDates === 'function') loadPastDates();
+}
+
+async function confirmPromote(ruleId, date) {
   const btn = document.getElementById('confirm-promote-btn');
   const err = document.getElementById('modal-error');
   btn.disabled = true; btn.textContent = 'promoting...';
@@ -360,7 +390,7 @@ async function confirmPromote(ruleId) {
     const r = await fetch('/api/promote-rule', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ date: CURRENT_DATE, rule_id: ruleId }),
+      body: JSON.stringify({ date: date || CURRENT_DATE, rule_id: ruleId }),
     });
     const body = await r.json();
     if (!r.ok || !body.ok) {
@@ -369,35 +399,31 @@ async function confirmPromote(ruleId) {
       return;
     }
     document.getElementById('modal-root').innerHTML = '';
-    const card = document.getElementById('rule-card-' + ruleId);
-    if (card) card.remove();
-    const w = document.getElementById('w-queued-num');
-    w.textContent = Math.max(0, (parseInt(w.textContent, 10) || 1) - 1);
-    const wl = document.getElementById('w-live-num');
-    wl.textContent = (parseInt(wl.textContent, 10) || 0) + 1;
-    document.getElementById('rules-count').textContent = w.textContent + ' pending';
+    _decrementCardCounters(ruleId, true);
   } catch (e) {
     err.textContent = e.message;
     btn.disabled = false; btn.textContent = 'Yes, promote';
   }
 }
 
-function openRejectForm(ruleId) {
+function openRejectForm(ruleId, date) {
   const f = document.getElementById('rule-form-' + ruleId);
   if (!f) return;
+  const card = document.getElementById('rule-card-' + ruleId);
+  date = date || (card ? card.dataset.date : null) || CURRENT_DATE;
   f.style.display = 'block';
   f.innerHTML = `
     <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px;">Why are you rejecting this rule? (one sentence)</label>
     <textarea id="reject-reason-${escHtml(ruleId)}" rows="2" style="width: 100%; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-family: inherit; font-size: 13px;"></textarea>
     <div style="display: flex; gap: 8px; margin-top: 8px;">
-      <button onclick="confirmReject('${escHtml(ruleId)}')" style="background: var(--red); color: var(--bg); border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">Submit rejection</button>
+      <button onclick="confirmReject('${escHtml(ruleId)}', '${escHtml(date)}')" style="background: var(--red); color: var(--bg); border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">Submit rejection</button>
       <button onclick="document.getElementById('rule-form-${escHtml(ruleId)}').style.display = 'none'" style="background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;">Cancel</button>
       <span id="reject-err-${escHtml(ruleId)}" style="color: var(--red); font-size: 11px; align-self: center;"></span>
     </div>
   `;
 }
 
-async function confirmReject(ruleId) {
+async function confirmReject(ruleId, date) {
   const reason = document.getElementById('reject-reason-' + ruleId).value.trim();
   const err = document.getElementById('reject-err-' + ruleId);
   if (!reason) { err.textContent = 'Reason required.'; return; }
@@ -405,26 +431,85 @@ async function confirmReject(ruleId) {
     const r = await fetch('/api/reject-rule', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ date: CURRENT_DATE, rule_id: ruleId, reason }),
+      body: JSON.stringify({ date: date || CURRENT_DATE, rule_id: ruleId, reason }),
     });
     if (!r.ok) {
       const b = await r.json();
       err.textContent = b.detail || ('HTTP ' + r.status);
       return;
     }
-    const card = document.getElementById('rule-card-' + ruleId);
-    if (card) card.remove();
-    const w = document.getElementById('w-queued-num');
-    w.textContent = Math.max(0, (parseInt(w.textContent, 10) || 1) - 1);
-    document.getElementById('rules-count').textContent = w.textContent + ' pending';
+    _decrementCardCounters(ruleId, false);
   } catch (e) {
     err.textContent = e.message;
+  }
+}
+
+async function loadPastDates() {
+  const summary = document.getElementById('past-dates-summary');
+  const list = document.getElementById('past-dates-list');
+  try {
+    const r = await fetch('/api/proposed-rules/dates');
+    if (!r.ok) { summary.textContent = 'unavailable'; return; }
+    const d = await r.json();
+    const past = (d.dates || []).filter(x => x.date !== CURRENT_DATE);
+    if (past.length === 0) {
+      summary.textContent = 'no older queues';
+      list.innerHTML = '<div style="color: var(--muted-2); font-size: 13px; padding: 12px 0;">All older drafted rules have been approved or rejected. Nothing here to catch up on.</div>';
+      return;
+    }
+    const totalPending = past.reduce((n, x) => n + x.pending_count, 0);
+    summary.textContent = past.length + ' date' + (past.length === 1 ? '' : 's') + ', ' + totalPending + ' pending';
+    list.innerHTML = past.map(renderPastDateRow).join('');
+  } catch (e) {
+    summary.textContent = 'error';
+    list.innerHTML = '<div style="color: var(--red); font-size: 12px; padding: 12px 0;">Failed to load: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function renderPastDateRow(d) {
+  const safeId = d.date.replace(/-/g, '_');
+  return `
+    <div style="border-top: 1px solid var(--line-soft); padding: 10px 0;">
+      <div onclick="togglePastDateRules('${escHtml(d.date)}')" style="cursor: pointer; display: flex; align-items: center; gap: 10px; user-select: none;">
+        <span id="chev-${escHtml(safeId)}" style="color: var(--muted-2); font-size: 12px; transition: transform 0.15s;">›</span>
+        <span style="font-weight: 500; font-family: 'IBM Plex Mono', monospace;">${escHtml(d.date)}</span>
+        <span style="color: var(--muted-2); font-size: 12px;">${d.pending_count} pending</span>
+        <span style="color: var(--muted-2); font-size: 11px;">(of ${d.staged_total} drafted)</span>
+      </div>
+      <div id="past-rules-${escHtml(safeId)}" style="display: none; margin-top: 10px; padding-left: 22px;"></div>
+    </div>
+  `;
+}
+
+async function togglePastDateRules(date) {
+  const safeId = date.replace(/-/g, '_');
+  const container = document.getElementById('past-rules-' + safeId);
+  const chev = document.getElementById('chev-' + safeId);
+  if (!container) return;
+  if (container.style.display === 'none') {
+    container.style.display = 'block';
+    if (chev) chev.style.transform = 'rotate(90deg)';
+    if (!container.dataset.loaded) {
+      container.innerHTML = '<div style="color: var(--muted-2); font-size: 12px; padding: 8px 0;">Loading...</div>';
+      try {
+        const r = await fetch('/api/proposed-rules?date=' + encodeURIComponent(date));
+        const d = await r.json();
+        container.innerHTML = (d.rules || []).map(renderRule).join('') || '<div class="empty">No pending rules.</div>';
+        container.dataset.loaded = '1';
+      } catch (e) {
+        container.innerHTML = '<div style="color: var(--red); font-size: 12px;">Failed to load: ' + escHtml(e.message) + '</div>';
+      }
+    }
+  } else {
+    container.style.display = 'none';
+    if (chev) chev.style.transform = 'rotate(0deg)';
   }
 }
 
 loadStatus();
 loadIntel();
 loadRules();
+loadPastDates();
 </script>
 
 </body>

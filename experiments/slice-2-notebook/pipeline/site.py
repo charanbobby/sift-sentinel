@@ -203,6 +203,39 @@ def learnings() -> JSONResponse:
 
 # ── proposed-rules endpoint ──────────────────────────────────────────────────
 
+@app.get("/api/proposed-rules/dates")
+def proposed_rules_dates() -> JSONResponse:
+    """List every dated cron dir that has a non-empty learned_rules.staged.jsonl
+    with at least one pending rule (not yet promoted or rejected). Sorted
+    newest-first. The dashboard's "Older drafted rules" collapsible section
+    reads this to surface past dates so a missed day's queue does not get
+    silently overwritten by tomorrow's cron.
+    """
+    if not LOOP_RUNS_DIR.exists():
+        return JSONResponse({"dates": [], "count": 0})
+    live_norm = {(r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+                 for r in _read_jsonl(LEARNED_RULES_PATH)}
+    out: list[dict] = []
+    for d in sorted(LOOP_RUNS_DIR.iterdir(), reverse=True):
+        if not d.is_dir() or not re.match(r"\d{4}-\d{2}-\d{2}$", d.name):
+            continue
+        staged = _read_jsonl(d / "learned_rules.staged.jsonl")
+        if not staged:
+            continue
+        rejected_ids = {r.get("rule_id") for r in _read_jsonl(d / "learned_rules.rejected.jsonl")}
+        pending = 0
+        for r in staged:
+            if r.get("id") in rejected_ids:
+                continue
+            key = (r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+            if key in live_norm:
+                continue
+            pending += 1
+        if pending > 0:
+            out.append({"date": d.name, "pending_count": pending, "staged_total": len(staged)})
+    return JSONResponse({"dates": out, "count": len(out)})
+
+
 @app.get("/api/proposed-rules")
 def proposed_rules(date: str | None = None) -> JSONResponse:
     """Read learned_rules.staged.jsonl for the given date (default: latest)
@@ -225,14 +258,14 @@ def proposed_rules(date: str | None = None) -> JSONResponse:
         return JSONResponse({"detail": f"no run for date {date}"}, status_code=404)
     staged = _read_jsonl(date_dir / "learned_rules.staged.jsonl")
     rejected_ids = {r.get("rule_id") for r in _read_jsonl(date_dir / "learned_rules.rejected.jsonl")}
-    live_norm = {(r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+    live_norm = {(r.get("rule_kind"), _normalize_rule_text(r.get("rule_text") or ""))
                  for r in _read_jsonl(LEARNED_RULES_PATH)}
     out = []
     for r in staged:
         rid = r.get("id")
         if rid in rejected_ids:
             continue
-        key = (r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+        key = (r.get("rule_kind"), _normalize_rule_text(r.get("rule_text") or ""))
         if key in live_norm:
             continue
         out.append(r)
