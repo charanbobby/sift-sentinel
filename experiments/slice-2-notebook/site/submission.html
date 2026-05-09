@@ -115,7 +115,14 @@
   <a href="/viewer/" class="nav-link">Past cases</a>
   <a href="/site/architecture.html" class="nav-link">How it works</a>
   <a href="/site/submission.html" class="nav-link active">For judges</a>
+  <span class="clock" id="now-utc" style="margin-left: auto; color: var(--muted-2); font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;"></span>
 </nav>
+<script>
+(function () {
+  var el = document.getElementById('now-utc');
+  if (el) el.textContent = new Date().toISOString().slice(0, 19) + ' UTC';
+})();
+</script>
 
 <main>
 

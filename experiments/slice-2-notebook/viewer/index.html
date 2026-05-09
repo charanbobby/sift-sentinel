@@ -306,11 +306,22 @@
 
 <nav class="fe-nav">
   <a href="/" class="brand">Sift Sentinel</a>
-  <a href="/" class="nav-link">How it works</a>
   <a href="/site/dashboard.html" class="nav-link">Today's run</a>
   <a href="/viewer/" class="nav-link active">Past cases</a>
+  <a href="/site/architecture.html" class="nav-link">How it works</a>
   <a href="/site/submission.html" class="nav-link">For judges</a>
+  <span class="clock" id="now-utc" style="margin-left: auto; color: var(--muted, #94a3b8); font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;"></span>
 </nav>
+
+<script>
+(function () {
+  function fmtUtc() {
+    return new Date().toISOString().slice(0, 19) + ' UTC';
+  }
+  var el = document.getElementById('now-utc');
+  if (el) el.textContent = fmtUtc();
+})();
+</script>
 
 <div id="shell">
 

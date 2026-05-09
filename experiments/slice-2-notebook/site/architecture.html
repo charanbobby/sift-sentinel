@@ -2032,7 +2032,14 @@
   <a href="/viewer/" style="padding: 7px 14px; border-radius: 6px; color: #cbd5e1; text-decoration: none; font-size: 13px;">Past cases</a>
   <a href="/site/architecture.html" style="padding: 7px 14px; border-radius: 6px; color: #60a5fa; background: rgba(96,165,250,0.12); text-decoration: none; font-size: 13px; font-weight: 600;">How it works</a>
   <a href="/site/submission.html" style="padding: 7px 14px; border-radius: 6px; color: #cbd5e1; text-decoration: none; font-size: 13px;">For judges</a>
+  <span id="now-utc" style="margin-left: auto; color: #94a3b8; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;"></span>
 </nav>
+<script>
+(function () {
+  var el = document.getElementById('now-utc');
+  if (el) el.textContent = new Date().toISOString().slice(0, 19) + ' UTC';
+})();
+</script>
 
 <div class="head-row">
   <h1>How Sift Sentinel works</h1>
