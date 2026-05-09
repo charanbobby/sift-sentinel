@@ -26,6 +26,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 # Reuse the existing viewer FastAPI app verbatim. Mounting it under /viewer
 # keeps every viewer URL working unchanged at /viewer/api/cases etc.
@@ -235,6 +236,44 @@ def proposed_rules(date: str | None = None) -> JSONResponse:
             continue
         out.append(r)
     return JSONResponse({"date": date, "count": len(out), "rules": out})
+
+
+# ── reject-rule endpoint ─────────────────────────────────────────────────────
+
+class _RejectBody(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    rule_id: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+@app.post("/api/reject-rule")
+def reject_rule(body: _RejectBody, request: Request) -> JSONResponse:
+    """Append a rejection record to learned_rules.rejected.jsonl for the given
+    date. The drafter (next cron's learn_from_misses.py run) reads this file
+    to skip drafting another rule for the same source_miss_id.
+    """
+    date_dir = LOOP_RUNS_DIR / body.date
+    if not date_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"no run for date {body.date}")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason required")
+    if len(reason) > 500:
+        reason = reason[:500]
+    record = {
+        "rule_id": body.rule_id,
+        "reason": reason,
+        "rejected_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "rejected_by": "site-user",
+        "source_ip": request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown"),
+    }
+    rejected_path = date_dir / "learned_rules.rejected.jsonl"
+    with rejected_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record) + "\n")
+    audit_path = LOOP_RUNS_DIR / "promotions.audit.jsonl"
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({**record, "action": "reject", "date": body.date}) + "\n")
+    return JSONResponse({"ok": True})
 
 
 # ── research endpoint ────────────────────────────────────────────────────────

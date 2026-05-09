@@ -109,3 +109,36 @@ def test_proposed_rules_filters_rejected(site_client, tmp_loop_runs):
 def test_proposed_rules_unknown_date_404(site_client):
     r = site_client.get("/api/proposed-rules?date=2026-01-01")
     assert r.status_code == 404
+
+
+def test_reject_rule_writes_jsonl(site_client, tmp_loop_runs):
+    r = site_client.post(
+        "/api/reject-rule",
+        json={"date": "2026-05-08", "rule_id": "rule_a-aaaa", "reason": "noisy"},
+    )
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    rejected = tmp_loop_runs / "2026-05-08" / "learned_rules.rejected.jsonl"
+    line = json.loads(rejected.read_text(encoding="utf-8").splitlines()[0])
+    assert line["rule_id"] == "rule_a-aaaa"
+    assert line["reason"] == "noisy"
+    assert "rejected_at" in line
+
+
+def test_reject_rule_empty_reason_400(site_client):
+    r = site_client.post(
+        "/api/reject-rule",
+        json={"date": "2026-05-08", "rule_id": "rule_a-aaaa", "reason": "  "},
+    )
+    assert r.status_code == 400
+
+
+def test_reject_rule_truncates_long_reason(site_client, tmp_loop_runs):
+    long_reason = "x" * 800
+    site_client.post(
+        "/api/reject-rule",
+        json={"date": "2026-05-08", "rule_id": "rule_a-aaaa", "reason": long_reason},
+    )
+    rejected = tmp_loop_runs / "2026-05-08" / "learned_rules.rejected.jsonl"
+    line = json.loads(rejected.read_text(encoding="utf-8").splitlines()[0])
+    assert len(line["reason"]) == 500
