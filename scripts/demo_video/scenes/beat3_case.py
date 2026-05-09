@@ -1,10 +1,9 @@
-"""Beat 3: case walkthrough. 180 seconds.
+"""Beat 3: case walkthrough. 180s, 34 phrases.
 
-Four sub-beats inside one recording:
-  3a (0-30s): findings overview at /viewer/ for rd-02-dual
-  3b (30-75s): audit trail trace, click two cited tool_call_ids
-  3c (75-135s): critic disagreement section, INJECTION_QUARANTINE
-  3d (135-180s): cross-host corroboration on srl-2018-base-file
+The viewer is a single-page app driven by toggleCase() and loadRun(). At
+specific phrase boundaries the scene calls those functions (or clicks tabs)
+to advance the SPA state, then the highlight on the next phrase points at
+the newly-rendered element.
 """
 from __future__ import annotations
 
@@ -12,82 +11,58 @@ import asyncio
 from playwright.async_api import Page
 
 from ..config import SITE_URL, CASE_ID, RUN_ID, SECOND_CASE_ID, SECOND_RUN_ID
-
-
-async def _wait(s: float) -> None:
-    await asyncio.sleep(s)
+from ..phrases import phrases_for
+from ._helpers import highlight, unhighlight
 
 
 async def record(page: Page) -> None:
-    # 3a: findings overview (0 - 30s)
-    await page.goto(f"{SITE_URL}/viewer/?case={CASE_ID}&run={RUN_ID}")
-    await page.wait_for_load_state("networkidle")
-    await _wait(2)
-    await page.evaluate("window.scrollTo({ top: 200, behavior: 'smooth' })")
-    await _wait(4)
-    await page.evaluate("document.querySelectorAll('[data-finding-card]')[0]?.scrollIntoView({behavior:'smooth', block:'center'})")
-    await _wait(8)
-    # Hover the high-confidence pill on finding 0
-    pill = page.locator('[data-finding-card]').first.locator('.pill-red, .pill-amber, [class*="confidence"]').first
-    try:
-        await pill.hover(timeout=3000)
-    except Exception:
-        pass
-    await _wait(15)  # total 30
+    await page.goto(f"{SITE_URL}/viewer/")
+    await page.wait_for_load_state("domcontentloaded")
+    await page.wait_for_function(
+        "() => typeof toggleCase === 'function' && typeof loadRun === 'function'"
+    )
+    await asyncio.sleep(0.4)
 
-    # 3b: audit trail trace (30 - 75s)
-    # Click the first cited tool_call_id of finding 0
-    await page.evaluate("""
-        const card = document.querySelectorAll('[data-finding-card]')[0];
-        if (card) {
-            const cite = card.querySelector('a[href*="tool_call_id"], [data-tool-call-id]');
-            if (cite) cite.click();
-        }
-    """)
-    await _wait(2)
-    await page.evaluate("window.scrollBy({ top: 400, behavior: 'smooth' })")
-    await _wait(8)
-    await page.evaluate("history.back()")
-    await page.wait_for_load_state("networkidle")
-    await _wait(2)
-    # Second citation
-    await page.evaluate("""
-        const card = document.querySelectorAll('[data-finding-card]')[0];
-        if (card) {
-            const cites = card.querySelectorAll('a[href*="tool_call_id"], [data-tool-call-id]');
-            if (cites[1]) cites[1].click();
-        }
-    """)
-    await _wait(2)
-    await page.evaluate("window.scrollBy({ top: 600, behavior: 'smooth' })")
-    await _wait(15)
-    await page.evaluate("history.back()")
-    await page.wait_for_load_state("networkidle")
-    await _wait(11)  # cumulative 75
+    for phrase in phrases_for("beat3_case"):
+        text = phrase["text"]
 
-    # 3c: critic disagreement (75 - 135s)
-    await page.evaluate("document.querySelector('[data-section=\"critic\"], #critic-section')?.scrollIntoView({behavior:'smooth'})")
-    await _wait(8)
-    # Pan slowly through the critic events area
-    for _ in range(10):
-        await page.evaluate("window.scrollBy({ top: 80, behavior: 'smooth' })")
-        await _wait(5)
-    await _wait(2)  # cumulative 135
+        # SPA state intercepts BEFORE drawing the highlight on this phrase.
+        if text.startswith("The case:"):
+            await page.evaluate(f"toggleCase('{CASE_ID}')")
+            await asyncio.sleep(0.3)
+            await page.evaluate(f"loadRun('{CASE_ID}', '{RUN_ID}')")
+            try:
+                await page.wait_for_function(
+                    "() => document.querySelectorAll('.finding').length >= 2",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
+        elif text.startswith("Click the citation"):
+            await page.evaluate('document.querySelector(\'[data-tab="evidence"]\')?.click()')
+            await asyncio.sleep(0.3)
+        elif text.startswith("Now the self-correction"):
+            await page.evaluate('document.querySelector(\'[data-tab="pipeline"]\')?.click()')
+            await asyncio.sleep(0.3)
+        elif text.startswith("One more thing"):
+            # Switch back to Findings tab so the next loadRun lands clean.
+            await page.evaluate('document.querySelector(\'[data-tab="findings"]\')?.click()')
+            await asyncio.sleep(0.2)
+            await page.evaluate(f"toggleCase('{SECOND_CASE_ID}')")
+            await asyncio.sleep(0.3)
+            await page.evaluate(f"loadRun('{SECOND_CASE_ID}', '{SECOND_RUN_ID}')")
+            try:
+                await page.wait_for_function(
+                    "() => document.querySelectorAll('.finding').length >= 1",
+                    timeout=10000,
+                )
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
 
-    # 3d: cross-host corroboration (135 - 180s)
-    await page.goto(f"{SITE_URL}/viewer/?case={SECOND_CASE_ID}&run={SECOND_RUN_ID}")
-    await page.wait_for_load_state("networkidle")
-    await _wait(3)
-    await page.evaluate("""
-        const txt = 'Microsoft Advanced API';
-        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        let node;
-        while (node = walk.nextNode()) {
-            if (node.nodeValue && node.nodeValue.includes(txt)) {
-                node.parentElement.scrollIntoView({behavior:'smooth', block:'center'});
-                node.parentElement.style.outline = '2px solid #34d399';
-                break;
-            }
-        }
-    """)
-    await _wait(42)  # cumulative 180
+        if phrase["selector"]:
+            await highlight(page, phrase["selector"])
+        await asyncio.sleep(phrase["duration_s"])
+        if phrase["selector"]:
+            await unhighlight(page, phrase["selector"])
