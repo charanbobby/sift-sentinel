@@ -149,7 +149,10 @@
       <div style="color: var(--muted-2); font-size: 12px;">Backed by a 24-line citation chain to the source disk evidence record.</div>
     </div>
   </section>
-  <!-- sections-and-footer-cta-anchor -->
+  <section class="section" style="text-align: center; padding: 60px 32px;">
+    <div style="color: var(--text); font-size: 18px; font-weight: 600; margin-bottom: 16px;">See last night's findings.</div>
+    <a href="/site/dashboard.html" style="background: var(--accent); color: var(--bg); border: none; padding: 14px 30px; border-radius: 8px; font-weight: 600; font-size: 14px; text-decoration: none; display: inline-block;">Open Today's run &rarr;</a>
+  </section>
 </main>
 
 <script>
@@ -183,6 +186,16 @@ function pinTagline(i) {
 }
 setTagline(0);
 tagTimer = setInterval(cycleTagline, 4000);
+
+async function loadPromotedCount() {
+  try {
+    const r = await fetch('/api/learnings');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('stat-promoted').textContent = (d.count != null) ? d.count : '2';
+  } catch (e) { /* keep static fallback */ }
+}
+loadPromotedCount();
 </script>
 
 </body>
