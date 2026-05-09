@@ -199,6 +199,44 @@ def learnings() -> JSONResponse:
     return JSONResponse({"count": len(rules), "rules": rules})
 
 
+# ── proposed-rules endpoint ──────────────────────────────────────────────────
+
+@app.get("/api/proposed-rules")
+def proposed_rules(date: str | None = None) -> JSONResponse:
+    """Read learned_rules.staged.jsonl for the given date (default: latest)
+    and return the rules that have not yet been promoted or rejected. The
+    Today's-run dashboard reads this to render its drafted-rules section.
+    """
+    if not LOOP_RUNS_DIR.exists():
+        return JSONResponse({"detail": "loop-runs dir not present"}, status_code=404)
+    if date is None:
+        date_dirs = sorted(
+            [d for d in LOOP_RUNS_DIR.iterdir()
+             if d.is_dir() and re.match(r"\d{4}-\d{2}-\d{2}$", d.name)],
+            reverse=True,
+        )
+        if not date_dirs:
+            return JSONResponse({"detail": "no dated cron dirs"}, status_code=404)
+        date = date_dirs[0].name
+    date_dir = LOOP_RUNS_DIR / date
+    if not date_dir.is_dir():
+        return JSONResponse({"detail": f"no run for date {date}"}, status_code=404)
+    staged = _read_jsonl(date_dir / "learned_rules.staged.jsonl")
+    rejected_ids = {r.get("rule_id") for r in _read_jsonl(date_dir / "learned_rules.rejected.jsonl")}
+    live_norm = {(r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+                 for r in _read_jsonl(LEARNED_RULES_PATH)}
+    out = []
+    for r in staged:
+        rid = r.get("id")
+        if rid in rejected_ids:
+            continue
+        key = (r.get("rule_kind"), (r.get("rule_text") or "").strip().lower())
+        if key in live_norm:
+            continue
+        out.append(r)
+    return JSONResponse({"date": date, "count": len(out), "rules": out})
+
+
 # ── research endpoint ────────────────────────────────────────────────────────
 
 @app.get("/api/research")

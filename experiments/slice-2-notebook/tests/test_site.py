@@ -69,6 +69,9 @@ def site_client(tmp_loop_runs: Path, tmp_live_rules: Path, tmp_path: Path, monke
     monkeypatch.setenv("SUBMISSIONS_PATH", str(tmp_path / "submissions.jsonl"))
     if "pipeline.site" in sys.modules:
         del sys.modules["pipeline.site"]
+    import pipeline as _pipeline_pkg
+    if hasattr(_pipeline_pkg, "site"):
+        delattr(_pipeline_pkg, "site")
     from pipeline import site
     return TestClient(site.app)
 
@@ -80,3 +83,29 @@ def test_proposed_rules_returns_staged(site_client):
     assert body["date"] == "2026-05-08"
     assert body["count"] == 2
     assert {x["id"] for x in body["rules"]} == {"rule_a-aaaa", "rule_b-bbbb"}
+
+
+def test_proposed_rules_filters_promoted(site_client, tmp_live_rules):
+    tmp_live_rules.write_text(
+        json.dumps({"rule_kind": "counter_rule", "rule_text": "Flag X as malicious."}) + "\n",
+        encoding="utf-8",
+    )
+    r = site_client.get("/api/proposed-rules?date=2026-05-08")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 1
+    assert body["rules"][0]["id"] == "rule_b-bbbb"
+
+
+def test_proposed_rules_filters_rejected(site_client, tmp_loop_runs):
+    rejected = tmp_loop_runs / "2026-05-08" / "learned_rules.rejected.jsonl"
+    rejected.write_text(json.dumps({"rule_id": "rule_b-bbbb"}) + "\n", encoding="utf-8")
+    r = site_client.get("/api/proposed-rules?date=2026-05-08")
+    body = r.json()
+    assert body["count"] == 1
+    assert body["rules"][0]["id"] == "rule_a-aaaa"
+
+
+def test_proposed_rules_unknown_date_404(site_client):
+    r = site_client.get("/api/proposed-rules?date=2026-01-01")
+    assert r.status_code == 404
