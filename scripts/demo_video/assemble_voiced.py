@@ -44,19 +44,24 @@ def _ffprobe_duration(path: Path) -> float:
 
 
 def _build_phrase_chunk(voice_mp3: Path, target_s: float, out_chunk: Path) -> None:
-    """Pad with silence (apad) and trim (-t) so the chunk is exactly target_s."""
+    """Pad with silence (apad) and trim (-t) so the chunk is exactly target_s.
+
+    Output is WAV (PCM s16le @ 48kHz) NOT MP3: MP3 frames are 26ms wide and
+    ffmpeg rounds chunk durations up to the next frame, accumulating ~2.5s
+    of audio lag over 64 chunks. WAV is sample-accurate.
+    """
     subprocess.check_call([
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", str(voice_mp3),
         "-af", f"apad=whole_dur={target_s}",
         "-t", f"{target_s}",
-        "-c:a", "libmp3lame", "-q:a", "4",
+        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
         str(out_chunk),
     ])
 
 
 def _concat_chunks(chunk_paths: list[Path], out_path: Path) -> None:
-    """Concat MP3 chunks via the concat demuxer."""
+    """Concat WAV chunks via the concat demuxer (sample-accurate)."""
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
         for p in chunk_paths:
             f.write(f"file '{p.as_posix()}'\n")
@@ -66,7 +71,7 @@ def _concat_chunks(chunk_paths: list[Path], out_path: Path) -> None:
             "ffmpeg", "-y", "-loglevel", "error",
             "-f", "concat", "-safe", "0",
             "-i", str(list_path),
-            "-c:a", "libmp3lame", "-q:a", "4",
+            "-c:a", "pcm_s16le",
             str(out_path),
         ])
     finally:
@@ -112,11 +117,11 @@ def main() -> int:
                 print(f"WARN {beat_name}[{idx:02d}] voice={voice_dur:.2f}s > budget={target:.2f}s "
                       f"(text: {phrase['text'][:60]!r}); will trim to budget")
                 overflow_warnings += 1
-            chunk_path = workdir / f"chunk_{beat_name}_{idx:02d}.mp3"
+            chunk_path = workdir / f"chunk_{beat_name}_{idx:02d}.wav"
             _build_phrase_chunk(voice_mp3, target, chunk_path)
             chunk_paths.append(chunk_path)
 
-    full_audio = workdir / "_full_audio.mp3"
+    full_audio = workdir / "_full_audio.wav"
     _concat_chunks(chunk_paths, full_audio)
     audio_dur = _ffprobe_duration(full_audio)
     video_dur = _ffprobe_duration(SILENT_CAPTIONED)
