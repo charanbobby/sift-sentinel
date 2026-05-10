@@ -1,13 +1,12 @@
-# Sift Sentinel — Devpost Project Description
+# Sift Sentinel: Devpost Project Description
 
 > Copy-paste this into Devpost. The sections map to Devpost's standard fields.
-> Update the GitHub URL, demo video link, and any TODOs before submitting.
 
 ---
 
 ## Inspiration
 
-A junior analyst arrives at 2am with a hard-drive image pulled from a compromised Windows machine. They have roughly an hour to answer two questions: what did the attacker do to make sure they can come back after a reboot, and what is the attacker doing right now if the machine is still live? The typical toolkit is a forensics workstation, a dozen command-line tools, and tribal knowledge about where to look. This project automates that triage so a single analyst — or a judge evaluating a submission — can get the answer in minutes, not hours, without needing to know which tool produces which file.
+A junior analyst arrives at 2am with a hard-drive image pulled from a compromised Windows machine. They have roughly an hour to answer two questions: what did the attacker do to make sure they can come back after a reboot, and what is the attacker doing right now if the machine is still live? The typical toolkit is a forensics workstation, a dozen command-line tools, and tribal knowledge about where to look. This project automates that triage so a single analyst (or a judge evaluating a submission) can get the answer in minutes, not hours, without needing to know which tool produces which file.
 
 We also noticed that the threat landscape has shifted. Attackers in 2025-2026 have started using AI tools themselves on compromised hosts: running large-language-model prompts to generate payloads, using AI assistants to help them enumerate the network, storing model weights in the user profile. Those artifacts do not appear in any classic DFIR checklist. We built specific detectors for them.
 
@@ -15,50 +14,67 @@ We also noticed that the threat landscape has shifted. Attackers in 2025-2026 ha
 
 ## What it does
 
-Sift Sentinel takes one input: a Windows hard-drive image (E01 format). Optionally, it also accepts a Windows memory dump captured from the same machine. It produces one output: a short, cited report that lists every persistence mechanism the attacker installed and, if memory is available, every sign that the attacker is still active right now.
+Sift Sentinel is an autonomous AI agent for digital forensics with two unusual properties. First, the agent physically cannot run arbitrary commands on the host: this is enforced by architecture, not by prompt discipline. Second, a deterministic 17-rule critic with no AI in its loop checks every claim the AI makes before a human sees it.
 
-The pipeline works in five stages a human can follow along with:
+It takes one input (a Windows hard-drive image in E01 format) and optionally a second (a Windows memory dump from the same machine). It produces one output: a short, cited report listing every persistence mechanism the attacker installed and, when memory is available, every sign that the attacker is still active right now (process injection, command-and-control beacons, fingerprints of attackers using AI tooling on the host).
 
-1. **Extract:** A fast, cheap AI model skims the image metadata and decides which parts of the disk are worth examining (registry hives, scheduled-task folders, startup locations, and so on).
-2. **Plan:** A second AI model writes a specific plan of tool calls to run — which forensic tools, against which files, in which order. A human sees this plan and approves it before anything executes.
-3. **Execute:** The approved tools run. Each call is checked against the approved plan before it fires; any call that wasn't in the plan is rejected automatically.
-4. **Interpret:** A third AI model reads the tool outputs and writes structured findings. Each finding names the tactic (how the attacker maintains access), the specific technique (what mechanism they used), and cites the exact piece of evidence from the tool output that supports the claim.
-5. **Critic:** A deterministic rule engine (no AI involved) checks every finding against more than a dozen rules before the finding is allowed out. Rules include: every claim must cite real evidence in the tool output, absence claims are only allowed if all tools ran cleanly, memory-class findings must have three independent corroborating signals. Findings that fail go back to the AI for a corrected pass, with a budget cap on retries.
+**Four trust boundaries, in order from outermost to innermost:**
 
-A human then sees the final findings and approves or escalates before anything is committed.
+1. **MCP server allow-list (architectural).** The AI can only invoke 10 typed forensic functions: 5 disk (filesystem stats, directory listing, file extraction, registry parsing, scheduled-task parsing) and 5 memory (Volatility plugins for process list, command lines, network connections, loaded DLLs, injection scan). There is no `execute_shell` primitive. The AI literally cannot reach the OS shell.
+2. **Capability tokens (architectural).** Every tool call carries a per-run token bound to the human-approved plan and the case's path scope. Calls outside the plan, or against paths outside the case folder, are rejected by the server before the tool runs.
+3. **Prompt-injection scanner on every evidence record (architectural).** Before any structured field reaches the analysis LLM, the server scans for known injection patterns: long base64 blobs that decode to instruction-shaped text, embedded MITRE technique IDs in narrative fields, attacker-controlled filenames containing instructions. Flagged records are quarantined; the analysis LLM never sees them. The defense fired on 11 of 46 audited runs.
+4. **17-rule deterministic critic on every finding (architectural).** No AI in the critic loop. Rules check things like "every claim cites a tool call that resolves in the evidence file," "the cited excerpt actually appears in the cited record," "absence claims are only allowed if every tool ran cleanly," "memory-class findings need three independent corroborating signals from separate Volatility plugins," "findings classified as AI-assisted must point at an AI-tooling artifact in the cited evidence." Failures retry once with a budget cap, then escalate to human review.
+
+**The pipeline runs in five stages a human can follow along with:**
+
+1. **Extract:** A fast, cheap AI model skims the image metadata and decides which parts of the disk are worth examining.
+2. **Plan:** A second AI model writes a typed plan of tool calls. A human sees this plan and approves it before anything executes.
+3. **Execute:** The approved tools run. Each call is checked against the approved plan and the capability token before it fires; non-conforming calls are rejected automatically by the MCP server.
+4. **Interpret:** A third AI model reads the structured tool outputs and writes findings, naming the tactic, the technique, and citing the exact piece of evidence that supports each claim.
+5. **Critic:** The 17-rule deterministic checker (no AI involved) reviews every finding. Failures retry with a corrective prompt, then escalate to human review if the budget is exhausted.
+
+A human approves the final findings before anything is committed.
 
 ---
 
 ## How we built it
 
-**The core pipeline** is a LangGraph state machine. Each stage is a typed node; failures route back to re-plan with a budget cap rather than crashing. Every stage logs to a shared trace so a human can replay exactly what happened and why.
+**The core pipeline** is a LangGraph state machine. Each stage is a typed node; failures route back to re-plan with a budget cap rather than crashing. Every stage logs to a shared trace plus an integrity ledger so a human can replay exactly what happened and why, in order, with sha256-anchored chain links between plan, tool call, finding, and critic decision. Every LLM call is also traced into LangFuse with token counts and per-call cost grouped by a per-run session id, so a reviewer can drill from any finding back to the LLM tokens that produced it. The contest rules name Claude Code and OpenClaw as the preferred agentic frameworks but explicitly accept "comparable agentic architectures"; LangGraph plus the custom MCP server is one such comparable architecture, and we lean on the contest's two named architectural patterns (#2 Custom MCP Server and #3 Multi-Agent / Workflow) by design.
 
-**The MCP server** sits between the AI and the forensic tools. The AI cannot run arbitrary shell commands. It can only call a small set of typed functions: five for disk analysis (filesystem stats, directory listing, file extraction, registry parsing, scheduled-task parsing) and five for memory analysis (process list, command lines, network connections, loaded DLLs, injection scan). Each call carries a capability token tied to the human-approved plan; calls outside the plan, or against paths outside the case folder, are rejected by the server before execution.
+**Four LLM call sites, with cost shape:**
 
-**Two-channel evidence handling** keeps raw bytes and parsed fields separate. The analysis AI never sees raw forensic bytes; it only sees structured fields the server extracted. If the server's prompt-injection scanner flags an evidence record (for example, an attacker-controlled filename that contains text designed to manipulate an AI), the parsed content is walled off before it reaches the analysis stage.
+| Stage | Model | What it does | Typical cost per case |
+|---|---|---|---|
+| EXTRACT | Gemini 3 Flash Preview | Skims image metadata, picks candidate inodes worth investigating | ~$0.01 |
+| PLAN | Claude Sonnet 4.6 | Synthesises a typed tool plan against the candidate set; human approves | ~$0.05 to $0.15 |
+| INTERPRET | Claude Sonnet 4.6 | Reads structured tool outputs, writes findings with cited evidence | ~$0.10 to $0.50 |
+| Daily-loop research | Claude Haiku 4.5 | Reads recent threat intel, drafts a planted-artifact manifest | ~$0.04 |
 
-**Real-time cost transparency:** every AI call prints its actual cost — read directly from the provider's usage field, not from a hand-maintained price table — before and after the call. A runaway prompt is visible in seconds.
+A typical disk-only persistence triage on an SRL-2018 host costs $0.30 to $0.70 in LLM spend (across 5 SRL-2015 hosts the per-run cost ranged $0.07 to $0.34). Runs that include memory analysis and exercise the full Volatility plugin set sit between $0.50 and $3, depending on host process count. Every call prints its own cost before and after, read directly from the provider's usage object so a hand-maintained rate table cannot drift out of sync. We learned the value of this the hard way: an early version sent raw directory-listing output (100,000+ characters of inode tables) directly to the interpretation AI, inflating per-run cost by an order of magnitude. Stripping the navigation tables before the analysis call was the fix; making cost visible at every call is what surfaced the bug in the first place.
 
-**AI-attacker detection:** the memory channel includes detectors for artifacts left by attackers who use AI tools on the compromised host. These include model-weight files in unexpected locations, LLM-related process names, and prompt-injection payloads embedded in scheduled-task XML.
+**Two-channel evidence handling** keeps raw bytes and parsed fields separate. The analysis AI never sees raw forensic bytes; it only sees structured fields the server extracted. If the server's prompt-injection scanner flags an evidence record (an attacker-controlled filename that contains text designed to manipulate an AI, a registry value carrying an embedded MITRE technique ID), the parsed content is walled off before it reaches the analysis stage. The original bytes are preserved verbatim and hashed.
+
+**AI-attacker detection.** The memory channel includes detectors for artifacts left by attackers who use AI tools on the compromised host: model-weight files in unexpected locations, LLM-related process names (`llama-server.exe`, `ollama.exe`, `llama.cpp`), prompt-injection payloads embedded in scheduled-task XML or registry Run-key values. The synthetic-workstation loop validates these end to end: one of the planted scenarios in early May caught an attacker planting a registry Run-key value that started a `llama-server.exe` LLM inference server pointing at `.gguf` model weights staged in ProgramData.
+
+**Continuous accuracy via a daily synthetic-workstation loop.** Static cases are historical attacks frozen in time. To stay sharp on techniques attackers used in the last 30 days, a daily research agent reads recent threat-intel articles (CISA advisories, Mandiant write-ups, GitGuardian and StepSecurity feeds), turns each interesting incident into a concrete forensic artifact, plants those artifacts into a fresh copy of a synthetic Windows disk image inside Docker (no network egress, no real credentials, all domains use the RFC 2606 `.example.invalid` reserved suffix so nothing escapes the sandbox), runs the sentinel against the planted image, and scores per-artifact PASS / MISS. When the sentinel misses an artifact, that becomes a tuning entry in a corrections log and the next loop confirms the fix.
 
 ---
 
 ## Challenges we ran into
 
-**The hardcoded-name trap.** Early versions of the planner would guess scheduled-task filenames like "At1" from XP-era documentation and try to parse them directly. On Windows 7 and later, those files don't exist. The fix was a prompt-layer rule that forbids any hardcoded task name and requires the planner to enumerate the task folder first, then parse whatever is actually there. We added a regression test so the rule can't silently drift out of the prompt.
+**The hardcoded-name trap.** Early versions of the planner would guess scheduled-task filenames like "At1" from XP-era documentation and try to parse them directly. On Windows 7 and later, those files don't exist. The fix was a prompt-layer rule that forbids any hardcoded task name and requires the planner to enumerate the task folder first, then parse whatever is actually there. We added a regression test so the rule cannot silently drift out of the prompt.
 
-**False critic escalations.** The critic rule that checks for unsubstantiated absence claims was initially too strict: it rejected memory-class findings that correctly reported "no injection found" in a given process. The rule had to be narrowed to exempt findings in the `NOT_FOUND` category, which is the category the interpreter uses specifically for confirmed-absence memory results.
+**False critic escalations.** The critic rule that checks for unsubstantiated absence claims was initially too strict: it rejected memory-class findings that correctly reported "no injection found" in a given process. The rule had to be narrowed to exempt findings whose evidence array is non-empty, which is the marker the interpreter uses for cited memory results.
 
-**Cost transparency vs. cost surprise.** We discovered mid-project that directory-listing tool outputs (which can be 100,000+ characters of inode tables) were being passed directly to the interpretation AI. The interpretation AI only needed the parsed forensic findings, not the navigation data. Stripping those outputs before the interpretation call reduced per-run cost by roughly an order of magnitude.
+**Cost transparency vs. cost surprise.** We discovered mid-project that directory-listing tool outputs were being passed directly to the interpretation AI. The interpretation AI only needed the parsed forensic findings, not the navigation data. Stripping those outputs before the interpretation call reduced per-run cost by roughly an order of magnitude. The fix was small; the lesson was big enough that "every tool output sent to an LLM must have a size guard" is now a project rule.
 
 ---
 
-## Accomplishments that we're proud of
+## Accomplishments that we are proud of
 
-- **Zero false positives across every case with a known answer key.** On three machines where we have an official ground-truth answer, the agent found every malicious item and never invented one.
-- **The agent literally cannot run arbitrary shell commands.** This is not a prompt-level constraint; it is an architectural one. The MCP server rejects any call not in the human-approved plan before the call reaches the OS.
-- **A deterministic critic that catches AI mistakes before humans see them.** More than a dozen rules, no AI in the loop, budget cap on retries. The critic fired 13 times across 7 runs; 12 of those were real issues it correctly caught.
-- **Memory-channel findings with independent corroboration.** Every memory-class finding cites at least three independent signals from separate Volatility plugins. A finding that appears in only one plugin is held for human escalation.
+- **Zero fabricated findings across 32 reviewed runs.** The runs span the two SANS-provided datasets (SRL-2018, SRL-2015) plus three publicly-available DFIR cases the team sourced separately (DFIR Madness Case 001, OpenUni22, Hadi3 Win 8.1 challenge), plus 6 days of synthetic intel-driven scoring. On the case with a publicly-published answer key (DFIR Madness Case 001), the agent found every malicious item and invented nothing. One run carries a malformed citation pointer (the agent put a positional index where a unique call id should have been) whose underlying claim is corroborated by another cite in the same finding that resolves cleanly. We log this separately as a data-quality entry rather than papering over it.
+- **17 deterministic critic rules with no AI in the loop catch the agent's own mistakes.** Across 7 deeply-reviewed runs the critic flagged 13 disagreements: 10 were a known false-positive in an excerpt-matching rule that has since been fixed, 2 were the prompt-injection defense firing correctly on adversarial evidence, and 1 was a too-strict absence rule that was narrowed after we observed it. Every disagreement carries a typed code so a reviewer can read exactly when and why the system disagreed with itself.
+- **Continuous accuracy via the daily synthetic-workstation loop.** 6 days of approved scored runs through early May, including one that caught an attacker planting a `llama-server.exe` LLM inference server on the synthetic host. The loop validates the AI-using-attacker detection chain end to end against techniques drawn from the last 30 days of threat intel.
 
 ---
 
@@ -66,28 +82,30 @@ A human then sees the final findings and approves or escalates before anything i
 
 Building a safe AI agent for forensic work is less about the AI and more about the scaffolding around it. The AI is good at reading tool output and writing structured summaries. It is bad at knowing what tools to run without guardrails, staying within a pre-approved scope, and not inventing plausible-sounding evidence. Every architectural decision in this project is a response to one of those failure modes.
 
-We also learned that AI-assisted attackers leave different artifacts than classic malware. The threat landscape is moving faster than most DFIR checklists, and the detectors have to be built explicitly; they don't fall out of standard persistence-hunting workflows.
+We also learned that AI-assisted attackers leave different artifacts than classic malware. The threat landscape is moving faster than most DFIR checklists, and the detectors have to be built explicitly; they do not fall out of standard persistence-hunting workflows. The clearest lesson on cost: always print actual LLM cost before and after every call, never quote a cost from a hand-maintained rate table, and test the worst-case output size of every tool before adding it to an LLM-facing bundle.
 
 ---
 
-## What's next for Sift Sentinel
+## What is next for Sift Sentinel
 
-- **Hosted try-it-out endpoint.** A judge with Claude Code can connect to our MCP server, pass a case file path, and watch the agent run without installing anything locally.
-- **AI-attacker demonstration case.** We are building a synthetic disk image with staged AI-assisted-attacker artifacts (model weights in the user profile, LLM-related process names, prompt-injection payloads in task XML) to demonstrate the detection chain end to end.
-- **Ablation study completion.** Two ablation rows (capability-token verification disabled; classification field removed) have code prepared but need runs to fill in the accuracy delta numbers.
-- **Ground-truth annotation of memory-channel findings.** The four runtime findings from the first dual-channel run are plausible to human review; they need annotation against an authoritative source before they become scored true positives.
+- **Hosted try-it-out for judges.** A judge describes an attack scenario in plain English; our translator turns it into a structured manifest, the synthetic-workstation builder plants those artifacts on a never-booted Windows disk image, the sentinel scans the disk, and the judge gets a per-artifact scorecard. The translator is built and validated; the job queue, status surface, and password-gated API key vault are designed and scoped for the post-submission window.
+- **Automatic Volatility profile detection.** Four memory-only runs across the SRL-2018 server hosts (the domain controller, mail server, hunt server, and SharePoint server) had to be rejected when the pipeline used a Windows 10 memory profile against images that needed Server 2016 or other un-probed profiles. A kdbgscan pre-step before the Volatility plan would close this gap automatically.
+- **Cross-host correlation as a first-class finding.** Today, the cross-host campaign signature (a single C2 endpoint, a paired masquerading service install, a recurring Meterpreter shellcode pattern, all seen across 5 or more SRL-2018 hosts) is detected by humans reading multiple per-host review notes. A correlator that emits "this artifact appears on N other hosts in the case" sidecar findings would make the campaign visible at run time.
+- **Ablation study completion.** Two ablation arms (capability-token verification disabled; the classification field removed from finding records) have code prepared on dedicated branches but need runs to fill in the accuracy delta numbers in the report.
 
 ---
 
 ## Built with
 
-Python, LangGraph, Anthropic Claude (Sonnet 4.6 for planning and interpretation, Haiku for extraction), Google Gemini Flash (cheap structured-output extraction), Volatility 2.6.1, The Sleuth Kit, RegRipper, SIFT Workstation (Ubuntu forensics container), Docker, MCP (Model Context Protocol)
+Python, LangGraph, Anthropic Claude (Sonnet 4.6 for planning and interpretation, Haiku 4.5 for the daily-loop research agent), Google Gemini Flash (cheap structured-output extraction), Volatility 2.6.1, The Sleuth Kit, RegRipper, SIFT Workstation (Ubuntu forensics container), Docker, MCP (Model Context Protocol), OpenRouter (cost-transparent unified API), uv (Python package manager).
 
 ---
 
 ## Links
 
 - GitHub: https://github.com/charanbobby/sift-sentinel
-- Architecture diagram: see `docs/planning/architecture.html` in the repo
-- Accuracy report: see `docs/submission/accuracy-report.md` in the repo
-- Demo video: TODO (recorded closer to deadline)
+- Architecture diagram: `docs/planning/architecture.html` in the repo
+- Accuracy report: `docs/submission/accuracy-report.md` in the repo
+- Live run viewer: https://sentinel.sshub.dev/site/dashboard.html (scrollable list of every curated case with the per-stage pipeline output)
+- For-judges walk-through: https://sentinel.sshub.dev/site/submission.html
+- Demo video: https://youtu.be/Wf3YbTd6k9o (5:29; raw file at `out/demo_video/demo_final.mp4` in the repo)

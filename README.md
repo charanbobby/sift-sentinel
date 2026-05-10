@@ -1,8 +1,32 @@
 # sift-sentinel
 
-An autonomous AI agent for the SANS "Find Evil" 2026 hackathon. It reads a Windows hard-drive image and an optional memory snapshot, and tells you what an attacker did to maintain access to the machine, including what they're currently doing if memory is included. The agent runs in a forensics container, drives a small set of typed forensic tools through a model-context-protocol (MCP) server, and gates every finding through a deterministic safety-checking layer before anything is committed.
+An autonomous AI agent for digital forensics with two unusual properties: it physically cannot run arbitrary commands on the host (architecture, not prompts), and a deterministic 17-rule critic with no AI in the loop checks every claim the AI makes before a human sees it. The agent also catches AI-using attackers in memory, including LLM inference servers planted on the compromised host and prompt-injection payloads buried inside attacker-controlled forensic artifacts.
 
-The headline accuracy claim: across the three test cases for which we have an authoritative answer key, the agent finds every malicious item correctly and never invents a finding. See the [Accuracy Report](docs/submission/accuracy-report.md) for the full evidence.
+The headline accuracy claim: across 32 reviewed runs the agent produced zero fabricated findings. The runs span the two SANS-provided datasets (SRL-2018 and SRL-2015) plus three publicly-available DFIR cases the team sourced separately (DFIR Madness Case 001, OpenUni22, Hadi3 Win 8.1 challenge), plus 6 days of synthetic intel-driven scoring. On the case with a publicly-published answer key (DFIR Madness Case 001), the agent found every malicious item and invented nothing. One run carries a malformed citation pointer (the agent put a positional index where a unique call id should have been) whose underlying claim is independently corroborated by another cite in the same finding that resolves cleanly. We log this separately as a data-quality entry rather than papering over it. See the [Accuracy Report](docs/submission/accuracy-report.md) for the full evidence.
+
+## AI architecture at a glance
+
+For an AI-side reviewer, four things are worth understanding before anything else.
+
+**Four trust boundaries, in order from outermost to innermost.**
+
+1. **MCP server allow-list (architectural).** The agent can only invoke 10 typed forensic functions: 5 disk (`fsstat_e01`, `fls_list`, `icat_extract`, `regripper_run`, `scheduled_tasks_parse`) and 5 memory (Volatility plugins `pslist`, `cmdline`, `netscan`, `dlllist`, `malfind`). There is no `execute_shell` primitive. The agent literally cannot reach the OS shell.
+2. **Capability tokens (architectural).** Every MCP call carries a per-run token bound to the human-approved plan and the case's path scope. Calls outside the plan, or against paths outside the case folder, are rejected by the server before the tool runs. Tokens carry an expiry; the orchestrator re-issues them when a step retries, with the same path scope.
+3. **Prompt-injection scanner on every evidence record (architectural).** Before any structured field reaches the analysis LLM, the server scans for known injection patterns (long base64 blobs that decode to instruction-shaped text, embedded MITRE technique IDs in narrative fields, attacker-controlled filenames containing instructions). Flagged records are quarantined; the analysis LLM never sees them. The defense fired on 11 of 46 audited runs.
+4. **17-rule deterministic critic on every finding (architectural).** No AI in the critic loop. Rules check things like "every claim cites a tool call that resolves in the evidence file," "the cited excerpt actually appears in the cited record," "absence claims are only allowed if every tool ran cleanly," "memory-class findings need three independent corroborating signals from separate Volatility plugins," "findings classified as AI-assisted must point at an AI-tooling artifact in the cited evidence." Failures retry once with a budget cap, then escalate to human review. One rule slot is reserved for the next iteration.
+
+**Four LLM call sites, with cost shape.**
+
+| Stage | Model | What it does | Typical cost |
+|---|---|---|---|
+| EXTRACT | Gemini 3 Flash Preview | Skims image metadata, picks candidate inodes worth investigating | ~$0.01 |
+| PLAN | Claude Sonnet 4.6 | Synthesises a typed tool plan against the candidate set; human approves | ~$0.05 to $0.15 |
+| INTERPRET | Claude Sonnet 4.6 | Reads structured tool outputs, writes findings with cited evidence | ~$0.10 to $0.50 |
+| Daily-loop research | Claude Haiku 4.5 | Reads recent threat intel, drafts a planted-artifact manifest for the synthetic-workstation loop | ~$0.04 |
+
+**Typical case cost.** A disk-only persistence triage on an SRL-2018 host averages $0.30 to $0.70 in LLM spend (across 5 SRL-2015 hosts the per-run cost ranged $0.07 to $0.34). Runs that include memory analysis and exercise the full Volatility plugin set sit between $0.50 and $3, depending on host process count. Every call prints its own cost before and after, read directly from the provider's usage object so a hand-maintained rate table cannot drift out of sync.
+
+**Self-correction in three sentences.** The injection defense fires when an evidence record looks adversarial and the run is quarantined before the analysis LLM ever sees the bad input. The critic disagrees when a finding fails one of its 17 rules and either retries the analysis LLM with a corrective prompt or escalates the run to human review. An integrity ledger chains every plan, every tool call, and every finding by hash so a reviewer can replay exactly what happened and why. All three mechanisms are visible in the per-run dashboard at https://sentinel.sshub.dev/site/dashboard.html.
 
 ## What it does (plain English)
 
@@ -10,17 +34,22 @@ Picture the L1 analyst on a SOC desk who pulls a fresh Windows disk image at 2am
 
 ## What's distinctive about this entry
 
-- **The agent literally cannot run arbitrary shell commands.** It can only call a small set of typed forensic functions exposed by a separate server (the MCP server). Each call is signed by a per-run permission token bound to the human-approved plan; calls outside the plan, or against paths outside the case folder, are rejected by the server, not by the agent.
-- **Two-channel evidence handling.** Raw forensic bytes are preserved and hashed. The analysis AI never sees the raw bytes; it only sees structured fields the server extracted. If the server's prompt-injection scanner flags an evidence record (for example, an attacker-controlled filename containing instructions disguised as text), the parsed content is walled off from the AI before it reaches the analysis stage.
-- **A deterministic critic gates every finding.** More than a dozen rules check things like "every claim cites real evidence in the tool output," "absence claims are only allowed if every tool ran cleanly," "memory-class findings cite three independent corroborating signals." Findings that fail go back to the AI for a corrected pass with a budget cap, or escalate to a human.
-- **Real-time cost transparency.** Every AI call prints its actual cost (read directly from the AI provider, not from a hand-maintained price table) before and after the call, so a runaway prompt is visible in seconds rather than at the end of the month.
+The three signals an AI-track judge cares about most:
+
+- **The agent is architecturally prevented from going rogue.** No shell primitive, capability tokens on every call, server-side path allow-list. The architecture diagram at [docs/planning/architecture.html](docs/planning/architecture.html) marks every boundary as architectural or prompt-based so the trust posture is unambiguous.
+- **A deterministic 17-rule critic catches the agent's own mistakes before humans see them.** No AI in the critic. The most recent audit pass confirms zero fabricated findings across 32 reviewed runs, with one malformed citation pointer caught and logged separately as a data-quality entry rather than glossed.
+- **Continuous accuracy via a daily synthetic-workstation loop.** A research agent reads recent threat intel, plants matching artifacts into a synthetic Windows disk inside Docker (no network egress, all domains use `.example.invalid`), runs the sentinel, and scores per-artifact PASS / MISS. 6 days of approved scored runs through 2026-05-08 include one that caught an attacker planting a `llama-server.exe` LLM inference server with `.gguf` model weights: the AI-using attacker we built specifically to validate the detection chain.
+
+## Cross-host campaign signature (for the DFIR-side reviewer)
+
+Across the SRL-2018 hosts the agent surfaces a single command-and-control endpoint at `172.16.4.10:8080`, a paired `Microsoft Advanced API 32` / `Microsoft Advanced API 64` masquerading service install, and a recurring Meterpreter PEB-walk PowerShell shellcode pattern in WMI-spawned processes. The same artifacts recur on 5 or more hosts in the dataset, catalogued in the per-case review notes under [docs/submission/](docs/submission/). Today this overlap is detected by humans reading multiple per-host notes; an automated cross-host correlator that emits "this artifact appears on N other hosts" sidecar findings is named in the future-work section of the accuracy report.
 
 ## Architectural pattern (per contest rules)
 
-Two of the four supported patterns from the contest brief, layered:
+Two of the four supported patterns from the contest brief, layered. The contest rules name Claude Code and OpenClaw as the preferred agentic frameworks but explicitly accept "comparable agentic architectures"; the LangGraph state machine described below is one such comparable architecture.
 
 - **Custom MCP Server (#2):** typed forensic functions, server-side path allow-listing, capability-token verification on every call, prompt-injection scanning before evidence reaches the AI.
-- **Multi-Agent / Workflow (#3):** the pipeline is a LangGraph state machine of named stages (extract candidates, plan tool calls, human approves plan, execute, interpret, critic check, human review or commit). Failures route back to re-plan with a budget cap. Every stage logs to the same trace.
+- **Multi-Agent / Workflow (#3):** the pipeline is a LangGraph state machine of named stages (extract candidates, plan tool calls, human approves plan, execute, interpret, critic check, human review or commit). Failures route back to re-plan with a budget cap. Every stage logs to the same trace, and every LLM call is traced into LangFuse with token counts and per-call cost grouped by per-run session.
 
 Where security boundaries are enforced and where they rely on prompt discipline rather than architectural enforcement: see the [architecture diagram](docs/planning/architecture.html) for the per-boundary breakdown.
 
@@ -31,19 +60,20 @@ Per the contest [rules](docs/reference/hackathon/rules.md), all eight components
 | # | Component | Where it lives |
 |---|---|---|
 | 1 | Code repository | This repository (MIT-licensed; see [LICENSE](LICENSE)) |
-| 2 | Demo video (5 min) | TODO: recorded closer to the deadline |
+| 2 | Demo video (5 min) | https://youtu.be/Wf3YbTd6k9o (5:29; raw file at `out/demo_video/demo_final.mp4` in this repo) |
 | 3 | Architecture diagram | [docs/planning/architecture.html](docs/planning/architecture.html) (rendered diagram with boundary annotations); source-of-truth markdown at [docs/planning/architecture.md](docs/planning/architecture.md) |
-| 4 | Written project description | TODO: drafted on Devpost closer to the deadline |
+| 4 | Written project description | Draft at [docs/submission/devpost-description.md](docs/submission/devpost-description.md), copy-pasted into Devpost at submission time |
 | 5 | Dataset documentation | [docs/reference/hackathon/dataset_manifest.md](docs/reference/hackathon/dataset_manifest.md) |
-| 6 | Accuracy report | [docs/submission/accuracy-report.md](docs/submission/accuracy-report.md) (with [sampled-review supporting evidence](docs/submission/sampled-review-aggregate.md)) |
-| 7 | Try-it-out instructions | TODO: delivery shape is being decided (likely a hosted MCP endpoint a judge connects to from their own Claude Code, passing only the case file); existing local setup at [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md) |
-| 8 | Agent execution logs | Per-case under [experiments/slice-2-notebook/out/runs/](experiments/slice-2-notebook/out/runs/); one numbered folder per run, each containing the tool plan, raw evidence, structured findings, and the critic-disagreement log |
+| 6 | Accuracy report | [docs/submission/accuracy-report.md](docs/submission/accuracy-report.md) (with [sampled-review supporting evidence](docs/submission/sampled-review-aggregate.md) and per-case review notes under [docs/submission/](docs/submission/)) |
+| 7 | Try-it-out instructions | Path A (clone + run on your own E01) is the supported flow today, documented at [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md). The hosted "judge designs a scenario" surface is scoped at [docs/judges/submit-a-scenario.md](docs/judges/submit-a-scenario.md); the translator script is built and validated, the queue and email surface are post-submission work. The live run viewer at https://sentinel.sshub.dev/site/dashboard.html is open today for browsing every curated case end to end. |
+| 8 | Agent execution logs | Per-case under [experiments/slice-2-notebook/out/runs/](experiments/slice-2-notebook/out/runs/); one numbered folder per run, each containing the tool plan, raw evidence, structured findings, the critic-disagreement log, and the integrity ledger that hash-chains plan → tool call → finding. Every LLM call is also traced into LangFuse with token counts and per-call cost grouped by per-run session, so a judge can trace any finding back to the exact tool execution and the LLM token cost that produced it. |
 
 ## Where to read first (if you only have 10 minutes)
 
-1. [docs/submission/accuracy-report.md](docs/submission/accuracy-report.md): the headline numbers and per-case writeups.
-2. [docs/planning/architecture.html](docs/planning/architecture.html): the architecture diagram with security boundaries.
-3. One concrete run, end to end: [experiments/slice-2-notebook/out/runs/srl-2018-wkstn-05/srl-2018-wkstn-05-005/](experiments/slice-2-notebook/out/runs/srl-2018-wkstn-05/srl-2018-wkstn-05-005/). Open the tool plan, the collected evidence, the findings, and the critic-disagreement log (numbered 02, 04, 05, 06 in that folder) and read in that order.
+1. The "AI architecture at a glance" section above (90 seconds).
+2. [docs/submission/accuracy-report.md](docs/submission/accuracy-report.md) Section 0 "60-second version" (60 seconds), then Section 1 (3 minutes).
+3. [docs/planning/architecture.html](docs/planning/architecture.html): the architecture diagram with security boundaries (2 minutes).
+4. One concrete run, end to end: [experiments/slice-2-notebook/out/runs/srl-2018-wkstn-05/srl-2018-wkstn-05-005/](experiments/slice-2-notebook/out/runs/srl-2018-wkstn-05/srl-2018-wkstn-05-005/). Open the tool plan, the collected evidence, the findings, and the critic-disagreement log (numbered 02, 04, 05, 06 in that folder) and read in that order (3 minutes).
 
 ## Repo layout
 
@@ -54,7 +84,7 @@ Per the contest [rules](docs/reference/hackathon/rules.md), all eight components
 | [docs/planning/](docs/planning/) | Live project plan and architecture documents |
 | [docs/runbooks/](docs/runbooks/) | Step-by-step operating procedures, one per implementation slice |
 | [docs/onboarding/](docs/onboarding/) | New-teammate orientation (skip if you're a judge; useful if you're forking) |
-| [docs/submission/](docs/submission/) | Submission-component documents (accuracy report, sampled-review aggregate) |
+| [docs/submission/](docs/submission/) | Submission-component documents (accuracy report, sampled-review aggregate, per-case review notes) |
 | [docs/reference/hackathon/](docs/reference/hackathon/) | Verbatim contest materials (rules, dataset manifest, overview) |
 
 ## Try it out
@@ -76,11 +106,13 @@ docker compose exec sift-sentinel python experiments/slice-2-notebook/run_case.p
 
 Open the run viewer at `http://localhost:8080/viewer/`. Full step-by-step setup notes live in [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md).
 
+**Running on the SANS SIFT Workstation.** The Docker stack runs unchanged inside the SIFT Workstation OVA (Docker is preinstalled on SIFT). The container packages the same SIFT toolset the OVA provides (Volatility 2.6.1, The Sleuth Kit, RegRipper) so the forensic capability is identical. Judges who prefer the SIFT environment can spin up the OVA, install nothing extra, and run the same `docker compose` commands above.
+
 ### Path B: live submission on the public site
 
 Visit [https://sentinel.sshub.dev/site/dashboard.html](https://sentinel.sshub.dev/site/dashboard.html), scroll to "Submit a test", upload an E01 + optional memory image, watch the pipeline run. Lower friction; output retention is best-effort while the hackathon is live.
 
-For the For-judges walk-through, see [https://sentinel.sshub.dev/site/submission.html](https://sentinel.sshub.dev/site/submission.html).
+For the for-judges walk-through, see [https://sentinel.sshub.dev/site/submission.html](https://sentinel.sshub.dev/site/submission.html).
 
 ## License
 
