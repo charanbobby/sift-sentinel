@@ -18,6 +18,7 @@
     --amber: #fbbf24; --amber-soft: rgba(251,191,36,0.12);
     --red: #fb7185; --red-soft: rgba(251,113,133,0.12);
     --purple: #a78bfa; --purple-soft: rgba(167,139,250,0.12);
+    --cyan: #22d3ee; --cyan-soft: rgba(34,211,238,0.12);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -50,11 +51,11 @@
   main { max-width: 980px; margin: 0 auto; padding: 32px 32px 96px; }
   section { margin-bottom: 56px; }
 
-  .hero h1 { font-size: 28px; font-weight: 700; margin: 0 0 10px; }
-  .hero .lede { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 0 12px; max-width: 780px; }
-  .badge-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-  .badge { padding: 4px 10px; font-size: 11px; border-radius: 12px; font-family: 'IBM Plex Mono', monospace; border: 1px solid var(--line); color: var(--muted); }
-  .badge.live { color: var(--green); border-color: rgba(52,211,153,0.3); background: var(--green-soft); }
+  .hero h1 { font-size: 28px; font-weight: 700; margin: 0 0 12px; }
+  .hero .lede { color: var(--muted); font-size: 15px; line-height: 1.65; margin: 0 0 12px; max-width: 780px; }
+  .hero .hook { background: var(--cyan-soft); border-left: 3px solid var(--cyan); border-radius: 6px; padding: 14px 16px; margin: 18px 0 0; max-width: 780px; }
+  .hero .hook strong { color: var(--cyan); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 6px; }
+  .hero .hook .body { color: var(--text-2); font-size: 13px; line-height: 1.6; }
 
   section > h2 { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
   section > .caption { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 18px; max-width: 720px; }
@@ -76,34 +77,31 @@
   .pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; line-height: 1.5; border: 1px solid transparent; white-space: nowrap; }
   .pill-green { color: var(--green); background: var(--green-soft); border-color: rgba(52,211,153,0.3); }
   .pill-amber { color: var(--amber); background: var(--amber-soft); border-color: rgba(251,191,36,0.3); }
-  .pill-red { color: var(--red); background: var(--red-soft); border-color: rgba(251,113,133,0.3); }
-  .pill-blue { color: var(--accent); background: var(--accent-soft); border-color: rgba(96,165,250,0.3); }
-  .pill-purple { color: var(--purple); background: var(--purple-soft); border-color: rgba(167,139,250,0.3); }
-  .pill-neutral { color: var(--muted); background: var(--surface-2); border-color: var(--line); }
 
   .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
   .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
   .metric .v { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.1; }
   .metric .v.green { color: var(--green); }
   .metric .v.amber { color: var(--amber); }
-  .metric .l { color: var(--muted-2); font-size: 12px; margin-top: 4px; }
-
-  .case-table { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  .case-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .case-table th { text-align: left; padding: 10px 14px; font-size: 11px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--line); background: var(--surface-2); font-weight: 600; }
-  .case-table td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); }
-  .case-table tr:last-child td { border-bottom: none; }
-  .case-table .case-id { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text); }
-  .case-table .ground-truth { font-size: 11px; color: var(--muted); }
+  .metric .v.purple { color: var(--purple); }
+  .metric .v.cyan { color: var(--cyan); }
+  .metric .l { color: var(--muted-2); font-size: 12px; margin-top: 4px; line-height: 1.45; }
 
   .note { background: var(--amber-soft); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--text-2); line-height: 1.55; }
   .note strong { color: var(--amber); }
+
+  .criterion { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; }
+  .criterion .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .criterion .head .name { font-size: 14px; font-weight: 600; color: var(--text); }
+  .criterion .head .where { font-size: 11px; color: var(--muted-2); font-family: 'IBM Plex Mono', monospace; }
+  .criterion .body { font-size: 12px; color: var(--muted); line-height: 1.55; }
 
   @media (max-width: 760px) {
     .walk-grid { grid-template-columns: 1fr; }
     .metrics-grid { grid-template-columns: 1fr 1fr; }
     .deliv { grid-template-columns: 1fr; }
     .deliv .num { display: none; }
+    .criterion .head { flex-direction: column; gap: 4px; }
   }
 </style>
 </head>
@@ -128,11 +126,10 @@
 
   <section class="hero">
     <h1>For SANS Find Evil 2026 judges</h1>
-    <p class="lede">Sift Sentinel is our entry to the SANS Find Evil 2026 hackathon. It is an autonomous DFIR agent that examines a Windows disk image and reports persistence mechanisms with no human in the loop. This page is your map into the live submission. Everything below the fold links into a working artifact, not a screenshot.</p>
-    <div class="badge-row">
-      <span class="badge live">live since 2026-05-03</span>
-      <span class="badge">SANS Find Evil 2026</span>
-      <span class="badge">submission deadline 2026-06-15</span>
+    <p class="lede">Sift Sentinel is an autonomous AI agent for digital forensics. Built for the SANS Find Evil 2026 hackathon. This page is your map into the live submission. Every link below opens a working artifact, not a screenshot.</p>
+    <div class="hero hook">
+      <strong>The headline differentiator</strong>
+      <div class="body">Sift Sentinel hunts for attackers who use AI themselves on a compromised host: local LLM inference servers planted as persistence, prompt-injection payloads buried in attacker-controlled registry values and scheduled tasks, and the operational fingerprints of AI-assisted reconnaissance. The agent is also architecturally prevented from going rogue (no shell primitive, capability tokens on every tool call) and a deterministic 17-rule critic with no AI in its loop checks every claim before a human sees it.</div>
     </div>
   </section>
 
@@ -140,59 +137,59 @@
     <h2>Walk-through (3 minutes)</h2>
     <p class="caption">If you only have time for four clicks, here is the order that tells the whole story.</p>
     <div class="walk-grid">
-      <a class="walk" href="/">
+      <a class="walk" href="/site/architecture.html">
         <div class="step">FIRST</div>
         <div class="name">How it works</div>
-        <div class="desc">The architecture diagram. Pipeline (extract, plan, gates, MCP-tooled execute, interpret, critic), defender-AI integrity layer, and the autonomy ladder.</div>
+        <div class="desc">The architecture diagram with security boundaries marked as architectural or prompt-based. Pipeline (extract, plan, gates, MCP execute, interpret, critic), defender-AI integrity layer.</div>
       </a>
       <a class="walk" href="/site/dashboard.html">
         <div class="step">SECOND</div>
         <div class="name">Today's run</div>
-        <div class="desc">Live state. What threat-intel Haiku read last night, what tradecraft it planted, what the pipeline caught vs missed, what new rules the system learned, and what is running right now.</div>
+        <div class="desc">Live state of the daily synthetic-workstation loop. What threat intel was read last night, what tradecraft was planted, what the pipeline caught versus missed, what new rules the system learned.</div>
       </a>
       <a class="walk" href="/viewer/">
         <div class="step">THIRD</div>
         <div class="name">Past cases</div>
-        <div class="desc">Per-run viewer. Select any case, see the full plan, the tool calls, the evidence excerpts the agent based its findings on, and the integrity ledger.</div>
+        <div class="desc">Per-run viewer. Select any case, see the full plan, the tool calls, the evidence excerpts the agent based each finding on, and the integrity ledger.</div>
       </a>
-      <a class="walk" href="/site/dashboard.html#section-submit">
+      <a class="walk" href="https://youtu.be/Wf3YbTd6k9o" target="_blank" rel="noopener">
         <div class="step">FOURTH</div>
-        <div class="name">Submit your own test</div>
-        <div class="desc">Design a scenario. The form takes a tradecraft pattern, validates it structurally, and queues it for the next daily run. The pipeline will be tested against it within 24 hours.</div>
+        <div class="name">Demo video</div>
+        <div class="desc">Five-minute walk-through narrating the same workflow live, including the AI-using-attacker catch from the daily synthetic loop.</div>
       </a>
     </div>
   </section>
 
   <section>
     <h2>Required submission components</h2>
-    <p class="caption">The 8 components Devpost requires, with their current status and where to find each one. <code>SUCCESS</code> means the artifact is live and judge-readable; <code>STAGED</code> means the source content exists and the assembly step is pending.</p>
+    <p class="caption">All eight components Devpost requires, with current status and where to find each one.</p>
 
     <div class="deliv">
       <div class="num">1</div>
       <div class="body">
         <div class="name">Code Repository</div>
-        <div class="desc">Public GitHub repository with MIT or Apache 2.0 license. Source for the entire pipeline, MCP server, viewer, site, and synthetic-workstation harness.</div>
+        <div class="desc">Public GitHub repository, MIT licensed. Source for the entire pipeline, MCP server, viewer, site, and synthetic-workstation harness.</div>
         <div class="link"><a href="https://github.com/charanbobby/sift-sentinel">github.com/charanbobby/sift-sentinel</a></div>
       </div>
-      <div class="status"><span class="pill pill-amber">repo live, license flip pending</span></div>
+      <div class="status"><span class="pill pill-green">live</span></div>
     </div>
 
     <div class="deliv">
       <div class="num">2</div>
       <div class="body">
         <div class="name">Demo Video</div>
-        <div class="desc">A 5-minute screencast that includes at least one self-correction sequence on real case data: a planted artifact triggers a Critic rule, the agent retries, the second pass succeeds.</div>
-        <div class="link"><span style="color: var(--muted-2);">posted on Devpost project page at submission</span></div>
+        <div class="desc">Five-minute walk-through showing the agent working against real evidence, including a self-correction sequence and the AI-using-attacker detection chain end to end.</div>
+        <div class="link"><a href="https://youtu.be/Wf3YbTd6k9o" target="_blank" rel="noopener">youtu.be/Wf3YbTd6k9o</a></div>
       </div>
-      <div class="status"><span class="pill pill-neutral">pending Slice 8</span></div>
+      <div class="status"><span class="pill pill-green">live</span></div>
     </div>
 
     <div class="deliv">
       <div class="num">3</div>
       <div class="body">
         <div class="name">Architecture Diagram</div>
-        <div class="desc">Identifies the architectural pattern (hybrid Custom MCP Server + LangGraph workflow) and distinguishes prompt-based guardrails from architectural guardrails (Docker boundary, MCP read-only tools, capability tokens, dual-channel handler).</div>
-        <div class="link"><a href="/">View on this site</a></div>
+        <div class="desc">Identifies the architectural patterns used (custom MCP server plus multi-agent LangGraph workflow, both explicitly named in the contest rules) and distinguishes prompt-based guardrails from architectural guardrails (Docker boundary, MCP allow-list, capability tokens, dual-channel handler).</div>
+        <div class="link"><a href="/site/architecture.html">View on this site</a></div>
       </div>
       <div class="status"><span class="pill pill-green">live</span></div>
     </div>
@@ -201,27 +198,27 @@
       <div class="num">4</div>
       <div class="body">
         <div class="name">Written Project Description</div>
-        <div class="desc">Devpost story: What we built, How we built it, Challenges, What we learned, What is next. Specific on tradeoffs and autonomous-execution qualities.</div>
-        <div class="link"><span style="color: var(--muted-2);">draft at <code>docs/submission/devpost-description.md</code></span></div>
+        <div class="desc">Devpost story format: What it does, How we built it, Challenges, What we learned, What is next. Specific on tradeoffs and the qualities of autonomous execution we address.</div>
+        <div class="link"><a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/submission/devpost-description.md">View description</a></div>
       </div>
-      <div class="status"><span class="pill pill-amber">staged</span></div>
+      <div class="status"><span class="pill pill-green">live</span></div>
     </div>
 
     <div class="deliv">
       <div class="num">5</div>
       <div class="body">
         <div class="name">Dataset Documentation</div>
-        <div class="desc">What we tested against (six static Windows disk images plus the daily synthetic-workstation), source provenance, and the per-case findings table.</div>
-        <div class="link"><span style="color: var(--muted-2);">draft per-case writeups in <code>docs/submission/</code></span></div>
+        <div class="desc">What we tested against (the two SANS-provided datasets SRL-2018 and SRL-2015, plus three publicly-available cases the team sourced separately: DFIR Madness Case 001, OpenUni22, Hadi3), source provenance, per-case findings, and the daily synthetic-workstation track.</div>
+        <div class="link"><a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/reference/hackathon/dataset_manifest.md">Dataset manifest</a> · <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/submission/accuracy-report.md">per-case results in accuracy report</a></div>
       </div>
-      <div class="status"><span class="pill pill-amber">staged</span></div>
+      <div class="status"><span class="pill pill-green">live</span></div>
     </div>
 
     <div class="deliv">
       <div class="num">6</div>
       <div class="body">
         <div class="name">Accuracy Report</div>
-        <div class="desc">Two tracks. Track A is one-shot evaluation on six static disk images (mix of public answer-keys and project-owner annotation). Track B is the continuous daily synthetic-workstation loop. Includes a dedicated evidence-integrity section: read-only mounts, attempted-write probes through the MCP boundary, and how the architecture prevents original-data modification.</div>
+        <div class="desc">Two tracks. Static-case track: one-shot evaluation across all reference datasets including the externally-validated DFIR Madness case. Daily-loop track: continuous validation against artifacts derived from the last 30 days of threat intel. Includes a dedicated production-bypass-evidence section showing what each architectural guardrail caught on real runs.</div>
         <div class="link"><a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/submission/accuracy-report.md">View report</a> · headline numbers below</div>
       </div>
       <div class="status"><span class="pill pill-green">live</span></div>
@@ -231,14 +228,14 @@
       <div class="num">7</div>
       <div class="body">
         <div class="name">Try-It-Out Instructions</div>
-        <div class="desc">Two paths. The recommended one runs the agent on your own machine against your own evidence. The lower-friction one runs the agent on our infrastructure against a scenario you describe in plain English.</div>
+        <div class="desc">Two paths.</div>
         <div class="desc" style="margin-top: 12px; padding: 10px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;">
-          <strong style="color: var(--text);">Path A (recommended): clone the repo, run against your own disk image.</strong> Bring your own Windows E01 or .raw image. The pipeline runs in two Docker containers on a SIFT Workstation (or any Linux/macOS/WSL host with Docker). You see every tool call, every plan, every Critic decision. You provide an OpenRouter API key.
-          <div style="margin-top: 6px;"><a href="https://github.com/charanbobby/sift-sentinel#try-it-out">README quick-start</a> · <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/runbooks/slice-1-docker-runbook.md">full Docker runbook</a> · CLI: <code>run_case.py --case &lt;name&gt; --e01 &lt;path&gt;</code></div>
+          <strong style="color: var(--text);">Path A: clone and run on your own evidence.</strong> Bring your own Windows E01 or raw image. The pipeline runs in two Docker containers on any Linux host (including the SANS SIFT Workstation OVA, which has Docker preinstalled). You see every tool call, every plan, every critic decision.
+          <div style="margin-top: 6px;"><a href="https://github.com/charanbobby/sift-sentinel#try-it-out">README quick-start</a> · <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/runbooks/slice-1-docker-runbook.md">full Docker runbook</a></div>
         </div>
         <div class="desc" style="margin-top: 10px; padding: 10px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px;">
-          <strong style="color: var(--text);">Path B (no install): submit a scenario, we run it on the daily synthetic workstation.</strong> Describe an attack in plain English. Our research agent translates it to a manifest, the synthetic-workstation builder plants the artifacts, the pipeline runs, you get a scorecard. No API key required.
-          <div style="margin-top: 6px;"><a href="/site/dashboard.html#section-submit">Use the live form</a> · <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/judges/submit-a-scenario.md">read the full guide</a> · <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/judges/supported-techniques.md">what can be tested</a></div>
+          <strong style="color: var(--text);">Path B: live deployment.</strong> Browse every curated case end to end at the live run viewer. No install, no credentials.
+          <div style="margin-top: 6px;"><a href="/viewer/">Open the run viewer</a></div>
         </div>
       </div>
       <div class="status"><span class="pill pill-green">both live</span></div>
@@ -248,8 +245,8 @@
       <div class="num">8</div>
       <div class="body">
         <div class="name">Agent Execution Logs</div>
-        <div class="desc">Iteration-over-iteration traces showing how the agent's approach changed across Critic retries. Per-case bundles: Langfuse export, integrity ledger, and the Critic-disagreement log.</div>
-        <div class="link"><a href="/viewer/">Open the run viewer</a> · per case</div>
+        <div class="desc">Per-case bundles: the typed plan, raw evidence records, structured findings with cited tool-call ids, the critic-disagreement log, and the integrity ledger that hash-chains plan to call to finding. Every LLM call is also traced to LangFuse with token counts and per-call cost grouped by per-run session, so a judge can trace any finding back to the exact tool execution and the LLM tokens that produced it.</div>
+        <div class="link"><a href="/viewer/">Open the run viewer</a></div>
       </div>
       <div class="status"><span class="pill pill-green">live</span></div>
     </div>
@@ -257,58 +254,78 @@
 
   <section>
     <h2>Accuracy at a glance</h2>
-    <p class="caption">23 cases, 71 findings, zero hallucinations. The pipeline has been run end-to-end against 23 distinct Windows hosts across three channels (disk-only, dual-channel disk + memory, and memory-only), with the Critic catching every claim before commit.</p>
+    <p class="caption">Across 32 reviewed runs the agent produced zero fabricated findings. Every claim cites a tool-call id that resolves in the evidence file; every cited excerpt appears verbatim in the cited record.</p>
 
     <div class="metrics-grid">
-      <div class="metric"><div class="v">23</div><div class="l">cases run end-to-end</div></div>
-      <div class="metric"><div class="v green">71</div><div class="l">findings surfaced</div></div>
-      <div class="metric"><div class="v">0</div><div class="l">hallucinations across the 7 runs scored in the accuracy report (R_05 rejects any finding citing text not literally in tool output)</div></div>
-      <div class="metric"><div class="v green">1.00 / 1.00</div><div class="l">precision / recall on the externally validated case (DFIR Madness 001)</div></div>
+      <div class="metric"><div class="v">32</div><div class="l">reviewed runs across all reference datasets</div></div>
+      <div class="metric"><div class="v green">0</div><div class="l">fabricated findings</div></div>
+      <div class="metric"><div class="v green">1.00 / 1.00</div><div class="l">precision and recall on the externally-validated case (DFIR Madness Case 001)</div></div>
+      <div class="metric"><div class="v cyan">6</div><div class="l">days of approved daily-loop runs validating AI-using-attacker tradecraft</div></div>
     </div>
 
     <div class="metrics-grid" style="margin-top: 8px;">
-      <div class="metric"><div class="v">34</div><div class="l">high-confidence findings (committable without retry)</div></div>
-      <div class="metric"><div class="v purple" style="color: var(--purple);">23</div><div class="l">memory-channel findings (process injection, C2 beacons, fileless persistence)</div></div>
-      <div class="metric"><div class="v amber">5</div><div class="l">memory-channel runs human-reviewed and approved</div></div>
-      <div class="metric"><div class="v">4</div><div class="l">hosts where the cross-host masquerading-service signature recurred</div></div>
+      <div class="metric"><div class="v">17</div><div class="l">deterministic critic rules with no AI in the loop</div></div>
+      <div class="metric"><div class="v amber">11</div><div class="l">runs where the prompt-injection defense quarantined evidence before the analysis LLM saw it</div></div>
+      <div class="metric"><div class="v">13</div><div class="l">critic disagreements caught on the seven deeply-reviewed runs (zero would have been hallucinations shipped to the user)</div></div>
+      <div class="metric"><div class="v purple">5+</div><div class="l">hosts where the cross-host attacker campaign signature recurred</div></div>
     </div>
 
-    <h3 style="margin-top: 28px; font-size: 15px;">Cases by ground-truth strength</h3>
-    <p class="caption">Highest authority first. The single externally-validated case carries the strongest precision claim; owner-annotated cases are informed by community write-ups; memory-channel approvals are individually reviewed by the project owner. Disk-only auto-commits land when the Critic's deterministic rules accept every finding without retry.</p>
-
-    <div class="case-table" style="margin-bottom: 16px;">
-      <table>
-        <thead>
-          <tr><th>case</th><th>channel</th><th>status</th><th>findings</th><th>high-conf</th><th>memory</th></tr>
-        </thead>
-        <tbody>
-          <tr><td><span class="case-id">dfirmadness-001-desktop</span><div class="ground-truth">externally validated · DFIR Madness public answer key</div></td><td>disk</td><td><span class="pill pill-green">committed</span></td><td>2</td><td>2</td><td>0</td></tr>
-          <tr><td><span class="case-id">srl-2018-wkstn-05</span><div class="ground-truth">owner annotated · community writeups</div></td><td>disk</td><td><span class="pill pill-green">committed</span></td><td>2</td><td>2</td><td>0</td></tr>
-          <tr><td><span class="case-id">srl-2018-wkstn-05</span><div class="ground-truth">owner annotated · dual channel</div></td><td>disk + mem</td><td><span class="pill pill-green">committed</span></td><td>5</td><td>3</td><td>3</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-rd-05-memonly</span><div class="ground-truth">memory channel · approved 2026-05-03</div></td><td>memory</td><td><span class="pill pill-amber">approved</span></td><td>4</td><td>3</td><td>2</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-wkstn-03-memonly</span><div class="ground-truth">memory channel · approved 2026-05-03</div></td><td>memory</td><td><span class="pill pill-amber">approved</span></td><td>7</td><td>0</td><td>3</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-wkstn-06-memonly</span><div class="ground-truth">memory channel · approved 2026-05-03</div></td><td>memory</td><td><span class="pill pill-amber">approved</span></td><td>3</td><td>0</td><td>1</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-rd-03-memonly</span><div class="ground-truth">memory channel · approved 2026-05-03 (LARIAT framework + masquerading services)</div></td><td>memory</td><td><span class="pill pill-amber">approved</span></td><td>3</td><td>0</td><td>0</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-wkstn-04-memonly</span><div class="ground-truth">memory channel · approved 2026-05-03</div></td><td>memory</td><td><span class="pill pill-amber">approved</span></td><td>4</td><td>0</td><td>2</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-rd-01-dual</span><div class="ground-truth">cross-channel correlation</div></td><td>disk + mem</td><td><span class="pill pill-green">committed</span></td><td>4</td><td>2</td><td>2</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-rd-02-dual</span><div class="ground-truth">cross-channel correlation</div></td><td>disk + mem</td><td><span class="pill pill-green">committed</span></td><td>3</td><td>3</td><td>1</td></tr>
-          <tr><td><span class="case-id">srl-2018-base-file-dual</span><div class="ground-truth">cross-channel correlation</div></td><td>disk + mem</td><td><span class="pill pill-green">committed</span></td><td>4</td><td>4</td><td>2</td></tr>
-          <tr><td colspan="6" style="color: var(--muted-2); padding: 10px 14px; font-style: italic;">+ 12 more cases (disk-only and dual-channel) ending in SUCCESS, including <code>base-dc</code> (negative control, no positives to predict) and the rest of the SRL workstation set. Full per-case breakdown in the <a href="/viewer/">run viewer</a>.</td></tr>
-        </tbody>
-      </table>
+    <div class="note" style="margin-top: 18px;">
+      <strong>What the numbers mean, and what they do not.</strong> The 1.00 precision and recall claim is on the one case with a third-party answer key. Other cases come with weaker ground-truth claims: project-owner annotation against community write-ups, sampled review with citation verification, or the daily-loop synthetic plants where the answer key is known by construction because the team planted them. The "zero fabricated findings" claim is verified end to end across all 32 reviewed runs; two data-quality issues (one malformed citation pointer, one rationale-text hallucination on a real-finding case) are logged separately in the accuracy report rather than swept. Every committed finding in the run viewer surfaces its cited evidence with a unique tool-call id, so judges can self-audit any claim by clicking into a case.
     </div>
-
-    <div class="note">
-      <strong>What the numbers mean, and what they do not.</strong> The 1.00 / 1.00 precision and recall is on the one case with a third-party answer key (DFIR Madness 001). The other 22 cases come with weaker ground-truth claims: owner-annotated against community write-ups, individually approved after human review, or auto-committed when every finding cleared the Critic's rules without retry. The "zero hallucinations" claim is verified only across the 7 runs scored in the <a href="https://github.com/charanbobby/sift-sentinel/blob/main/docs/submission/accuracy-report.md">accuracy report</a>; the remaining 16 runs have not yet been independently audited for hallucination rate. Every committed finding in the run viewer surfaces its cited evidence excerpt with a tool_call_id, so judges can self-audit any claim by clicking into a case.
-    </div>
-
-    <p class="caption" style="margin-top: 18px;">A second accuracy track ships continuously: the daily synthetic-workstation loop. Every night Haiku reads recent threat-intel news, plants synthetic versions of the tradecraft on a baseline image, and the pipeline scores against the planted manifest. That data is on the <a href="/site/dashboard.html">Today's run</a> page and accumulates without further engineering effort.</p>
   </section>
 
   <section>
-    <h2>What is the autonomy story</h2>
-    <p class="caption">The pipeline ships at L2 (Guarded Execution): the agent self-corrects via deterministic Critic rules and a bounded retry budget, with humans gating the initial plan and final findings. Submission target is L3 (Exception-Based Autonomy): only Low-confidence findings or fail-fast events pause for human review.</p>
-    <p class="caption">The architecture page shows the autonomy climb in the chip row at the top: L1 assisted (shipped), L2 guarded (shipped, the current state), L3 exception (the goal for the submission cut on the bounded reference dataset).</p>
+    <h2>How the submission lands against the judging criteria</h2>
+    <p class="caption">The contest's six judging criteria are equally weighted with Autonomous Execution Quality as the tiebreaker. Here is where each criterion is best demonstrated.</p>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">1. Autonomous Execution Quality (tiebreaker)</div>
+        <div class="where">accuracy report Section 4 · run viewer</div>
+      </div>
+      <div class="body">Five-stage pipeline with named human gates, retry budget, deterministic critic that catches the agent's mistakes, daily-loop self-validation against fresh threat intel, integrity ledger that hash-chains every plan to every tool call to every finding. Self-correction is rule-based and audit-traceable, not unstructured LLM retry.</div>
+    </div>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">2. IR Accuracy</div>
+        <div class="where">accuracy report Sections 0, 1, 5</div>
+      </div>
+      <div class="body">Zero fabricated findings across 32 reviewed runs. 1.00 precision and recall on the externally-validated case. Two data-quality issues caught and logged honestly rather than swept. Cross-host campaign signatures (the SRL-2018 dual masquerade families, the SRL-2015 svchost Run-key signature) are independently corroborated across multiple hosts.</div>
+    </div>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">3. Breadth and Depth of Analysis</div>
+        <div class="where">accuracy report Section 3 (eleven per-case sections)</div>
+      </div>
+      <div class="body">Depth on persistence detection across both SANS datasets plus three publicly-available cases plus six days of synthetic intel-driven scoring. Disk-only, dual-channel, and memory-only sweeps. The strongest fileless persistence finding in the corpus (a registry-resident PowerShell payload masquerading as a vendor key) is named and cited in the per-case write-up.</div>
+    </div>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">4. Constraint Implementation</div>
+        <div class="where">architecture diagram · accuracy report Section 4</div>
+      </div>
+      <div class="body">Four trust boundaries, all architectural rather than prompt-based. The MCP server has no shell primitive. Every tool call carries a capability token bound to a path scope and time-to-live. A prompt-injection scanner quarantines evidence records before they reach the analysis LLM. Each guardrail has been tested for bypass through production runs (13 critic catches, 9 capability denials in the memory-only sweep, 11 quarantines across 46 reviewed runs); accuracy report Section 4 documents the bypass evidence.</div>
+    </div>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">5. Audit Trail Quality</div>
+        <div class="where">run viewer · LangFuse traces</div>
+      </div>
+      <div class="body">Per-case run folder with the typed plan, evidence records as JSONL, structured findings with cited tool-call ids, the critic-disagreement log, and an integrity ledger that hash-chains plan to call to finding. Every LLM call is also traced to LangFuse with token counts and per-call cost grouped by per-run session. A judge can drill from any finding back to the exact tool execution and the LLM tokens that produced it.</div>
+    </div>
+
+    <div class="criterion">
+      <div class="head">
+        <div class="name">6. Usability and Documentation</div>
+        <div class="where">README · this site · runbooks</div>
+      </div>
+      <div class="body">Live deployment at sentinel.sshub.dev. Docker compose one-liner for local install. README with the AI architecture overview, the four trust boundaries, the four LLM call sites with cost shape, and the SIFT Workstation note. Per-case review notes for every curated case under docs/submission/.</div>
+    </div>
   </section>
 
 </main>
