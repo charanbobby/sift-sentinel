@@ -549,10 +549,11 @@ const RULE_REFERENCE = {
   R_10: { name: 'INJECTION_FLAGGED',       summary: 'Finding cites evidence that was injection-flagged or quarantined.' },
   R_11: { name: 'CLASSIFICATION_MISSING',  summary: 'Finding has no classification, or classification is invalid.' },
   R_12: { name: 'ABSENCE_UNSUBSTANTIATED', summary: 'Negative claim made before all tools that could have shown it ran cleanly.' },
-  R_13: { name: '(stub)',                  summary: 'Reserved — wired in a later step once the scorecard needs it.' },
+  R_13: { name: 'TEMPORAL_CONSISTENCY',    summary: 'Reserved hook, activated once RegRipper hive_lastwrite metadata lands.' },
   R_14: { name: '(reserved)',              summary: 'Reserved — citation gate mechanism present, activation deferred.' },
   R_15: { name: 'LOW_CONF_AUTO_ESCALATE',  summary: 'Low-confidence finding auto-routed to human_review (Slice 6 L3 rubric).' },
-  R_16: { name: 'AI_ASSIST_ANCHOR_MISSING', summary: 'AI-assisted classification used without a concrete LLM/SDK artifact anchor.' },
+  R_16: { name: 'AI_ASSIST_ANCHOR_MISSING', summary: 'AI-USING attacker finding cited without a concrete LLM/SDK/API-key anchor; blocks stylometric guessing.' },
+  R_17: { name: 'PLAN_COVERAGE',           summary: 'Finding requires a primary tool the approved plan never ran; coverage gap.' },
 };
 
 function ruleChip(ruleId) {
@@ -914,11 +915,11 @@ function renderTopbar() {
   `;
 }
 
-// Build a banner that explains a QUARANTINED run: which injection-guard
-// pattern fired, on which tool's output, and what the human reviewer's job
-// is. Returns empty string when the run was not quarantined.
+// Build a banner that surfaces every INJECTION_QUARANTINE event, regardless
+// of whether the run as a whole ended up QUARANTINED. Even on a run that
+// finished HUMAN_APPROVED, a per-tool quarantine is the most informative
+// trust-signal the agent emits and deserves to be visible.
 function quarantineBanner(r) {
-  if (r.status !== 'QUARANTINED') return '';
   const events = (r.critic_events || []).filter(e => e.event === 'INJECTION_QUARANTINE');
   if (!events.length) return '';
   const flagRows = [];
@@ -935,12 +936,12 @@ function quarantineBanner(r) {
     }
   }
   return `
-    <div style="margin-top:8px;padding:10px 14px;background:rgba(188,140,255,0.08);border:1px solid rgba(188,140,255,0.4);border-radius:6px;font-size:12px;line-height:1.5">
+    <div id="quarantine-banner" style="margin-top:8px;padding:10px 14px;background:rgba(188,140,255,0.08);border:1px solid rgba(188,140,255,0.4);border-radius:6px;font-size:12px;line-height:1.5">
       <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--purple)">
         <span style="font-size:14px">🛡</span> Injection guard fired (${flagRows.length} flag${flagRows.length===1?'':'s'})
       </div>
       <div style="color:var(--text);margin-top:4px">
-        Run held because raw tool output matched a pattern that could be a prompt-injection attempt against the analysis LLM.
+        Raw tool output matched a pattern that could be a prompt-injection attempt against the analysis LLM. The agent quarantined this output and did not feed it to interpretation.
         Review the matched excerpt below. If it is a real attacker artifact (not LLM-targeting), commit via <code>approve_run.py</code>; if it is a genuine injection attempt, reject.
       </div>
       ${flagRows.join('')}

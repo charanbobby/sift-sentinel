@@ -14,66 +14,82 @@ PHRASES: list[dict] = [
     {"beat": "beat1_open", "text": "Then it caught itself making a mistake on the next finding.", "duration_s": 4.5, "selector": None},
     {"beat": "beat1_open", "text": "Then it drafted a rule so it gets the next case right. Here is how.", "duration_s": 4.5, "selector": None},
 
-    # -- beat2_architecture (45s, 9 phrases) -----------------------------------
-    {"beat": "beat2_architecture", "text": "Sentinel runs the autonomous incident response loop", "duration_s": 4.5, "selector": "h2:has-text('Five trust controls')"},
-    {"beat": "beat2_architecture", "text": "with three architectural guardrails, not just prompt promises.", "duration_s": 4.5, "selector": None},
-    {"beat": "beat2_architecture", "text": "First: every tool call crosses a capability-token boundary at the MCP server,", "duration_s": 6.0, "selector": "h3:has-text('Execution boundary')"},
-    {"beat": "beat2_architecture", "text": "scoped to the case ID and the allowed paths.", "duration_s": 4.0, "selector": "h2:has-text('Execution boundary deep dive')"},
-    {"beat": "beat2_architecture", "text": "Second: an injection scanner sits in the Critic", "duration_s": 5.0, "selector": "h3:has-text('Defender AI integrity')"},
-    {"beat": "beat2_architecture", "text": "and quarantines tool output that looks adversarial.", "duration_s": 4.5, "selector": "h2:has-text('Defender AI integrity deep dive')"},
-    {"beat": "beat2_architecture", "text": "Third: every step of every run is hash-chained into an integrity ledger,", "duration_s": 5.5, "selector": "h2:has-text('Integrity deep dive')"},
-    {"beat": "beat2_architecture", "text": "so a finding can be traced back to the exact tool execution that produced it.", "duration_s": 5.5, "selector": ".external-ledger"},
-    {"beat": "beat2_architecture", "text": "The critic and the learn nodes are where the autonomy lives.", "duration_s": 5.5, "selector": "h3:has-text('Deterministic checks')"},
+    # -- beat2_architecture (60s, 12 phrases) ----------------------------------
+    # Walks "Full deployment topology" panel: two containers, capability
+    # token boundary, attack surface NONE, then how they are connected.
+    {"beat": "beat2_architecture", "text": "Sentinel runs in two Docker containers.", "duration_s": 3.0, "selector": "h2:has-text('Full deployment topology')"},
+    {"beat": "beat2_architecture", "text": "The agent process here, the forensic tools over here, separated by an internal Docker bridge.", "duration_s": 7.0, "selector": ".subtitle:has-text('streamable-HTTP')"},
+    {"beat": "beat2_architecture", "text": "On the left, the agent process. The pipeline runner built on LangGraph.", "duration_s": 5.5, "selector": ".process-title:has-text('Agent process')"},
+    {"beat": "beat2_architecture", "text": "On the right, the MCP server. This is what the agent actually calls when it needs a tool.", "duration_s": 6.5, "selector": ".process-title:has-text('MCP server')"},
+    {"beat": "beat2_architecture", "text": "The agent container has no forensic tools installed, no Docker socket, no Docker CLI.", "duration_s": 6.5, "selector": ".pb-body:has-text('no forensic tools installed')"},
+    {"beat": "beat2_architecture", "text": "Its attack surface, by design, is none.", "duration_s": 3.0, "selector": ".pb-body:has-text('no forensic tools installed')"},
+    {"beat": "beat2_architecture", "text": "Every tool call crosses a bearer-token boundary first.", "duration_s": 4.5, "selector": ".pb-body:has-text('bearer-token middleware')"},
+    {"beat": "beat2_architecture", "text": "Then a capability token, scoped to the case ID, plan digest, and allowed paths.", "duration_s": 6.5, "selector": ".pb-body:has-text('capability token scoped to')"},
+    {"beat": "beat2_architecture", "text": "Below the topology: how the two are actually wired together.", "duration_s": 5.0, "selector": ".shared-label:has-text('how the two are connected')"},
+    {"beat": "beat2_architecture", "text": "A shared Docker volume named sift-home holds extracted artifacts.", "duration_s": 5.5, "selector": ".mono-inline:has-text('sift-home')"},
+    {"beat": "beat2_architecture", "text": "And the raw evidence bind-mounts in read-only, only on the tool side.", "duration_s": 5.0, "selector": ".mono-inline:has-text('/mnt/hackathon:ro')"},
+    {"beat": "beat2_architecture", "text": "If a hijacked agent tried to reach the host filesystem, it cannot.", "duration_s": 2.0, "selector": ".pb-body:has-text('no forensic tools installed')"},
+    # Pipeline phases walkthrough (12s, 3 phrases). The agent's runtime is
+    # a six-phase pipeline; each phase has structured output the next consumes.
+    {"beat": "beat2_architecture", "text": "Now, how the agent actually runs.", "duration_s": 3.0, "selector": "h2:has-text('The pipeline')"},
+    {"beat": "beat2_architecture", "text": "Six phases: extract, plan, gates, execute, interpret, critic.", "duration_s": 6.0, "selector": ["div.name"]},
+    {"beat": "beat2_architecture", "text": "Each phase produces structured output the next phase consumes.", "duration_s": 3.0, "selector": ["div.name"]},
 
-    # -- beat3_case (180s, 34 phrases across 4 sub-beats) ---------------------
-    # 3a findings overview (32s, 6 phrases)
-    {"beat": "beat3_case", "text": "The case: a Windows server from a 2018 enterprise compromise.", "duration_s": 5.0, "selector": ".case-header:has-text('srl-2018-base-rd-02-dual')"},
-    {"beat": "beat3_case", "text": "The agent ran in dual-channel mode,", "duration_s": 3.5, "selector": ".channel-pill.channel-dual"},
-    {"beat": "beat3_case", "text": "looking at both the disk image and a memory snapshot in the same run.", "duration_s": 6.0, "selector": None},
-    {"beat": "beat3_case", "text": "The first finding is a Windows service called Microsoft Advanced API thirty-two,", "duration_s": 6.0, "selector": ".finding-mech"},
-    {"beat": "beat3_case", "text": "set to auto-start, running a binary called msadvapi2_32.exe out of Program Files.", "duration_s": 7.0, "selector": ".finding-value"},
-    {"beat": "beat3_case", "text": "That product does not exist. The agent flagged it with high confidence.", "duration_s": 4.5, "selector": ".finding-meta-row"},
+    # -- beat3_case (153s, trimmed by 12s for Beat 2 pipeline walkthrough) ---
+    # PRIMARY case: srl-2018-base-rd-01-dual (RDP server, dual channel)
+    # 4 findings: scheduled-task persistence + p.exe injection + powershell injection + Outlook disambiguation
+    # Plus an INJECTION_QUARANTINE event in the critic phase.
+    # CROSS-HOST: srl-2018-base-file-dual - different persistence mechanism but
+    # SAME C2 destination 172.16.4.10:8080. Independent agents, shared attacker
+    # infrastructure detected across both hosts.
 
-    # 3b audit trail (50s, 10 phrases)
+    # 3a findings overview (26s, 6 phrases)
+    {"beat": "beat3_case", "text": "The case: an RDP server from a 2018 enterprise compromise.", "duration_s": 4.5, "selector": ".case-header:has-text('srl-2018-base-rd-01-dual')"},
+    {"beat": "beat3_case", "text": "The agent ran in dual-channel mode,", "duration_s": 3.0, "selector": ".channel-pill.channel-dual"},
+    {"beat": "beat3_case", "text": "looking at both the disk image and a memory snapshot in the same run.", "duration_s": 4.5, "selector": None},
+    {"beat": "beat3_case", "text": "Four findings: a scheduled task, two injected processes, and a beacon to a remote address.", "duration_s": 7.0, "selector": [".finding"]},
+    {"beat": "beat3_case", "text": "The agent also flagged Outlook for human review, because it could not tell if the memory regions were a plugin or an attack.", "duration_s": 7.5, "selector": [".finding.cls-requires_disambiguation"]},
+
+    # 3b audit trail (43s, 9 phrases)
     {"beat": "beat3_case", "text": "Every finding is a citation.", "duration_s": 3.0, "selector": ".finding-evidence-row"},
-    {"beat": "beat3_case", "text": "Click the citation and you reach the actual tool output that produced it.", "duration_s": 7.0, "selector": "[data-tab='evidence']"},
-    {"beat": "beat3_case", "text": "Here is the RegRipper services dump where the service was registered.", "duration_s": 7.0, "selector": ".ev-record"},
-    {"beat": "beat3_case", "text": "ImagePath, type, start mode, all there.", "duration_s": 4.0, "selector": ".ev-fields"},
-    {"beat": "beat3_case", "text": "Click the second citation, and you are in the memory-side pslist.", "duration_s": 5.5, "selector": ".ev-tool"},
-    {"beat": "beat3_case", "text": "The same binary is running right now at PID 2292.", "duration_s": 4.5, "selector": None},
-    {"beat": "beat3_case", "text": "Disk says it should be running. Memory confirms it is running.", "duration_s": 5.5, "selector": None},
-    {"beat": "beat3_case", "text": "That is what dual-channel means here.", "duration_s": 4.0, "selector": ".channel-pill.channel-dual"},
-    {"beat": "beat3_case", "text": "Both services installed within eighteen seconds on May eighth, 2018.", "duration_s": 5.5, "selector": None},
-    {"beat": "beat3_case", "text": "One attacker installation event, not two unrelated services.", "duration_s": 4.0, "selector": None},
+    {"beat": "beat3_case", "text": "The persistence finding points at a scheduled task running a batch file from Windows Temp.", "duration_s": 6.0, "selector": [".finding.cls-attacker_persistence"]},
+    {"beat": "beat3_case", "text": "Click the citation and you reach the actual tool output that produced it.", "duration_s": 5.0, "selector": "[data-tab='evidence']"},
+    {"beat": "beat3_case", "text": "Here is the scheduled tasks dump showing the entry the agent flagged.", "duration_s": 5.0, "selector": ".ev-record:has-text('scheduled')"},
+    {"beat": "beat3_case", "text": "Now the injection finding, in memory.", "duration_s": 4.0, "selector": ".ev-record:has-text('malfind')"},
+    {"beat": "beat3_case", "text": "Powershell with multiple writable, executable memory regions and an empty command line. That combination does not happen in legitimate use.", "duration_s": 9.0, "selector": None},
+    {"beat": "beat3_case", "text": "Disk found persistence, memory confirms the injected process running.", "duration_s": 5.5, "selector": ".channel-pill.channel-dual"},
+    {"beat": "beat3_case", "text": "And the C2 beacon: an established connection to 172.16.4.10 on port 8080.", "duration_s": 6.0, "selector": [".finding.cls-c2_beacon"]},
 
-    # 3c critic disagreement (57.5s, 11 phrases)
-    {"beat": "beat3_case", "text": "Now the self-correction.", "duration_s": 3.0, "selector": "[data-tab='pipeline']"},
-    {"beat": "beat3_case", "text": "While the agent was producing findings,", "duration_s": 3.5, "selector": None},
-    {"beat": "beat3_case", "text": "the critic noticed something in one of the tool outputs.", "duration_s": 7.0, "selector": ".phase-critic-row"},
-    {"beat": "beat3_case", "text": "A byte sequence in the raw registry hive contained the substring T1033,", "duration_s": 6.5, "selector": ".badge.badge-quarantine"},
-    {"beat": "beat3_case", "text": "matching a pattern the injection scanner uses to detect adversarial prompt content.", "duration_s": 8.5, "selector": ".phase-critic-row.escalate"},
-    {"beat": "beat3_case", "text": "It was random binary noise, not a real injection.", "duration_s": 4.5, "selector": None},
-    {"beat": "beat3_case", "text": "But the agent did not silently dismiss it.", "duration_s": 4.0, "selector": None},
-    {"beat": "beat3_case", "text": "It quarantined the tool output, escalated to human review,", "duration_s": 7.5, "selector": ".phase-critic-row.escalate"},
-    {"beat": "beat3_case", "text": "and refused to act on findings that depended on it.", "duration_s": 4.5, "selector": None},
-    {"beat": "beat3_case", "text": "Three findings escalated. None silently approved.", "duration_s": 4.5, "selector": None},
-    {"beat": "beat3_case", "text": "That is what auditable autonomy looks like.", "duration_s": 4.0, "selector": None},
+    # 3c critic + self-correction (62s, 12 phrases). T1033 selectors point at
+    # #quarantine-banner; viewer was changed to render the banner even when
+    # the run as a whole is HUMAN_APPROVED (not just QUARANTINED).
+    {"beat": "beat3_case", "text": "Now the self-correction.", "duration_s": 2.0, "selector": "[data-tab='pipeline']"},
+    {"beat": "beat3_case", "text": "While the agent was producing findings,", "duration_s": 3.0, "selector": None},
+    {"beat": "beat3_case", "text": "the injection scanner noticed something in one of the tool outputs.", "duration_s": 5.5, "selector": "#quarantine-banner"},
+    {"beat": "beat3_case", "text": "A byte sequence in the raw registry hive contained the substring T1033,", "duration_s": 6.0, "selector": "#quarantine-banner code"},
+    {"beat": "beat3_case", "text": "matching one of the patterns the injection guard runs on every tool output.", "duration_s": 5.0, "selector": "#quarantine-banner"},
+    {"beat": "beat3_case", "text": "It was random binary noise, not a real injection,", "duration_s": 4.5, "selector": None},
+    {"beat": "beat3_case", "text": "but the agent quarantined that tool's output anyway, refusing to use it downstream.", "duration_s": 5.0, "selector": "#quarantine-banner"},
+    {"beat": "beat3_case", "text": "Then on every finding the critic also runs sixteen quality rules.", "duration_s": 6.0, "selector": ".phase-critic-row .rules"},
+    {"beat": "beat3_case", "text": "Did the excerpt match the raw output, is the confidence calibrated, is the cited tool in the approved plan.", "duration_s": 6.0, "selector": ".phase-critic-row .rules"},
+    {"beat": "beat3_case", "text": "One of those rules catches attackers using AI themselves: validated against a synthetic host running a local LLM.", "duration_s": 7.0, "selector": "#rule-R_16"},
+    {"beat": "beat3_case", "text": "Its decisions are pass, retry, escalate, or human review.", "duration_s": 5.0, "selector": ".phase-critic-row.escalate"},
+    {"beat": "beat3_case", "text": "Three findings escalated to me for approval, one held for disambiguation, none silently auto-approved. That is auditable autonomy.", "duration_s": 7.0, "selector": None},
 
-    # 3d cross-host (40.5s, 7 phrases) - beat 3 total: 32 + 50 + 57.5 + 40.5 = 180s
-    {"beat": "beat3_case", "text": "One more thing.", "duration_s": 2.0, "selector": ".case-header:has-text('srl-2018-base-file')"},
-    {"beat": "beat3_case", "text": "The agent ran on the file server in the same network,", "duration_s": 5.0, "selector": ".case-header:has-text('srl-2018-base-file') .case-header-name"},
-    {"beat": "beat3_case", "text": "in a separate session, with no shared state.", "duration_s": 6.0, "selector": None},
-    {"beat": "beat3_case", "text": "It found the same msadvapi2 kit.", "duration_s": 4.0, "selector": ".finding.cls-attacker_persistence:has-text('msadvapi2')"},
-    {"beat": "beat3_case", "text": "Same fake Microsoft naming pattern, same paired thirty-two and sixty-four bit service.", "duration_s": 9.5, "selector": ".finding.cls-attacker_persistence:has-text('msadvapi2') .finding-value"},
-    {"beat": "beat3_case", "text": "That cross-host signal was not engineered. The agent reached it independently on each host.", "duration_s": 8.0, "selector": None},
-    {"beat": "beat3_case", "text": "The corroboration emerges from the data, not from a heuristic.", "duration_s": 6.0, "selector": None},
+    # 3d cross-host (34s, 6 phrases) - beat 3 total: 26.5 + 43.5 + 62 + 34 = 166s
+    {"beat": "beat3_case", "text": "One more thing.", "duration_s": 2.0, "selector": ".case-header:has-text('srl-2018-base-file-dual')"},
+    {"beat": "beat3_case", "text": "The agent ran on the file server in the same network, separate session, no shared state.", "duration_s": 7.0, "selector": ".case-header:has-text('srl-2018-base-file-dual') .case-header-name"},
+    {"beat": "beat3_case", "text": "Different persistence mechanism: services masquerading as Microsoft Advanced API.", "duration_s": 6.5, "selector": [".finding.cls-attacker_persistence"]},
+    {"beat": "beat3_case", "text": "But the same powershell injection pattern, and the same C2 destination at 172.16.4.10.", "duration_s": 7.5, "selector": [".finding.cls-c2_beacon"]},
+    {"beat": "beat3_case", "text": "Two hosts, two different footholds, one shared attacker endpoint.", "duration_s": 5.5, "selector": None},
+    {"beat": "beat3_case", "text": "The corroboration emerges from the data, not from a heuristic.", "duration_s": 5.5, "selector": None},
 
     # -- beat4_loop (45s, 9 phrases) ------------------------------------------
     {"beat": "beat4_loop", "text": "And the loop closes here.", "duration_s": 3.0, "selector": "#section-rules h2"},
-    {"beat": "beat4_loop", "text": "Every night, the cron at 22:30 UTC runs the agent against fresh threat intel.", "duration_s": 6.5, "selector": "#widget-input"},
+    {"beat": "beat4_loop", "text": "Every night, the cron at 22:30 UTC runs the agent against fresh threat intel.", "duration_s": 6.5, "selector": "#widget-input #w-input-num"},
     {"beat": "beat4_loop", "text": "When it misses something, a drafter agent synthesizes a candidate rule.", "duration_s": 6.0, "selector": "#widget-queued"},
     {"beat": "beat4_loop", "text": "Today, twelve rules are waiting.", "duration_s": 3.5, "selector": "#widget-queued #w-queued-num"},
-    {"beat": "beat4_loop", "text": "I read one, decide it is safe, click approve.", "duration_s": 5.0, "selector": "#rule-card-lnk_ntlm_coercion_folder_trigger-58245f5aa9"},
+    {"beat": "beat4_loop", "text": "I read one, decide it is safe, click approve.", "duration_s": 5.0, "selector": "[id^='rule-card-']"},
     {"beat": "beat4_loop", "text": "The rule is now in the live agent's rule store.", "duration_s": 5.0, "selector": "#widget-live"},
     {"beat": "beat4_loop", "text": "Tomorrow night's run picks it up automatically.", "duration_s": 5.0, "selector": None},
     {"beat": "beat4_loop", "text": "This is not a demo, this is the production system.", "duration_s": 5.0, "selector": None},
@@ -83,7 +99,7 @@ PHRASES: list[dict] = [
     {"beat": "beat5_outro", "text": "Sift Sentinel.", "duration_s": 2.0, "selector": ".name"},
     {"beat": "beat5_outro", "text": "Live at sentinel.sshub.dev.", "duration_s": 3.5, "selector": ".row:has-text('sentinel.sshub.dev') .v"},
     {"beat": "beat5_outro", "text": "Code on GitHub at github.com/charanbobby/sift-sentinel.", "duration_s": 5.5, "selector": ".row:has-text('github.com') .v"},
-    {"beat": "beat5_outro", "text": "Built by Charan Bobby for the SANS Find Evil hackathon. Thanks for watching.", "duration_s": 4.0, "selector": ".row:has-text('Charan Bobby') .v"},
+    {"beat": "beat5_outro", "text": "Built by Sricharan Sunkara for the SANS Find Evil hackathon. Thanks for watching.", "duration_s": 4.0, "selector": ".row:has-text('Sricharan Sunkara') .v"},
 ]
 
 
@@ -100,9 +116,10 @@ def beat_total_seconds(beat: str) -> float:
 
 
 # Sanity asserts at import time so a broken edit fails fast.
-assert sum(p["duration_s"] for p in PHRASES) == 300.0, \
-    f"PHRASES must total 300s, got {sum(p['duration_s'] for p in PHRASES)}"
+# Total is 313s after Beat 3c expansion (was 300s); user accepted up to 5:10.
+assert sum(p["duration_s"] for p in PHRASES) == 313.0, \
+    f"PHRASES must total 313s, got {sum(p['duration_s'] for p in PHRASES)}"
 for _b in BEAT_ORDER:
-    _expected = {"beat1_open": 15, "beat2_architecture": 45, "beat3_case": 180, "beat4_loop": 45, "beat5_outro": 15}[_b]
+    _expected = {"beat1_open": 15, "beat2_architecture": 72, "beat3_case": 166, "beat4_loop": 45, "beat5_outro": 15}[_b]
     _actual = beat_total_seconds(_b)
     assert _actual == _expected, f"beat {_b} should sum to {_expected}s, got {_actual}"

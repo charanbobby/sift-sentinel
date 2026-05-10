@@ -93,6 +93,10 @@
         <div style="color: var(--purple); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">SAME PATTERN, THREE HOSTS</div>
         Sentinel found the same key on three different Windows machines in the same network. That is independent corroboration of one intrusion.
       </div>
+      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
+        <div style="color: var(--cyan); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">AI-USING ATTACKERS DETECTED</div>
+        An attacker who runs a local LLM on a victim host (a 7-billion-parameter model serving on port 8765, say) leaves concrete forensic evidence: SDK imports, API keys, inference-server binaries. Sift Sentinel checks for those anchors directly, validated against a synthetic AI workstation we built ourselves.
+      </div>
     </div>
   </section>
   <section class="section">
@@ -165,7 +169,7 @@ document.getElementById('now-utc').textContent = fmtUtc();
 const taglines = [
   'An AI agent that gets better every night.',
   'Hunts attackers on Windows machines, with receipts.',
-  'A study in how to make AI agents trustworthy.',
+  'Catches attackers who are using AI themselves.',
 ];
 let activeTag = 0;
 let tagTimer = null;

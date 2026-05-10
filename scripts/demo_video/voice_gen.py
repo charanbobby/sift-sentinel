@@ -35,7 +35,11 @@ def _generate_one(api_key: str, voice_id: str, voiceover: str, out_path: Path) -
     body = {
         "text": voiceover,
         "model_id": "eleven_multilingual_v2",
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "speed": 1.25,
+        },
     }
     import json
     req = urllib.request.Request(
