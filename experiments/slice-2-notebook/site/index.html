@@ -71,7 +71,7 @@
 <main id="main-root">
   <section class="hero" style="padding: 80px 32px 60px; display: flex; flex-direction: column; align-items: center; text-align: center;">
     <div style="font-size: 11px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 22px;">SIFT SENTINEL · BUILT BY SRICHARAN SUNKARA</div>
-    <h1 id="hero-tagline" style="font-size: 36px; font-weight: 700; line-height: 1.2; max-width: 700px; margin-bottom: 22px;">An AI agent that gets better every night.</h1>
+    <h1 id="hero-tagline" style="font-size: 36px; font-weight: 700; line-height: 1.2; max-width: 700px; margin-bottom: 22px;">Catches attackers who are using AI themselves.</h1>
     <div id="hero-dots" style="display: flex; gap: 8px; margin-bottom: 36px;">
       <span class="tag-dot" data-i="0" onclick="pinTagline(0)" style="width: 28px; height: 3px; background: var(--accent); border-radius: 2px; cursor: pointer;"></span>
       <span class="tag-dot" data-i="1" onclick="pinTagline(1)" style="width: 28px; height: 3px; background: var(--line); border-radius: 2px; cursor: pointer;"></span>
@@ -85,6 +85,10 @@
     <h3>Reads a Windows machine and tells you who broke in.</h3>
     <p class="body">Sift Sentinel takes a forensic image of a compromised Windows computer and works through it the way a human investigator would. It looks at the registry, scheduled tasks, services, and memory. It writes down what it found, with the exact file or registry key as proof. Every claim is cited. Then it grades itself: did it find the real attacker, or did it miss?</p>
     <div style="display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap;">
+      <div style="background: var(--surface); border: 1px solid var(--cyan); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
+        <div style="color: var(--cyan); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">AI-USING ATTACKERS DETECTED</div>
+        On 2026-04-30 the nightly loop caught an attacker planting <code style="color: var(--amber); font-size: 11px;">llama-server.exe</code> with a <code style="color: var(--amber); font-size: 11px;">.gguf</code> model file via a registry Run-key. The agent named the persistence mechanism, the binary, and the model file. AI-using attackers leave concrete forensic evidence (inference-server binaries, model weights in unexpected locations, prompt-injection in registry values); we hunt for those anchors directly.
+      </div>
       <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
         <div style="color: var(--accent); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">EXAMPLE FROM A REAL RUN</div>
         A registry key on a workstation pointing to <code style="color: var(--amber); font-size: 11px;">c:\windows\system32\dllhost\svchost.exe</code>. There is no real folder by that name; the attacker hid a fake svchost there.
@@ -92,10 +96,6 @@
       <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
         <div style="color: var(--purple); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">SAME PATTERN, THREE HOSTS</div>
         Sentinel found the same key on three different Windows machines in the same network. That is independent corroboration of one intrusion.
-      </div>
-      <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 12px; color: var(--muted); flex: 1; min-width: 280px;">
-        <div style="color: var(--cyan); font-weight: 600; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em;">AI-USING ATTACKERS DETECTED</div>
-        An attacker who runs a local LLM on a victim host (a 7-billion-parameter model serving on port 8765, say) leaves concrete forensic evidence: SDK imports, API keys, inference-server binaries. Sift Sentinel checks for those anchors directly, validated against a synthetic AI workstation we built ourselves.
       </div>
     </div>
   </section>
@@ -167,9 +167,9 @@ function fmtUtc() {
 document.getElementById('now-utc').textContent = fmtUtc();
 
 const taglines = [
+  'Catches attackers who are using AI themselves.',
   'An AI agent that gets better every night.',
   'Hunts attackers on Windows machines, with receipts.',
-  'Catches attackers who are using AI themselves.',
 ];
 let activeTag = 0;
 let tagTimer = null;
