@@ -12,12 +12,22 @@ from ..phrases import phrases_for
 from ._helpers import highlight, unhighlight
 
 
-async def record(page: Page) -> None:
+async def record(page: Page, on_setup_done=None) -> None:
     await page.goto(f"{SITE_URL}/site/dashboard.html?cb=demo-beat4")
-    await page.wait_for_load_state("networkidle")
+    await page.wait_for_load_state("domcontentloaded")
     await page.wait_for_function(
-        "() => document.querySelectorAll('[id^=\"rule-card-\"]').length > 0"
+        "() => document.querySelectorAll('[id^=\"rule-card-\"]').length > 0",
+        timeout=10000,
     )
+    # Pick the FIRST currently-queued rule at runtime so we never go stale.
+    # (Every recording promotes the picked rule, removing it from the queue.)
+    rule_id_full = await page.evaluate(
+        "() => document.querySelector('[id^=\"rule-card-\"]')?.id"
+    )
+    rule_id = rule_id_full.replace("rule-card-", "") if rule_id_full else None
+    if not rule_id:
+        raise RuntimeError("no queued rule cards found on dashboard")
+
     # Scroll past hero into the drafted-rules section so the widgets are in
     # view for the first phrases.
     await page.evaluate(
@@ -27,6 +37,8 @@ async def record(page: Page) -> None:
         }"""
     )
     await asyncio.sleep(0.4)
+    if on_setup_done is not None:
+        await on_setup_done()
 
     for phrase in phrases_for("beat4_loop"):
         text = phrase["text"]
@@ -36,14 +48,14 @@ async def record(page: Page) -> None:
         # now in the live agent's rule store", actually open + confirm the modal.
         if text.startswith("I read one"):
             await page.evaluate(
-                f"document.getElementById('rule-card-{RULE_ID_FOR_PROMOTE}')"
+                f"document.getElementById('rule-card-{rule_id}')"
                 f"?.scrollIntoView({{behavior: 'smooth', block: 'center'}})"
             )
             await asyncio.sleep(0.5)
         elif text.startswith("The rule is now"):
-            await page.evaluate(f"openApproveModal('{RULE_ID_FOR_PROMOTE}', CURRENT_DATE)")
+            await page.evaluate(f"openApproveModal('{rule_id}', CURRENT_DATE)")
             await asyncio.sleep(0.6)
-            await page.evaluate(f"confirmPromote('{RULE_ID_FOR_PROMOTE}', CURRENT_DATE)")
+            await page.evaluate(f"confirmPromote('{rule_id}', CURRENT_DATE)")
             await asyncio.sleep(0.4)
 
         if phrase["selector"]:

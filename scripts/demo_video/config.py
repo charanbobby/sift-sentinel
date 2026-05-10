@@ -18,19 +18,18 @@ VIEWPORT_WIDTH = 1920
 VIEWPORT_HEIGHT = 1080
 FRAMERATE = 30
 
-# Beat duration budget in seconds. Total is 313s (5:13); user accepted up to 5:10 plus a small overage.
-# 2026-05-10: Beat 3c expanded again to add an AI-USING attacker callout
-# tied to R_16 (AI_ASSIST_ANCHOR_MISSING) plus a synthetic-validation note.
-# Combined with the earlier T1033 + 16-rules expansion this is +13s vs the
-# original 300s budget. TTS pace bumped to 1.25 in voice_gen.py.
+# Beat duration budget in seconds. Total is 325s (5:25); user accepted.
+# 2026-05-10: Beat 4 grew to 57s with PLANT + HUNT phrases inserted so the
+# learning loop reads as read-plant-hunt-score-learn, not the compressed
+# read-then-learn that hid the synthetic-host re-run differentiator.
 DURATIONS = {
     "beat1_open": 15,
-    "beat2_architecture": 72,
-    "beat3_case": 166,
-    "beat4_loop": 45,
-    "beat5_outro": 15,
+    "beat2_architecture": 75,
+    "beat3_case": 168,
+    "beat4_loop": 57,
+    "beat5_outro": 14,
 }
-assert sum(DURATIONS.values()) == 313, "beat durations must sum to 313 seconds"
+assert sum(DURATIONS.values()) == 329, "beat durations must sum to 329 seconds"
 
 OUT_DIR = Path(__file__).resolve().parents[2] / "out" / "demo_video"
 OUT_DIR.mkdir(parents=True, exist_ok=True)

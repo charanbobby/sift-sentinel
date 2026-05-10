@@ -49,10 +49,20 @@ async def _setup_for_beat(page, beat: str) -> None:
     elif beat == "beat2_architecture":
         await page.goto(f"{SITE_URL}/site/architecture.html")
         await page.wait_for_load_state("domcontentloaded")
+        # Expand all collapsed topology sections so inner rows are queryable.
+        await page.evaluate(
+            "() => document.querySelectorAll('.topology-section.collapsible.collapsed .rsec-head').forEach(h => h.click())"
+        )
+        await asyncio.sleep(0.4)
     elif beat == "beat3_case":
         await page.goto(f"{SITE_URL}/viewer/")
         await page.wait_for_load_state("domcontentloaded")
         await page.wait_for_function("() => typeof toggleCase === 'function'")
+        # Wait for the case catalogue to populate so toggleCase can find the row.
+        await page.wait_for_function(
+            f"() => document.querySelector('.case-header') && Array.from(document.querySelectorAll('.case-header')).some(h => h.textContent.includes('{CASE_ID}'))",
+            timeout=15000,
+        )
         await page.evaluate(f"toggleCase('{CASE_ID}')")
         await asyncio.sleep(0.5)
         await page.evaluate(f"loadRun('{CASE_ID}', '{RUN_ID}')")
@@ -85,23 +95,27 @@ async def main() -> int:
                 sel = phrase["selector"]
                 if not sel:
                     continue
+                # Selector may be a string OR a list (multi-element). Normalize.
+                sel_list = sel if isinstance(sel, list) else [sel]
+                first_sel = sel_list[0]
                 # For beat3, switch tabs as needed before checking the selector.
                 if beat == "beat3_case":
-                    if sel.startswith("[data-tab='evidence']") or sel.startswith(".evidence-record"):
+                    if first_sel.startswith("[data-tab='evidence']") or first_sel.startswith(".ev-record"):
                         await page.evaluate('document.querySelector(\'[data-tab="evidence"]\')?.click()')
                         await asyncio.sleep(0.3)
-                    elif sel.startswith("[data-tab='pipeline']") or sel.startswith(".pipeline-event"):
+                    elif first_sel.startswith("[data-tab='pipeline']") or first_sel.startswith(".phase-"):
                         await page.evaluate('document.querySelector(\'[data-tab="pipeline"]\')?.click()')
                         await asyncio.sleep(0.3)
-                    elif sel.startswith(".case-header:has-text('srl-2018-base-file')") or sel.startswith(".finding.cls-attacker_persistence:has-text('msadvapi2')"):
+                    elif "srl-2018-base-file" in first_sel:
                         # Switch back to findings + load second run for these selectors
                         await page.evaluate('document.querySelector(\'[data-tab="findings"]\')?.click()')
                         await asyncio.sleep(0.2)
                         await page.evaluate(f"loadRun('{SECOND_CASE_ID}', '{SECOND_RUN_ID}')")
                         await asyncio.sleep(1.0)
-                found = await page.evaluate(_FIND_EL_JS, sel)
-                if not found:
-                    misses_by_beat.setdefault(beat, []).append(sel + "   (phrase: " + phrase["text"][:60] + ")")
+                for one in sel_list:
+                    found = await page.evaluate(_FIND_EL_JS, one)
+                    if not found:
+                        misses_by_beat.setdefault(beat, []).append(one + "   (phrase: " + phrase["text"][:60] + ")")
             await page.close()
         await browser.close()
 

@@ -1,47 +1,55 @@
-"""Generate ElevenLabs voice for each beat. One MP3 per beat. Run AFTER
-Phase D.5 review-gate signoff. This is the only paid step in the pipeline.
+"""Generate ElevenLabs voice for each PHRASE (not each beat).
+
+Per-phrase generation gives the assembler exact audio start times: each
+phrase MP3 is positioned at its phrase boundary inside the silent video,
+padded with silence to fill the budget. Voice and captions stay in sync.
+
+ElevenLabs charges by character regardless of call count, so 62 small
+calls cost the same as 5 large ones. Cache-first: any existing
+voice_<beat>_<idx>.mp3 is skipped, so a re-run only bills missing phrases.
 
 Env vars required:
     ELEVENLABS_API_KEY       Charan's ElevenLabs API key
     ELEVENLABS_VOICE_ID      Charan's voice clone ID
 
 Usage:
-    python -m scripts.demo_video.voice_gen           # all beats
-    python -m scripts.demo_video.voice_gen beat1_open  # one beat
+    python -m scripts.demo_video.voice_gen           # all phrases
+    python -m scripts.demo_video.voice_gen beat1_open  # phrases of one beat
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
-from pathlib import Path
-
-import urllib.request
 import urllib.error
+import urllib.request
+from pathlib import Path
 
 from .phrases import PHRASES, BEAT_ORDER
 from .config import OUT_DIR
 
 
-def _voiceover_for_beat(beat_name: str) -> str:
-    """Concatenate all phrases in this beat into the voice line."""
-    return " ".join(p["text"] for p in PHRASES if p["beat"] == beat_name)
-
-
 API_URL_TEMPLATE = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
 
-def _generate_one(api_key: str, voice_id: str, voiceover: str, out_path: Path) -> None:
+def phrase_voice_path(beat_name: str, idx_in_beat: int) -> Path:
+    """Stable per-phrase MP3 path. idx_in_beat is the phrase's 0-based
+    position within its beat (00, 01, ...).
+    """
+    return OUT_DIR / f"voice_{beat_name}_{idx_in_beat:02d}.mp3"
+
+
+def _generate_one(api_key: str, voice_id: str, text: str, out_path: Path) -> None:
     body = {
-        "text": voiceover,
+        "text": text,
         "model_id": "eleven_multilingual_v2",
         "voice_settings": {
             "stability": 0.5,
             "similarity_boost": 0.75,
-            "speed": 1.25,
+            "speed": 1.0,
         },
     }
-    import json
     req = urllib.request.Request(
         API_URL_TEMPLATE.format(voice_id=voice_id),
         method="POST",
@@ -52,32 +60,45 @@ def _generate_one(api_key: str, voice_id: str, voiceover: str, out_path: Path) -
             "accept": "audio/mpeg",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        out_path.write_bytes(resp.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            out_path.write_bytes(resp.read())
+    except urllib.error.HTTPError as e:
+        body_txt = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"ElevenLabs HTTP {e.code}: {body_txt}") from None
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("beat", nargs="?", help="beat name; omit to generate all")
+    ap.add_argument("beat", nargs="?", help="beat name; omit to generate all phrases")
     args = ap.parse_args()
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
     if not api_key or not voice_id:
         print("ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID env vars required", file=sys.stderr)
         return 2
-    selected = [b for b in BEAT_ORDER if (args.beat is None or b == args.beat)]
-    if not selected:
+    selected_beats = [b for b in BEAT_ORDER if (args.beat is None or b == args.beat)]
+    if not selected_beats:
         print(f"unknown beat {args.beat!r}", file=sys.stderr)
         return 1
-    for beat_name in selected:
-        out_path = OUT_DIR / f"voice_{beat_name}.mp3"
-        if out_path.exists():
-            print(f"skip {beat_name} (already exists at {out_path}); delete to regenerate")
-            continue
-        text = _voiceover_for_beat(beat_name)
-        print(f"generating {beat_name} -> {out_path} ({len(text)} chars)")
-        _generate_one(api_key, voice_id, text, out_path)
-        print(f"  wrote {out_path.stat().st_size} bytes")
+
+    total_chars = 0
+    generated = 0
+    skipped = 0
+    for beat_name in selected_beats:
+        beat_phrases = [p for p in PHRASES if p["beat"] == beat_name]
+        for idx, phrase in enumerate(beat_phrases):
+            out_path = phrase_voice_path(beat_name, idx)
+            text = phrase["text"]
+            if out_path.exists():
+                skipped += 1
+                continue
+            print(f"generating {beat_name}[{idx:02d}] -> {out_path.name} ({len(text)} chars)")
+            _generate_one(api_key, voice_id, text, out_path)
+            print(f"  wrote {out_path.stat().st_size} bytes")
+            total_chars += len(text)
+            generated += 1
+    print(f"done: generated={generated} skipped={skipped} chars_billed={total_chars}")
     return 0
 
 

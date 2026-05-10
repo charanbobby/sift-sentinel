@@ -34,6 +34,18 @@ async def _record(beat_name: str) -> Path:
                 record_video_dir=str(raw_dir),
                 record_video_size={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT},
             )
+            # Kill chromium's white default background that flashes during
+            # navigation gaps. Inject a dark stylesheet into every document
+            # before any user JS runs.
+            await context.add_init_script(
+                # Dark default body color so chromium's white default does not
+                # flash during navigation gaps. NO !important so the page's
+                # own stylesheet (e.g. the dashboard's radial gradient) wins
+                # once it loads. Inline-styled at documentElement so the
+                # color applies BEFORE the body element exists.
+                "document.documentElement.style.backgroundColor = '#0b1020';"
+                "document.documentElement.style.color = '#f8fafc';"
+            )
             page = await context.new_page()
             try:
                 await scene_module.record(page)

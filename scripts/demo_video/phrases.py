@@ -28,12 +28,12 @@ PHRASES: list[dict] = [
     {"beat": "beat2_architecture", "text": "Below the topology: how the two are actually wired together.", "duration_s": 5.0, "selector": ".shared-label:has-text('how the two are connected')"},
     {"beat": "beat2_architecture", "text": "A shared Docker volume named sift-home holds extracted artifacts.", "duration_s": 5.5, "selector": ".mono-inline:has-text('sift-home')"},
     {"beat": "beat2_architecture", "text": "And the raw evidence bind-mounts in read-only, only on the tool side.", "duration_s": 5.0, "selector": ".mono-inline:has-text('/mnt/hackathon:ro')"},
-    {"beat": "beat2_architecture", "text": "If a hijacked agent tried to reach the host filesystem, it cannot.", "duration_s": 2.0, "selector": ".pb-body:has-text('no forensic tools installed')"},
+    {"beat": "beat2_architecture", "text": "If a hijacked agent tried to reach the host filesystem, it cannot.", "duration_s": 4.0, "selector": ".pb-body:has-text('no forensic tools installed')"},
     # Pipeline phases walkthrough (12s, 3 phrases). The agent's runtime is
     # a six-phase pipeline; each phase has structured output the next consumes.
     {"beat": "beat2_architecture", "text": "Now, how the agent actually runs.", "duration_s": 3.0, "selector": "h2:has-text('The pipeline')"},
     {"beat": "beat2_architecture", "text": "Six phases: extract, plan, gates, execute, interpret, critic.", "duration_s": 6.0, "selector": ["div.name"]},
-    {"beat": "beat2_architecture", "text": "Each phase produces structured output the next phase consumes.", "duration_s": 3.0, "selector": ["div.name"]},
+    {"beat": "beat2_architecture", "text": "Each phase produces structured output the next phase consumes.", "duration_s": 4.0, "selector": ["div.name"]},
 
     # -- beat3_case (153s, trimmed by 12s for Beat 2 pipeline walkthrough) ---
     # PRIMARY case: srl-2018-base-rd-01-dual (RDP server, dual channel)
@@ -58,7 +58,7 @@ PHRASES: list[dict] = [
     {"beat": "beat3_case", "text": "Now the injection finding, in memory.", "duration_s": 4.0, "selector": ".ev-record:has-text('malfind')"},
     {"beat": "beat3_case", "text": "Powershell with multiple writable, executable memory regions and an empty command line. That combination does not happen in legitimate use.", "duration_s": 9.0, "selector": None},
     {"beat": "beat3_case", "text": "Disk found persistence, memory confirms the injected process running.", "duration_s": 5.5, "selector": ".channel-pill.channel-dual"},
-    {"beat": "beat3_case", "text": "And the C2 beacon: an established connection to 172.16.4.10 on port 8080.", "duration_s": 6.0, "selector": [".finding.cls-c2_beacon"]},
+    {"beat": "beat3_case", "text": "And the C2 beacon: an established connection to 172.16.4.10 on port 8080.", "duration_s": 7.0, "selector": [".finding.cls-c2_beacon"]},
 
     # 3c critic + self-correction (62s, 12 phrases). T1033 selectors point at
     # #quarantine-banner; viewer was changed to render the banner even when
@@ -74,7 +74,7 @@ PHRASES: list[dict] = [
     {"beat": "beat3_case", "text": "Did the excerpt match the raw output, is the confidence calibrated, is the cited tool in the approved plan.", "duration_s": 6.0, "selector": ".phase-critic-row .rules"},
     {"beat": "beat3_case", "text": "One of those rules catches attackers using AI themselves: validated against a synthetic host running a local LLM.", "duration_s": 7.0, "selector": "#rule-R_16"},
     {"beat": "beat3_case", "text": "Its decisions are pass, retry, escalate, or human review.", "duration_s": 5.0, "selector": ".phase-critic-row.escalate"},
-    {"beat": "beat3_case", "text": "Three findings escalated to me for approval, one held for disambiguation, none silently auto-approved. That is auditable autonomy.", "duration_s": 7.0, "selector": None},
+    {"beat": "beat3_case", "text": "Three findings escalated to me for approval, one held for disambiguation, none silently auto-approved. That is auditable autonomy.", "duration_s": 8.0, "selector": None},
 
     # 3d cross-host (34s, 6 phrases) - beat 3 total: 26.5 + 43.5 + 62 + 34 = 166s
     {"beat": "beat3_case", "text": "One more thing.", "duration_s": 2.0, "selector": ".case-header:has-text('srl-2018-base-file-dual')"},
@@ -84,9 +84,14 @@ PHRASES: list[dict] = [
     {"beat": "beat3_case", "text": "Two hosts, two different footholds, one shared attacker endpoint.", "duration_s": 5.5, "selector": None},
     {"beat": "beat3_case", "text": "The corroboration emerges from the data, not from a heuristic.", "duration_s": 5.5, "selector": None},
 
-    # -- beat4_loop (45s, 9 phrases) ------------------------------------------
+    # -- beat4_loop (57s, 11 phrases) -----------------------------------------
+    # PLANT + HUNT phrases added so the loop is read-plant-hunt-score-learn,
+    # not just read-then-learn. The plant + rerun step is the actual learning
+    # mechanism and the differentiator vs "human approves what agent missed".
     {"beat": "beat4_loop", "text": "And the loop closes here.", "duration_s": 3.0, "selector": "#section-rules h2"},
-    {"beat": "beat4_loop", "text": "Every night, the cron at 22:30 UTC runs the agent against fresh threat intel.", "duration_s": 6.5, "selector": "#widget-input #w-input-num"},
+    {"beat": "beat4_loop", "text": "Every night, the cron at 22:30 UTC reads fresh threat intel,", "duration_s": 6.0, "selector": "#widget-input #w-input-num"},
+    {"beat": "beat4_loop", "text": "plants the new tradecraft on a synthetic Windows host,", "duration_s": 5.5, "selector": None},
+    {"beat": "beat4_loop", "text": "then runs the agent against that planted host to see what it catches and what it misses.", "duration_s": 7.0, "selector": "#widget-result"},
     {"beat": "beat4_loop", "text": "When it misses something, a drafter agent synthesizes a candidate rule.", "duration_s": 6.0, "selector": "#widget-queued"},
     {"beat": "beat4_loop", "text": "Today, twelve rules are waiting.", "duration_s": 3.5, "selector": "#widget-queued #w-queued-num"},
     {"beat": "beat4_loop", "text": "I read one, decide it is safe, click approve.", "duration_s": 5.0, "selector": "[id^='rule-card-']"},
@@ -95,11 +100,13 @@ PHRASES: list[dict] = [
     {"beat": "beat4_loop", "text": "This is not a demo, this is the production system.", "duration_s": 5.0, "selector": None},
     {"beat": "beat4_loop", "text": "The whole loop runs on the same dashboard you are watching.", "duration_s": 6.0, "selector": None},
 
-    # -- beat5_outro (15s, 4 phrases) -----------------------------------------
+    # -- beat5_outro (14s, 4 phrases) -----------------------------------------
+    # Final phrase tightened from the long credit to "Thanks for watching." -
+    # the full attribution lives on the end card visually, no need to repeat it.
     {"beat": "beat5_outro", "text": "Sift Sentinel.", "duration_s": 2.0, "selector": ".name"},
     {"beat": "beat5_outro", "text": "Live at sentinel.sshub.dev.", "duration_s": 3.5, "selector": ".row:has-text('sentinel.sshub.dev') .v"},
     {"beat": "beat5_outro", "text": "Code on GitHub at github.com/charanbobby/sift-sentinel.", "duration_s": 5.5, "selector": ".row:has-text('github.com') .v"},
-    {"beat": "beat5_outro", "text": "Built by Sricharan Sunkara for the SANS Find Evil hackathon. Thanks for watching.", "duration_s": 4.0, "selector": ".row:has-text('Sricharan Sunkara') .v"},
+    {"beat": "beat5_outro", "text": "Thanks for watching.", "duration_s": 3.0, "selector": None},
 ]
 
 
@@ -116,10 +123,11 @@ def beat_total_seconds(beat: str) -> float:
 
 
 # Sanity asserts at import time so a broken edit fails fast.
-# Total is 313s after Beat 3c expansion (was 300s); user accepted up to 5:10.
-assert sum(p["duration_s"] for p in PHRASES) == 313.0, \
-    f"PHRASES must total 313s, got {sum(p['duration_s'] for p in PHRASES)}"
+# Total is 329s (5:28) after 4 phrase budgets bumped to fit ElevenLabs
+# voice at 1.0 speed (no voice re-bill, only visual budgets changed).
+assert sum(p["duration_s"] for p in PHRASES) == 329.0, \
+    f"PHRASES must total 329s, got {sum(p['duration_s'] for p in PHRASES)}"
 for _b in BEAT_ORDER:
-    _expected = {"beat1_open": 15, "beat2_architecture": 72, "beat3_case": 166, "beat4_loop": 45, "beat5_outro": 15}[_b]
+    _expected = {"beat1_open": 15, "beat2_architecture": 75, "beat3_case": 168, "beat4_loop": 57, "beat5_outro": 14}[_b]
     _actual = beat_total_seconds(_b)
     assert _actual == _expected, f"beat {_b} should sum to {_expected}s, got {_actual}"
