@@ -931,7 +931,7 @@ function quarantineBanner(r) {
           <code style="color:var(--purple)">${escHtml(f.pattern_id || 'unknown')}</code>
           <span style="color:var(--muted)">in</span>
           <code>${escHtml(f.field_path || '?')}</code>
-          <div style="margin-top:3px;color:var(--muted);font-family:monospace;font-size:10.5px;background:rgba(0,0,0,0.25);padding:4px 6px;border-radius:3px;white-space:pre-wrap;word-break:break-all">${escHtml(excerpt)}${(f.excerpt||'').length>140?'…':''}</div>
+          <div class="injection-excerpt" style="margin-top:3px;color:var(--muted);font-family:monospace;font-size:10.5px;background:rgba(0,0,0,0.25);padding:4px 6px;border-radius:3px;white-space:pre-wrap;word-break:break-all">${escHtml(excerpt)}${(f.excerpt||'').length>140?'…':''}</div>
         </div>`);
     }
   }

@@ -12,7 +12,7 @@ from playwright.async_api import Page
 
 from ..config import SITE_URL, CASE_ID, RUN_ID, SECOND_CASE_ID, SECOND_RUN_ID
 from ..phrases import phrases_for
-from ._helpers import highlight, unhighlight, highlight_many, unhighlight_many
+from ._helpers import highlight, unhighlight, highlight_many, unhighlight_many, reset_phrase_clock, sleep_until_phrase_end
 
 
 async def record(page: Page, on_setup_done=None) -> None:
@@ -24,6 +24,8 @@ async def record(page: Page, on_setup_done=None) -> None:
     await asyncio.sleep(0.4)
     if on_setup_done is not None:
         await on_setup_done()
+    reset_phrase_clock()
+    cumulative = 0.0
 
     for phrase in phrases_for("beat3_case"):
         text = phrase["text"]
@@ -43,6 +45,13 @@ async def record(page: Page, on_setup_done=None) -> None:
             await asyncio.sleep(0.3)
         elif text.startswith("Click the citation"):
             await page.evaluate('document.querySelector(\'[data-tab="evidence"]\')?.click()')
+            await asyncio.sleep(0.3)
+        elif text.startswith("And the C2 beacon"):
+            # We left the Findings tab back at "Click the citation" to show
+            # raw evidence. The C2 phrase points at the .finding.cls-c2_beacon
+            # card, which only renders on the Findings tab; switch back so
+            # the highlight has something to land on.
+            await page.evaluate('document.querySelector(\'[data-tab="findings"]\')?.click()')
             await asyncio.sleep(0.3)
         elif text.startswith("Now the self-correction"):
             await page.evaluate('document.querySelector(\'[data-tab="pipeline"]\')?.click()')
@@ -83,7 +92,8 @@ async def record(page: Page, on_setup_done=None) -> None:
                 await highlight_many(page, sel)
             else:
                 await highlight(page, sel)
-        await asyncio.sleep(phrase["duration_s"])
+        cumulative += phrase["duration_s"]
+        await sleep_until_phrase_end(cumulative)
         if sel:
             if isinstance(sel, list):
                 await unhighlight_many(page, sel)

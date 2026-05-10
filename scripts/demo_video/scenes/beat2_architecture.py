@@ -14,7 +14,7 @@ from playwright.async_api import Page
 
 from ..config import SITE_URL
 from ..phrases import phrases_for
-from ._helpers import highlight, unhighlight, highlight_many, unhighlight_many
+from ._helpers import highlight, unhighlight, highlight_many, unhighlight_many, reset_phrase_clock, sleep_until_phrase_end
 
 
 async def record(page: Page, on_setup_done=None) -> None:
@@ -57,6 +57,8 @@ async def record(page: Page, on_setup_done=None) -> None:
     await asyncio.sleep(0.4)
     if on_setup_done is not None:
         await on_setup_done()
+    reset_phrase_clock()
+    cumulative = 0.0
     for phrase in phrases_for("beat2_architecture"):
         # Mid-beat scroll: when transitioning to "how the two are connected"
         # subsection, scroll down so the rows below are visible.
@@ -68,7 +70,6 @@ async def record(page: Page, on_setup_done=None) -> None:
                     if (lab) lab.scrollIntoView({behavior: 'smooth', block: 'center'});
                 }"""
             )
-            await asyncio.sleep(0.3)
         # Pipeline section: scroll up to "The pipeline" h2 when this subbeat starts.
         if phrase["text"].startswith("Now, how the agent actually runs"):
             await page.evaluate(
@@ -78,14 +79,14 @@ async def record(page: Page, on_setup_done=None) -> None:
                     if (h2) h2.scrollIntoView({behavior: 'smooth', block: 'start'});
                 }"""
             )
-            await asyncio.sleep(0.4)
         sel = phrase["selector"]
         if sel:
             if isinstance(sel, list):
                 await highlight_many(page, sel)
             else:
                 await highlight(page, sel)
-        await asyncio.sleep(phrase["duration_s"])
+        cumulative += phrase["duration_s"]
+        await sleep_until_phrase_end(cumulative)
         if sel:
             if isinstance(sel, list):
                 await unhighlight_many(page, sel)

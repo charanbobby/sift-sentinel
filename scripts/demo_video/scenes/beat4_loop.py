@@ -9,7 +9,7 @@ from playwright.async_api import Page
 
 from ..config import SITE_URL, RULE_ID_FOR_PROMOTE
 from ..phrases import phrases_for
-from ._helpers import highlight, unhighlight
+from ._helpers import highlight, unhighlight, reset_phrase_clock, sleep_until_phrase_end
 
 
 async def record(page: Page, on_setup_done=None) -> None:
@@ -39,6 +39,8 @@ async def record(page: Page, on_setup_done=None) -> None:
     await asyncio.sleep(0.4)
     if on_setup_done is not None:
         await on_setup_done()
+    reset_phrase_clock()
+    cumulative = 0.0
 
     for phrase in phrases_for("beat4_loop"):
         text = phrase["text"]
@@ -51,15 +53,13 @@ async def record(page: Page, on_setup_done=None) -> None:
                 f"document.getElementById('rule-card-{rule_id}')"
                 f"?.scrollIntoView({{behavior: 'smooth', block: 'center'}})"
             )
-            await asyncio.sleep(0.5)
         elif text.startswith("The rule is now"):
             await page.evaluate(f"openApproveModal('{rule_id}', CURRENT_DATE)")
-            await asyncio.sleep(0.6)
             await page.evaluate(f"confirmPromote('{rule_id}', CURRENT_DATE)")
-            await asyncio.sleep(0.4)
 
         if phrase["selector"]:
             await highlight(page, phrase["selector"])
-        await asyncio.sleep(phrase["duration_s"])
+        cumulative += phrase["duration_s"]
+        await sleep_until_phrase_end(cumulative)
         if phrase["selector"]:
             await unhighlight(page, phrase["selector"])

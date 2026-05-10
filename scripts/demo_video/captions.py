@@ -21,13 +21,16 @@ def _hms(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def build_srt(lead_in_s: float = 1.5, gap_s: float = 0.15) -> str:
+def build_srt(lead_in_s: float = 0.0, gap_s: float = 0.15) -> str:
     """Build the full SRT covering every phrase. Each cue starts at the
     cumulative beat-relative offset and ends `gap_s` seconds before the
     next phrase begins (so cues do not visually overlap).
 
-    The very first phrase of the video starts at `lead_in_s` so the cold
-    open has a brief silent moment.
+    Default lead_in_s = 0: caption phrase 0 starts at video_t=0 so it
+    aligns with audio phrase 0 (which assemble_voiced positions at
+    audio_t=0). The earlier 1.5s lead-in caused captions to drift 1.5s
+    behind audio, making each caption look like it belonged to the
+    previous voice line for the dense beats.
     """
     cues: list[tuple[float, float, str]] = []
     cumulative = 0.0

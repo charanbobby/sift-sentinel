@@ -2,10 +2,40 @@
 
 highlight() draws an outlined box around the first element matching `selector`.
 unhighlight() removes the box. Both are no-ops if the selector does not match.
+
+sleep_until_phrase_end() anchors each phrase's end to absolute scene time so
+per-phrase overhead (highlight evaluate roundtrips, scrollIntoView animations,
+intercept JS) cannot accumulate into cumulative drift across the beat.
 """
 from __future__ import annotations
 
+import asyncio
+import time
+
 from playwright.async_api import Page
+
+
+_loop_start_time: float | None = None
+
+
+def reset_phrase_clock() -> None:
+    """Call once at the top of a beat's phrase loop. Subsequent
+    sleep_until_phrase_end calls measure relative to this anchor."""
+    global _loop_start_time
+    _loop_start_time = time.monotonic()
+
+
+async def sleep_until_phrase_end(cumulative_end_s: float) -> None:
+    """Sleep until scene_t == cumulative_end_s relative to the loop anchor.
+    If we're already past the deadline, return immediately (drift past the
+    deadline is unrecoverable, but at least the next phrase resets to its
+    own anchor instead of compounding)."""
+    if _loop_start_time is None:
+        raise RuntimeError("call reset_phrase_clock() before sleep_until_phrase_end")
+    elapsed = time.monotonic() - _loop_start_time
+    remaining = cumulative_end_s - elapsed
+    if remaining > 0:
+        await asyncio.sleep(remaining)
 
 
 HIGHLIGHT_COLOR = "#60a5fa"  # blue, matches dashboard accent
