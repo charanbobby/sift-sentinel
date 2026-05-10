@@ -550,7 +550,7 @@ const RULE_REFERENCE = {
   R_11: { name: 'CLASSIFICATION_MISSING',  summary: 'Finding has no classification, or classification is invalid.' },
   R_12: { name: 'ABSENCE_UNSUBSTANTIATED', summary: 'Negative claim made before all tools that could have shown it ran cleanly.' },
   R_13: { name: 'TEMPORAL_CONSISTENCY',    summary: 'Reserved hook, activated once RegRipper hive_lastwrite metadata lands.' },
-  R_14: { name: '(reserved)',              summary: 'Reserved — citation gate mechanism present, activation deferred.' },
+  R_14: { name: 'CITATION_GATE',           summary: 'Mechanism landed 2026-04-24 (parser + UNCITED_CLAIM code). When activated, partners with R_11: every rule-out claim in notes will need an inline [ev:tool_call_id] pointing to real evidence, blocking free-text hallucination on attacker_persistence findings. Activation deferred.' },
   R_15: { name: 'LOW_CONF_AUTO_ESCALATE',  summary: 'Low-confidence finding auto-routed to human_review (Slice 6 L3 rubric).' },
   R_16: { name: 'AI_ASSIST_ANCHOR_MISSING', summary: 'AI-USING attacker finding cited without a concrete LLM/SDK/API-key anchor; blocks stylometric guessing.' },
   R_17: { name: 'PLAN_COVERAGE',           summary: 'Finding requires a primary tool the approved plan never ran; coverage gap.' },
@@ -1509,7 +1509,7 @@ function renderPipeline() {
   // anywhere in the page jump-link to it.
   const ruleRefHtml = `
     <details id="rule-reference-details" style="margin-top:18px">
-      <summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:4px 0">▸ Rule reference (R_01 … R_16) — what each critic rule checks</summary>
+      <summary style="cursor:pointer;color:var(--muted);font-size:11px;padding:4px 0">▸ Rule reference (R_01 … R_17), what each critic rule checks</summary>
       <div style="margin-top:8px;border-left:2px solid var(--border);padding-left:12px">
         ${Object.entries(RULE_REFERENCE).map(([rid, rr]) => `
           <div id="rule-${escHtml(rid)}" style="display:grid;grid-template-columns:60px 220px 1fr;gap:10px;padding:4px 0;font-size:11.5px;border-bottom:1px solid rgba(255,255,255,0.04);border-radius:3px">
