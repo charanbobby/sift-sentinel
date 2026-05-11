@@ -1,0 +1,14 @@
+{
+  "name": "build-submission-pdf",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Render docs/submission/devpost-description.md to a polished editorial PDF.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "marked": "^14.1.3",
+    "puppeteer-core": "^23.6.0"
+  }
+}

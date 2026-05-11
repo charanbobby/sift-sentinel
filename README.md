@@ -106,28 +106,66 @@ Per the contest [rules](docs/reference/hackathon/rules.md), all eight components
 
 Two paths, depending on how much you want to set up.
 
-### Path A: clone + run on your own E01 (recommended for judges)
+### Path A: live deployment (no install)
 
-```bash
-git clone https://github.com/charanbobby/sift-sentinel.git
-cd sift-sentinel
-docker compose up -d
-# point the orchestrator at any Windows E01 + optional memory dump:
-docker compose exec sift-sentinel python experiments/slice-2-notebook/run_case.py \
-  --case-id my-case \
-  --disk /workspace/inputs/your-disk.E01 \
-  --memory /workspace/inputs/your-memory.img
-```
+- Browse every curated case end to end (tool plan, evidence, findings, critic disagreements, integrity ledger): [https://sentinel.sshub.dev/site/dashboard.html](https://sentinel.sshub.dev/site/dashboard.html)
+- For-judges walk-through: [https://sentinel.sshub.dev/site/submission.html](https://sentinel.sshub.dev/site/submission.html)
 
-Open the run viewer at `http://localhost:8080/viewer/`. Full step-by-step setup notes live in [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md).
+The dashboard is the fastest way to verify what the agent does. Every run is browsable; click into any case to see the four trust boundaries in action on real evidence.
+
+### Path B: clone + run on your own E01 (Docker Desktop)
+
+1. **Clone the repo and drop evidence in place.**
+
+   ```bash
+   git clone https://github.com/charanbobby/sift-sentinel.git
+   cd sift-sentinel
+   ```
+
+   Put your Windows E01 (and optional memory dump) under `HACKATHON-2026/<case-name>/`. The folder is bind-mounted read-only into the agent's tool server.
+
+2. **Create `docker/.env` with the required secrets.** Only one provider key is needed (OpenRouter unifies Anthropic + Gemini); the other two values are local-only tokens you generate yourself:
+
+   ```bash
+   cat > docker/.env <<EOF
+   OPENROUTER_API_KEY=sk-or-v1-...
+   MCP_TRANSPORT_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+   CAPABILITY_TOKEN_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+   EOF
+   ```
+
+   LangFuse tracing is optional; leave `LANGFUSE_*` unset to skip it.
+
+3. **Bring up the two-container stack** (`sift-mcp` for the typed forensic tools, `sift-sentinel` for the agent + viewer):
+
+   ```bash
+   cd docker && docker compose up -d
+   ```
+
+   First pull is roughly 4 GB (one-time download of the SIFT image).
+
+4. **Run a case.** From the repo root, with the agent container exec'd in:
+
+   ```bash
+   docker compose exec sift-sentinel uv run python run_case.py \
+     --case my-case \
+     --e01 /mnt/hackathon/my-case/disk.E01 \
+     --memory-image /mnt/hackathon/my-case/memory.raw \
+     --memory-profile Win10x64_19041
+   ```
+
+   `--e01` and `--memory-image` are optional individually (you can run disk-only or memory-only), but at least one is required, and `--memory-image` requires `--memory-profile`. Paths are inside the container; `HACKATHON-2026/` on the host is `/mnt/hackathon/` inside.
+
+   The planner emits a typed tool plan and pauses for human approval. Approve in the terminal; the pipeline executes the approved tools, the interpreter writes findings with cited evidence, the 17-rule critic verifies every claim, and a human approves the final report.
+
+5. **Read the output.**
+   - Per-stage artifacts (plan, evidence, findings, critic disagreements, integrity ledger) land under `experiments/slice-2-notebook/out/runs/<case>/<run-id>/`.
+   - Browse the same run in your browser at [http://localhost:8081/site/dashboard.html](http://localhost:8081/site/dashboard.html) (unified site) or [http://localhost:8080/viewer/](http://localhost:8080/viewer/) (raw viewer).
+   - Every LLM call prints its cost before and after; a typical disk-only triage runs $0.30 to $0.70, memory-included runs $0.50 to $3.
+
+Full troubleshooting walk-through (Docker Desktop on Windows, evidence-mount gotchas, container lifecycle): [docs/runbooks/slice-1-docker-runbook.md](docs/runbooks/slice-1-docker-runbook.md).
 
 **Running on the SANS SIFT Workstation.** The Docker stack runs unchanged inside the SIFT Workstation OVA (Docker is preinstalled on SIFT). The container packages the same SIFT toolset the OVA provides (Volatility 2.6.1, The Sleuth Kit, RegRipper) so the forensic capability is identical. Judges who prefer the SIFT environment can spin up the OVA, install nothing extra, and run the same `docker compose` commands above.
-
-### Path B: live submission on the public site
-
-Visit [https://sentinel.sshub.dev/site/dashboard.html](https://sentinel.sshub.dev/site/dashboard.html), scroll to "Submit a test", upload an E01 + optional memory image, watch the pipeline run. Lower friction; output retention is best-effort while the hackathon is live.
-
-For the for-judges walk-through, see [https://sentinel.sshub.dev/site/submission.html](https://sentinel.sshub.dev/site/submission.html).
 
 ## License
 
