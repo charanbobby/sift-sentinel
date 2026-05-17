@@ -416,17 +416,22 @@ _CANONICAL_PLAN_ARGS = {
 
 def _render_live_prompts() -> list[dict]:
     """Render INTERPRET, EXTRACT, PLAN system prompts with promoted-rule
-    blocks spliced in. Returns the list-of-dicts the endpoint serializes.
+    blocks spliced out so the UI can tint them.
 
-    The three runtime helpers in pipeline.nodes (_plan_system_prompt,
-    _build_extract_prompt, INTERPRET_SYSTEM_PROMPT) embed the learned-rule
-    blocks themselves. INTERPRET appends the block at the call site rather
-    than inside the constant, so we compute the block independently here.
-    For PLAN, the block sits at the end of the rendered string and we slice
-    it off to populate `base_text` separately. For EXTRACT, the block sits
-    mid-template (inside disk_section), so we keep the whole rendered
-    prompt as base_text; the UI highlights the appended_block by string
-    match on top of base_text.
+    Response contract per agent: `agent`, `rendered_with`, `base_before`,
+    `appended_block`, `base_after`, `appended_rules`. The UI renders
+    `base_before + tinted(appended_block) + base_after`.
+
+    - INTERPRET: the constant `INTERPRET_SYSTEM_PROMPT` does not embed the
+      block (it is appended at the call site in nodes.py). `base_before` is
+      the constant, `base_after` is empty.
+    - EXTRACT: `_build_extract_prompt` embeds the block mid-template via
+      `disk_section`. We render the full prompt, then split on the rendered
+      block so `base_before` and `base_after` bracket it. If the block does
+      not appear in the full prompt (no extract_location rules, or some
+      future template change), `base_before` is the full prompt and
+      `base_after` is empty; the UI then appends the block at the bottom.
+    - PLAN: `_plan_system_prompt` ends with the block. Same split pattern.
     """
     from pipeline import nodes
 
@@ -457,8 +462,9 @@ def _render_live_prompts() -> list[dict]:
         interp_prompt = {
             "agent": "INTERPRET",
             "rendered_with": {"context": "verbatim, no args needed"},
-            "base_text": nodes.INTERPRET_SYSTEM_PROMPT,
+            "base_before": nodes.INTERPRET_SYSTEM_PROMPT,
             "appended_block": interp_block or "",
+            "base_after": "",
             "appended_rules": _entries_for("counter_rule"),
         }
 
@@ -468,16 +474,25 @@ def _render_live_prompts() -> list[dict]:
             _CANONICAL_EXTRACT_ARGS["has_memory"],
             has_disk=_CANONICAL_EXTRACT_ARGS["has_disk"],
         )
+        # Header literal mirrors nodes._build_extract_prompt at nodes.py:1126.
         extract_block = nodes._render_learned_block(
             live_rules.get("extract_location", []), "Learned extract locations"
         )
-        # The extract block sits mid-template (inside disk_section), so we
-        # cannot slice it cleanly. Keep the full rendered prompt as base_text.
+        if extract_block and extract_block in extract_full:
+            ext_parts = extract_full.split(extract_block, 1)
+            ext_before, ext_after = ext_parts[0], ext_parts[1]
+        else:
+            # Either no rules (block is empty) or the header literal failed
+            # to match. Fall back to base_before=full so the UI still renders
+            # the prompt; the appended_block (possibly empty) is shown at the
+            # bottom, matching the old EXTRACT behavior but rendered once.
+            ext_before, ext_after = extract_full, ""
         extract_prompt = {
             "agent": "EXTRACT",
             "rendered_with": dict(_CANONICAL_EXTRACT_ARGS),
-            "base_text": extract_full,
+            "base_before": ext_before,
             "appended_block": extract_block or "",
+            "base_after": ext_after,
             "appended_rules": _entries_for("extract_location"),
         }
 
@@ -490,19 +505,17 @@ def _render_live_prompts() -> list[dict]:
         plan_block = nodes._render_learned_block(
             live_rules.get("planner_hint", []), "Learned planner hints"
         )
-        # _plan_system_prompt ends the f-string with `{learned_planner_block}\n`
-        # so we slice the trailing block + newline cleanly when rules exist.
-        if plan_block and plan_full.endswith(plan_block + "\n"):
-            plan_base = plan_full[: -(len(plan_block) + 1)]
-        elif plan_block and plan_full.endswith(plan_block):
-            plan_base = plan_full[: -len(plan_block)]
+        if plan_block and plan_block in plan_full:
+            plan_parts = plan_full.split(plan_block, 1)
+            plan_before, plan_after = plan_parts[0], plan_parts[1]
         else:
-            plan_base = plan_full
+            plan_before, plan_after = plan_full, ""
         plan_prompt = {
             "agent": "PLAN",
             "rendered_with": dict(_CANONICAL_PLAN_ARGS),
-            "base_text": plan_base,
+            "base_before": plan_before,
             "appended_block": plan_block or "",
+            "base_after": plan_after,
             "appended_rules": _entries_for("planner_hint"),
         }
     finally:
@@ -516,7 +529,8 @@ def live_prompts() -> JSONResponse:
     try:
         prompts = _render_live_prompts()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"could not render live prompts: {e!r}")
+        print(f"ERROR /api/live-prompts: {e!r}", flush=True)
+        raise HTTPException(status_code=500, detail="could not render live prompts; see server logs")
     return JSONResponse({"prompts": prompts})
 
 

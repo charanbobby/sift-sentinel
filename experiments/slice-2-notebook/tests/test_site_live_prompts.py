@@ -99,3 +99,13 @@ def test_live_prompts_empty_store(tmp_path: Path, monkeypatch):
     for p in body["prompts"]:
         assert p["appended_rules"] == []
         assert p["appended_block"] in ("", None)
+
+
+def test_live_prompts_500_on_render_failure(site_client, monkeypatch):
+    from pipeline import site
+    def boom():
+        raise RuntimeError("synthetic failure for test")
+    monkeypatch.setattr(site, "_render_live_prompts", boom)
+    r = site_client.get("/api/live-prompts")
+    assert r.status_code == 500
+    assert "see server logs" in r.json()["detail"]
