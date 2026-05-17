@@ -290,11 +290,13 @@ def _read_score(date_dir: Path) -> dict | None:
         status = (entry.get("status") or "").upper()
         if status == "HIT":
             counts["hit"] += 1
+            counts["total"] += 1
         elif status == "MISS":
             counts["miss"] += 1
+            counts["total"] += 1
         elif status == "PARTIAL":
             counts["partial"] += 1
-        counts["total"] += 1
+            counts["total"] += 1
     return counts
 
 
@@ -327,12 +329,12 @@ def _history_for_date(date_dir: Path, audit: list[dict]) -> dict:
                 "promoted_at": row.get("promoted_at"),
             })
         elif action == "reject":
-            promoted_entry_reason = (rejected_by_id.get(rid) or {}).get("reason") or row.get("reason")
+            reason = (rejected_by_id.get(rid) or {}).get("reason") or row.get("reason")
             rejected.append({
                 "rule_id": rid,
                 "rule_kind": rule_kind,
                 "rule_text": rule_text,
-                "reason": promoted_entry_reason,
+                "reason": reason,
                 "rejected_at": row.get("rejected_at"),
             })
 
@@ -360,13 +362,16 @@ def _compute_trend(runs: list[dict]) -> dict:
     """HIT rate over last 7 vs prior 7 dated runs. Skips runs with score==None.
     Returns has_enough_data=False when fewer than 5 scoreable runs exist.
     """
-    scored = [r for r in runs if r.get("score") and r["score"]["total"] > 0]
+    scored = [r for r in runs
+              if r.get("score") and (r["score"]["hit"] + r["score"]["miss"]) > 0]
     if len(scored) < 5:
         return {"hit_rate_last_7": None, "delta_vs_prior_7": None, "has_enough_data": False}
+    # Trend uses HIT / (HIT + MISS). PARTIAL is informational, not counted either way.
     def rate(rows: list[dict]) -> float:
         h = sum(r["score"]["hit"] for r in rows)
-        t = sum(r["score"]["total"] for r in rows)
-        return (h / t) if t else 0.0
+        m = sum(r["score"]["miss"] for r in rows)
+        denom = h + m
+        return (h / denom) if denom else 0.0
     last7 = scored[:7]
     prior7 = scored[7:14]
     last_rate = rate(last7)

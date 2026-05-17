@@ -98,3 +98,34 @@ def test_history_joins_audit_with_staged(site_client):
     assert by_date["2026-05-08"]["promoted"][0]["rule_kind"] == "extract_location"
     assert len(by_date["2026-05-09"]["rejected"]) == 1
     assert by_date["2026-05-09"]["rejected"][0]["reason"] == "duplicate of R_03"
+
+
+def test_history_score_skips_unknown_status(tmp_path: Path, monkeypatch):
+    loop_runs = tmp_path / "loop_runs"
+    d = loop_runs / "2026-05-09"
+    d.mkdir(parents=True)
+    (d / "score_2026-05-09.json").write_text(json.dumps({
+        "per_artifact": [
+            {"id": "a1", "status": "HIT"},
+            {"id": "a2", "status": "MISS"},
+            {"id": "a3", "status": "PARTIAL"},
+            {"id": "a4", "status": "BOGUS"},
+        ]
+    }), encoding="utf-8")
+    live = tmp_path / "learned_rules.jsonl"
+    live.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LOOP_RUNS_DIR", str(loop_runs))
+    monkeypatch.setenv("LEARNED_RULES_PATH", str(live))
+    monkeypatch.setenv("SITE_HTML", str(tmp_path / "index.html"))
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setenv("SUBMISSIONS_PATH", str(tmp_path / "submissions.jsonl"))
+    if "pipeline.site" in sys.modules:
+        del sys.modules["pipeline.site"]
+    import pipeline as _p
+    if hasattr(_p, "site"):
+        delattr(_p, "site")
+    from pipeline import site
+    client = TestClient(site.app)
+    body = client.get("/api/history").json()
+    score = body["runs"][0]["score"]
+    assert score == {"hit": 1, "miss": 1, "partial": 1, "total": 3}
