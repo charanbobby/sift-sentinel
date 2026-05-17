@@ -272,6 +272,126 @@ def proposed_rules(date: str | None = None) -> JSONResponse:
     return JSONResponse({"date": date, "count": len(out), "rules": out})
 
 
+# ── history endpoint ─────────────────────────────────────────────────────────
+
+def _read_score(date_dir: Path) -> dict | None:
+    """Read score_{date}.json for the given date dir and return counts.
+    Returns None if the file is missing or unreadable.
+    """
+    candidates = sorted(date_dir.glob("score_*.json"))
+    if not candidates:
+        return None
+    try:
+        data = json.loads(candidates[-1].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    counts = {"hit": 0, "miss": 0, "partial": 0, "total": 0}
+    for entry in data.get("per_artifact", []) or []:
+        status = (entry.get("status") or "").upper()
+        if status == "HIT":
+            counts["hit"] += 1
+        elif status == "MISS":
+            counts["miss"] += 1
+        elif status == "PARTIAL":
+            counts["partial"] += 1
+        counts["total"] += 1
+    return counts
+
+
+def _load_audit() -> list[dict]:
+    """Read promotions.audit.jsonl. Returns [] when the file is missing."""
+    return _read_jsonl(LOOP_RUNS_DIR / "promotions.audit.jsonl")
+
+
+def _history_for_date(date_dir: Path, audit: list[dict]) -> dict:
+    """Build the per-date row for /api/history."""
+    date = date_dir.name
+    staged_by_id = {r.get("id"): r for r in _read_jsonl(date_dir / "learned_rules.staged.jsonl")}
+    rejected_by_id = {r.get("rule_id"): r for r in _read_jsonl(date_dir / "learned_rules.rejected.jsonl")}
+
+    promoted: list[dict] = []
+    rejected: list[dict] = []
+    for row in audit:
+        if row.get("date") != date:
+            continue
+        rid = row.get("rule_id")
+        staged = staged_by_id.get(rid, {})
+        rule_text = staged.get("rule_text")
+        rule_kind = staged.get("rule_kind")
+        action = row.get("action")
+        if action == "promote":
+            promoted.append({
+                "rule_id": rid,
+                "rule_kind": rule_kind,
+                "rule_text": rule_text,
+                "promoted_at": row.get("promoted_at"),
+            })
+        elif action == "reject":
+            promoted_entry_reason = (rejected_by_id.get(rid) or {}).get("reason") or row.get("reason")
+            rejected.append({
+                "rule_id": rid,
+                "rule_kind": rule_kind,
+                "rule_text": rule_text,
+                "reason": promoted_entry_reason,
+                "rejected_at": row.get("rejected_at"),
+            })
+
+    live_norm = {(r.get("rule_kind"), _normalize_rule_text(r.get("rule_text") or ""))
+                 for r in _read_jsonl(LEARNED_RULES_PATH)}
+    pending = 0
+    for r in staged_by_id.values():
+        if r.get("id") in rejected_by_id:
+            continue
+        key = (r.get("rule_kind"), _normalize_rule_text(r.get("rule_text") or ""))
+        if key in live_norm:
+            continue
+        pending += 1
+
+    return {
+        "date": date,
+        "score": _read_score(date_dir),
+        "promoted": promoted,
+        "rejected": rejected,
+        "pending_count": pending,
+    }
+
+
+def _compute_trend(runs: list[dict]) -> dict:
+    """HIT rate over last 7 vs prior 7 dated runs. Skips runs with score==None.
+    Returns has_enough_data=False when fewer than 5 scoreable runs exist.
+    """
+    scored = [r for r in runs if r.get("score") and r["score"]["total"] > 0]
+    if len(scored) < 5:
+        return {"hit_rate_last_7": None, "delta_vs_prior_7": None, "has_enough_data": False}
+    def rate(rows: list[dict]) -> float:
+        h = sum(r["score"]["hit"] for r in rows)
+        t = sum(r["score"]["total"] for r in rows)
+        return (h / t) if t else 0.0
+    last7 = scored[:7]
+    prior7 = scored[7:14]
+    last_rate = rate(last7)
+    delta = (last_rate - rate(prior7)) if prior7 else None
+    return {
+        "hit_rate_last_7": round(last_rate, 4),
+        "delta_vs_prior_7": (round(delta, 4) if delta is not None else None),
+        "has_enough_data": True,
+    }
+
+
+@app.get("/api/history")
+def history(limit: int = 14) -> JSONResponse:
+    if not LOOP_RUNS_DIR.exists():
+        return JSONResponse({"runs": [], "trend": {"has_enough_data": False}})
+    date_dirs = sorted(
+        [d for d in LOOP_RUNS_DIR.iterdir()
+         if d.is_dir() and re.match(r"\d{4}-\d{2}-\d{2}$", d.name)],
+        reverse=True,
+    )[:max(1, int(limit))]
+    audit = _load_audit()
+    runs = [_history_for_date(d, audit) for d in date_dirs]
+    return JSONResponse({"runs": runs, "trend": _compute_trend(runs)})
+
+
 # ── reject-rule endpoint ─────────────────────────────────────────────────────
 
 class _RejectBody(BaseModel):
