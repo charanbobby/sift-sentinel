@@ -129,3 +129,81 @@ def test_history_score_skips_unknown_status(tmp_path: Path, monkeypatch):
     body = client.get("/api/history").json()
     score = body["runs"][0]["score"]
     assert score == {"hit": 1, "miss": 1, "partial": 1, "total": 3}
+
+
+def test_history_missing_score(site_client, tmp_loop_runs_history):
+    # Make a third date with NO score file
+    d3 = tmp_loop_runs_history / "2026-05-07"
+    d3.mkdir()
+    (d3 / "learned_rules.staged.jsonl").write_text("", encoding="utf-8")
+    r = site_client.get("/api/history")
+    body = r.json()
+    by_date = {run["date"]: run for run in body["runs"]}
+    assert by_date["2026-05-07"]["score"] is None
+    assert by_date["2026-05-07"]["promoted"] == []
+    assert by_date["2026-05-07"]["rejected"] == []
+
+
+def test_history_audit_references_missing_staged(site_client, tmp_loop_runs_history):
+    # Add an audit row whose rule_id is not in the staged file for that date
+    audit_path = tmp_loop_runs_history / "promotions.audit.jsonl"
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"action": "promote", "rule_id": "ghost_id",
+                             "date": "2026-05-09",
+                             "promoted_at": "2026-05-09T13:00:00+00:00"}) + "\n")
+    r = site_client.get("/api/history")
+    body = r.json()
+    by_date = {run["date"]: run for run in body["runs"]}
+    ghost = [p for p in by_date["2026-05-09"]["promoted"] if p["rule_id"] == "ghost_id"]
+    assert len(ghost) == 1
+    assert ghost[0]["rule_text"] is None
+    assert ghost[0]["rule_kind"] is None
+
+
+def test_history_no_audit_file(site_client, tmp_loop_runs_history):
+    (tmp_loop_runs_history / "promotions.audit.jsonl").unlink()
+    r = site_client.get("/api/history")
+    body = r.json()
+    by_date = {run["date"]: run for run in body["runs"]}
+    assert by_date["2026-05-09"]["promoted"] == []
+    assert by_date["2026-05-09"]["rejected"] == []
+
+
+def test_history_trend_not_enough_data(site_client):
+    r = site_client.get("/api/history")
+    body = r.json()
+    assert body["trend"]["has_enough_data"] is False
+    assert body["trend"]["hit_rate_last_7"] is None
+
+
+def test_history_trend_with_eight_dates(tmp_path: Path, monkeypatch):
+    loop_runs = tmp_path / "loop_runs"
+    for i, date in enumerate([
+        "2026-05-14", "2026-05-13", "2026-05-12", "2026-05-11",
+        "2026-05-10", "2026-05-09", "2026-05-08", "2026-05-07",
+    ]):
+        d = loop_runs / date
+        d.mkdir(parents=True)
+        # last 7 get HIT 7/10, prior 1 gets HIT 4/10
+        hits = 7 if i < 7 else 4
+        (d / f"score_{date}.json").write_text(json.dumps({
+            "per_artifact": [{"id": f"x{j}", "status": "HIT" if j < hits else "MISS"} for j in range(10)]
+        }), encoding="utf-8")
+    live = tmp_path / "learned_rules.jsonl"
+    live.write_text("", encoding="utf-8")
+    monkeypatch.setenv("LOOP_RUNS_DIR", str(loop_runs))
+    monkeypatch.setenv("LEARNED_RULES_PATH", str(live))
+    monkeypatch.setenv("SITE_HTML", str(tmp_path / "index.html"))
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setenv("SUBMISSIONS_PATH", str(tmp_path / "submissions.jsonl"))
+    if "pipeline.site" in sys.modules:
+        del sys.modules["pipeline.site"]
+    import pipeline as _p
+    if hasattr(_p, "site"):
+        delattr(_p, "site")
+    from pipeline import site
+    client = TestClient(site.app)
+    body = client.get("/api/history").json()
+    assert body["trend"]["has_enough_data"] is True
+    assert body["trend"]["hit_rate_last_7"] == 0.7
+    assert body["trend"]["delta_vs_prior_7"] == 0.3
