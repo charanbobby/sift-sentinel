@@ -397,6 +397,129 @@ def history(limit: int = 14) -> JSONResponse:
     return JSONResponse({"runs": runs, "trend": _compute_trend(runs)})
 
 
+# ── live-prompts endpoint ────────────────────────────────────────────────────
+
+_CANONICAL_EXTRACT_ARGS = {
+    "host_type": "windows-workstation",
+    "host_description": "Canonical Windows workstation for display only; the rules block is identical to what the agent sees at runtime.",
+    "has_memory": True,
+    "has_disk": True,
+}
+
+_CANONICAL_PLAN_ARGS = {
+    "case_id": "canonical-host",
+    "e01_path": "/cases/canonical-host/disk.E01",
+    "memory_image_path": "/cases/canonical-host/memory.raw",
+    "memory_profile": "Win10x64_19041",
+}
+
+
+def _render_live_prompts() -> list[dict]:
+    """Render INTERPRET, EXTRACT, PLAN system prompts with promoted-rule
+    blocks spliced in. Returns the list-of-dicts the endpoint serializes.
+
+    The three runtime helpers in pipeline.nodes (_plan_system_prompt,
+    _build_extract_prompt, INTERPRET_SYSTEM_PROMPT) embed the learned-rule
+    blocks themselves. INTERPRET appends the block at the call site rather
+    than inside the constant, so we compute the block independently here.
+    For PLAN, the block sits at the end of the rendered string and we slice
+    it off to populate `base_text` separately. For EXTRACT, the block sits
+    mid-template (inside disk_section), so we keep the whole rendered
+    prompt as base_text; the UI highlights the appended_block by string
+    match on top of base_text.
+    """
+    from pipeline import nodes
+
+    live_rules = nodes._load_learned_rules(LEARNED_RULES_PATH)
+
+    def _entries_for(kind: str) -> list[dict]:
+        out: list[dict] = []
+        for rec in _read_jsonl(LEARNED_RULES_PATH):
+            if rec.get("rule_kind") != kind:
+                continue
+            out.append({
+                "rule_id": rec.get("id"),
+                "rule_text": rec.get("rule_text"),
+                "promoted_at": rec.get("promoted_at"),
+                "source_date": rec.get("source_manifest_id"),
+            })
+        return out
+
+    # Temporarily point nodes._LEARNED_RULES_PATH at our configured store so
+    # the embedded blocks inside _plan_system_prompt / _build_extract_prompt
+    # reflect the same rules the UI displays in `appended_block`.
+    _orig_rules_path = nodes._LEARNED_RULES_PATH
+    nodes._LEARNED_RULES_PATH = LEARNED_RULES_PATH
+    try:
+        interp_block = nodes._render_learned_block(
+            live_rules.get("counter_rule", []), "Learned counter-rules"
+        )
+        interp_prompt = {
+            "agent": "INTERPRET",
+            "rendered_with": {"context": "verbatim, no args needed"},
+            "base_text": nodes.INTERPRET_SYSTEM_PROMPT,
+            "appended_block": interp_block or "",
+            "appended_rules": _entries_for("counter_rule"),
+        }
+
+        extract_full = nodes._build_extract_prompt(
+            _CANONICAL_EXTRACT_ARGS["host_type"],
+            _CANONICAL_EXTRACT_ARGS["host_description"],
+            _CANONICAL_EXTRACT_ARGS["has_memory"],
+            has_disk=_CANONICAL_EXTRACT_ARGS["has_disk"],
+        )
+        extract_block = nodes._render_learned_block(
+            live_rules.get("extract_location", []), "Learned extract locations"
+        )
+        # The extract block sits mid-template (inside disk_section), so we
+        # cannot slice it cleanly. Keep the full rendered prompt as base_text.
+        extract_prompt = {
+            "agent": "EXTRACT",
+            "rendered_with": dict(_CANONICAL_EXTRACT_ARGS),
+            "base_text": extract_full,
+            "appended_block": extract_block or "",
+            "appended_rules": _entries_for("extract_location"),
+        }
+
+        plan_full = nodes._plan_system_prompt(
+            case_id=_CANONICAL_PLAN_ARGS["case_id"],
+            e01_path=_CANONICAL_PLAN_ARGS["e01_path"],
+            memory_image_path=_CANONICAL_PLAN_ARGS["memory_image_path"],
+            memory_profile=_CANONICAL_PLAN_ARGS["memory_profile"],
+        )
+        plan_block = nodes._render_learned_block(
+            live_rules.get("planner_hint", []), "Learned planner hints"
+        )
+        # _plan_system_prompt ends the f-string with `{learned_planner_block}\n`
+        # so we slice the trailing block + newline cleanly when rules exist.
+        if plan_block and plan_full.endswith(plan_block + "\n"):
+            plan_base = plan_full[: -(len(plan_block) + 1)]
+        elif plan_block and plan_full.endswith(plan_block):
+            plan_base = plan_full[: -len(plan_block)]
+        else:
+            plan_base = plan_full
+        plan_prompt = {
+            "agent": "PLAN",
+            "rendered_with": dict(_CANONICAL_PLAN_ARGS),
+            "base_text": plan_base,
+            "appended_block": plan_block or "",
+            "appended_rules": _entries_for("planner_hint"),
+        }
+    finally:
+        nodes._LEARNED_RULES_PATH = _orig_rules_path
+
+    return [interp_prompt, extract_prompt, plan_prompt]
+
+
+@app.get("/api/live-prompts")
+def live_prompts() -> JSONResponse:
+    try:
+        prompts = _render_live_prompts()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"could not render live prompts: {e!r}")
+    return JSONResponse({"prompts": prompts})
+
+
 # ── reject-rule endpoint ─────────────────────────────────────────────────────
 
 class _RejectBody(BaseModel):
