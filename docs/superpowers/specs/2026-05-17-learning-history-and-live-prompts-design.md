@@ -81,9 +81,10 @@ Implementation notes:
 - Walks `LOOP_RUNS_DIR` newest-first, filters for `\d{4}-\d{2}-\d{2}$` dirs, takes up to `limit` (default 14).
 - For each date, reads `score_{date}.json` for the HIT / MISS counts. Missing file is allowed; score becomes `null` and the card shows "no scoring on this date".
 - Joins `promotions.audit.jsonl` filtered by `date` field to produce the `promoted` and `rejected` lists. Each entry's `rule_text` and `rule_kind` come from joining against `learned_rules.staged.jsonl` for that date.
-- If audit log is missing entirely, falls back to scanning each date's `learned_rules.rejected.jsonl` for the reject side and diffing the date's staged file against the live store for the promote side. Timestamps are lost in the fallback path; counts are not.
+- If audit log is missing entirely, returns empty `promoted` and `rejected` lists for every date. (Spec originally called for a disk-scan fallback; the implementation simplified this to empty lists. Pre-audit-log historical dates will show "+0 -0" on their card. Track in follow-up if backfill becomes important.)
 - `pending_count` uses the same dedup-against-live logic that `/api/proposed-rules/dates` already uses (kind + normalized text).
 - `trend.has_enough_data` is false when fewer than 5 dated runs exist; UI uses this to suppress the trend line.
+- Trend rate is computed as `HIT / (HIT + MISS)`, not `HIT / total`. PARTIAL is informational and not counted in the denominator. (Spec originally said only "HIT rate"; implementation chose HIT+MISS so PARTIAL credit does not depress the rate.)
 
 ### New endpoint: `GET /api/live-prompts`
 

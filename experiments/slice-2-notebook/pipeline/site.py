@@ -413,6 +413,13 @@ _CANONICAL_PLAN_ARGS = {
     "memory_profile": "Win10x64_19041",
 }
 
+# Serializes the nodes._LEARNED_RULES_PATH swap inside _render_live_prompts.
+# FastAPI dispatches sync handlers on a threadpool, so two concurrent requests
+# could otherwise interleave the swap and restore. The lock makes the
+# swap+render+restore atomic across requests in the same process.
+import threading as _threading
+_RENDER_LIVE_PROMPTS_LOCK = _threading.Lock()
+
 
 def _render_live_prompts() -> list[dict]:
     """Render INTERPRET, EXTRACT, PLAN system prompts with promoted-rule
@@ -452,7 +459,9 @@ def _render_live_prompts() -> list[dict]:
 
     # Temporarily point nodes._LEARNED_RULES_PATH at our configured store so
     # the embedded blocks inside _plan_system_prompt / _build_extract_prompt
-    # reflect the same rules the UI displays in `appended_block`.
+    # reflect the same rules the UI displays in `appended_block`. The lock
+    # makes the swap+render+restore atomic across concurrent requests.
+    _RENDER_LIVE_PROMPTS_LOCK.acquire()
     _orig_rules_path = nodes._LEARNED_RULES_PATH
     nodes._LEARNED_RULES_PATH = LEARNED_RULES_PATH
     try:
@@ -520,6 +529,7 @@ def _render_live_prompts() -> list[dict]:
         }
     finally:
         nodes._LEARNED_RULES_PATH = _orig_rules_path
+        _RENDER_LIVE_PROMPTS_LOCK.release()
 
     return [interp_prompt, extract_prompt, plan_prompt]
 
