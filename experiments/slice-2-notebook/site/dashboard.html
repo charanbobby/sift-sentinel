@@ -574,15 +574,31 @@ function renderLivePromptsTabs(prompts, activeAgent) {
     </button>
   `).join('');
   const active = prompts.find(p => p.agent === activeAgent);
-  const rwLines = Object.entries(active.rendered_with).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
-  const chipsHtml = active.appended_rules.length === 0
-    ? `<div style="color: var(--muted-2); font-size: 12px; margin-bottom: 12px;">No promoted rules of this kind yet; this is the base prompt the agent uses.</div>`
-    : `<div style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px;">${
-        active.appended_rules.map(r => `<span class="pill pill-blue">${escHtml(r.rule_id || '?')} · ${escHtml(r.source_date || '?')}</span>`).join('')
-      }</div>`;
+  const rules = active.appended_rules || [];
+  let summaryHtml;
+  if (rules.length === 0) {
+    summaryHtml = `<div style="color: var(--muted-2); font-size: 12px; margin-bottom: 12px;">No promoted rules of this kind yet; this is the base prompt the agent uses.</div>`;
+  } else {
+    const dates = [...new Set(rules.map(r => r.source_date).filter(Boolean))].sort();
+    const span = dates.length === 0 ? '' : (dates.length === 1
+      ? ` on ${dates[0]}`
+      : ` across ${dates.length} dates (${dates[0]} to ${dates[dates.length - 1]})`);
+    const rowsHtml = rules
+      .slice()
+      .sort((a, b) => (b.source_date || '').localeCompare(a.source_date || ''))
+      .map(r => {
+        const text = (r.rule_text || '').replace(/\s+/g, ' ').trim();
+        const short = text.length > 140 ? text.slice(0, 140) + '...' : text;
+        return `<li style="padding: 4px 0; border-bottom: 1px solid var(--line-soft);"><span style="color: var(--muted-2); font-size: 11px;">${escHtml(r.source_date || '?')}</span> &middot; ${escHtml(short)}</li>`;
+      }).join('');
+    summaryHtml = `
+      <details style="margin-bottom: 12px;">
+        <summary style="cursor: pointer; color: var(--muted); font-size: 12px;">${rules.length} rule${rules.length === 1 ? '' : 's'} promoted${span} (click to list)</summary>
+        <ul style="list-style: none; padding-left: 0; margin: 8px 0 0; font-size: 12px;">${rowsHtml}</ul>
+      </details>`;
+  }
   document.getElementById('live-prompts-body').innerHTML = `
-    <div style="color: var(--muted-2); font-size: 11px; margin-bottom: 8px;">Rendered with ${escHtml(rwLines)}</div>
-    ${chipsHtml}
+    ${summaryHtml}
     <pre class="mono" style="background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 14px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow-y: auto;">${escHtml(active.base_before)}<span style="background: var(--accent-soft); display: block; padding: 4px 0;">${escHtml(active.appended_block)}</span>${escHtml(active.base_after)}</pre>
   `;
 }
@@ -616,7 +632,12 @@ function renderLivePromptsTabs(prompts, activeAgent) {
       trendEl.textContent = 'Not enough runs yet to show a trend.';
     }
     window._historyCache = body.runs;
-    stripEl.innerHTML = body.runs.map(renderHistoryCard).join('');
+    const activeRuns = body.runs.filter(r => (r.promoted || []).length > 0 || (r.rejected || []).length > 0);
+    if (activeRuns.length === 0) {
+      stripEl.innerHTML = `<div style="color: var(--muted-2); font-size: 12px;">No promote or reject activity in the recent loop-runs window.</div>`;
+    } else {
+      stripEl.innerHTML = activeRuns.map(renderHistoryCard).join('');
+    }
   } catch (e) {
     stripEl.innerHTML = `<div style="color: var(--red); font-size: 13px;">Network error: ${escHtml(e.message)}</div>`;
   }
