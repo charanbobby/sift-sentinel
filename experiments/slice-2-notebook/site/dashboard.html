@@ -243,6 +243,34 @@
     <p class="caption" style="margin: 8px 0 0; font-size: 12px; color: var(--muted-2);">Yesterday's queue does not get replaced when tomorrow's cron runs; every past date with pending rules stays here until you approve or reject them all.</p>
   </section>
 
+  <section id="learnings-section">
+    <h2>What sentinel has learned</h2>
+    <p class="caption">Two views into the rules you have approved over time: a live view of what is in each agent's system prompt right now, and a per-day history of what got promoted or rejected.</p>
+
+    <div style="margin: 12px 0 20px;">
+      <button id="open-live-prompts-btn" class="primary-btn"
+              style="background: var(--accent); color: var(--bg); border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer;">
+        View live agent prompts
+      </button>
+    </div>
+
+    <h3 style="font-size: 16px; margin: 20px 0 8px;">Learning history</h3>
+    <p class="caption" style="margin: 0 0 12px;">Each card is one nightly loop-run. Numbers show how well sentinel scored on the day's planted artifacts and what rules you promoted or rejected on that date.</p>
+    <div id="history-trend" class="caption" style="margin: 0 0 12px; font-style: italic;"></div>
+    <div id="history-strip" style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px;"></div>
+  </section>
+
+  <div id="live-prompts-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; padding: 40px;">
+    <div style="background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-width: 980px; margin: 0 auto; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
+      <div style="padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0;">Live agent prompts</h3>
+        <button onclick="closeLivePromptsModal()" style="background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; cursor: pointer;">close</button>
+      </div>
+      <div id="live-prompts-tabs" style="padding: 12px 20px 0; display: flex; gap: 8px; border-bottom: 1px solid var(--line);"></div>
+      <div id="live-prompts-body" style="padding: 20px; overflow-y: auto;"></div>
+    </div>
+  </div>
+
   <div id="modal-root"></div>
 </main>
 
@@ -504,6 +532,59 @@ async function togglePastDateRules(date) {
     container.style.display = 'none';
     if (chev) chev.style.transform = 'rotate(0deg)';
   }
+}
+
+let _livePromptsCache = null;
+
+document.getElementById('open-live-prompts-btn').addEventListener('click', async () => {
+  const modal = document.getElementById('live-prompts-modal');
+  modal.style.display = 'block';
+  if (_livePromptsCache === null) {
+    try {
+      const r = await fetch('/api/live-prompts');
+      if (!r.ok) {
+        const detail = (await r.json()).detail || r.statusText;
+        document.getElementById('live-prompts-body').innerHTML =
+          `<div style="color: var(--red);">Could not render live prompts: ${escHtml(detail)}</div>`;
+        return;
+      }
+      _livePromptsCache = (await r.json()).prompts;
+    } catch (e) {
+      document.getElementById('live-prompts-body').innerHTML =
+        `<div style="color: var(--red);">Network error: ${escHtml(e.message)}</div>`;
+      return;
+    }
+  }
+  renderLivePromptsTabs(_livePromptsCache, 'INTERPRET');
+});
+
+function closeLivePromptsModal() {
+  document.getElementById('live-prompts-modal').style.display = 'none';
+}
+
+function renderLivePromptsTabs(prompts, activeAgent) {
+  const tabsEl = document.getElementById('live-prompts-tabs');
+  tabsEl.innerHTML = prompts.map(p => `
+    <button onclick="renderLivePromptsTabs(_livePromptsCache, '${p.agent}')"
+            style="background: ${p.agent === activeAgent ? 'var(--accent-soft)' : 'transparent'};
+                   color: ${p.agent === activeAgent ? 'var(--accent)' : 'var(--muted)'};
+                   border: none; padding: 8px 14px; border-radius: 6px 6px 0 0;
+                   font-weight: 600; font-size: 13px; cursor: pointer; border-bottom: ${p.agent === activeAgent ? '2px solid var(--accent)' : 'none'};">
+      ${p.agent} (${p.appended_rules.length})
+    </button>
+  `).join('');
+  const active = prompts.find(p => p.agent === activeAgent);
+  const rwLines = Object.entries(active.rendered_with).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+  const chipsHtml = active.appended_rules.length === 0
+    ? `<div style="color: var(--muted-2); font-size: 12px; margin-bottom: 12px;">No promoted rules of this kind yet; this is the base prompt the agent uses.</div>`
+    : `<div style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px;">${
+        active.appended_rules.map(r => `<span class="pill pill-blue">${escHtml(r.rule_id || '?')} · ${escHtml(r.source_date || '?')}</span>`).join('')
+      }</div>`;
+  document.getElementById('live-prompts-body').innerHTML = `
+    <div style="color: var(--muted-2); font-size: 11px; margin-bottom: 8px;">Rendered with ${escHtml(rwLines)}</div>
+    ${chipsHtml}
+    <pre class="mono" style="background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 14px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow-y: auto;">${escHtml(active.base_before)}<span style="background: var(--accent-soft); display: block; padding: 4px 0;">${escHtml(active.appended_block)}</span>${escHtml(active.base_after)}</pre>
+  `;
 }
 
 loadStatus();
