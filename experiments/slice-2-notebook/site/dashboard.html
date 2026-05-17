@@ -587,6 +587,108 @@ function renderLivePromptsTabs(prompts, activeAgent) {
   `;
 }
 
+(async function loadHistoryStrip() {
+  const stripEl = document.getElementById('history-strip');
+  const trendEl = document.getElementById('history-trend');
+  try {
+    const r = await fetch('/api/history');
+    if (!r.ok) {
+      stripEl.innerHTML = `<div style="color: var(--red); font-size: 13px;">Could not load history: ${r.status}</div>`;
+      return;
+    }
+    const body = await r.json();
+    if (!body.runs || body.runs.length === 0) {
+      document.getElementById('learnings-section').style.display = 'none';
+      return;
+    }
+    if (body.trend && body.trend.has_enough_data) {
+      const d = body.trend.delta_vs_prior_7;
+      if (d === null) {
+        trendEl.textContent = `HIT rate over last 7 runs: ${Math.round(body.trend.hit_rate_last_7 * 100)}%.`;
+      } else if (d > 0) {
+        trendEl.textContent = `HIT rate up ${Math.round(d * 100)} points vs the prior week (now ${Math.round(body.trend.hit_rate_last_7 * 100)}%).`;
+      } else if (d < 0) {
+        trendEl.textContent = `HIT rate down ${Math.round(-d * 100)} points vs the prior week (now ${Math.round(body.trend.hit_rate_last_7 * 100)}%).`;
+      } else {
+        trendEl.textContent = `HIT rate flat vs the prior week (${Math.round(body.trend.hit_rate_last_7 * 100)}%).`;
+      }
+    } else {
+      trendEl.textContent = 'Not enough runs yet to show a trend.';
+    }
+    window._historyCache = body.runs;
+    stripEl.innerHTML = body.runs.map(renderHistoryCard).join('');
+  } catch (e) {
+    stripEl.innerHTML = `<div style="color: var(--red); font-size: 13px;">Network error: ${escHtml(e.message)}</div>`;
+  }
+})();
+
+function renderHistoryCard(run) {
+  let scoreLine;
+  let scoreColor = 'var(--muted)';
+  if (run.score && run.score.total > 0) {
+    const pct = run.score.hit / run.score.total;
+    scoreColor = pct >= 0.7 ? 'var(--green)' : (pct >= 0.4 ? 'var(--amber)' : 'var(--red)');
+    scoreLine = `<div style="font-size: 18px; font-weight: 700; color: ${scoreColor};">HIT ${run.score.hit}/${run.score.total}</div>`;
+  } else {
+    scoreLine = `<div style="font-size: 12px; color: var(--muted-2); font-style: italic;">no scoring on this date</div>`;
+  }
+  const promoCount = run.promoted.length;
+  const rejectCount = run.rejected.length;
+  const chips = `<div style="margin: 6px 0; font-size: 12px;">
+    <span style="color: var(--green);">+${promoCount}</span>
+    <span style="color: var(--muted-2);"> · </span>
+    <span style="color: var(--red);">-${rejectCount}</span>
+  </div>`;
+  const pendLine = run.pending_count > 0
+    ? `<div style="font-size: 11px; color: var(--amber);">pend ${run.pending_count}</div>`
+    : '';
+  const detailId = `hist-detail-${run.date}`;
+  return `
+    <div style="flex: 0 0 160px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px;">
+      <div style="font-size: 12px; color: var(--muted-2); margin-bottom: 4px;">${escHtml(run.date)}</div>
+      ${scoreLine}
+      ${chips}
+      ${pendLine}
+      <button onclick="toggleHistoryDetail('${escHtml(detailId)}', '${escHtml(run.date)}')"
+              style="background: transparent; color: var(--accent); border: none; padding: 4px 0; font-size: 12px; cursor: pointer; text-align: left;">
+        view ▾
+      </button>
+      <div id="${detailId}" style="display: none; margin-top: 8px; font-size: 11px;"></div>
+    </div>`;
+}
+
+function toggleHistoryDetail(detailId, date) {
+  const el = document.getElementById(detailId);
+  if (el.style.display === 'none') {
+    const run = (window._historyCache || []).find(r => r.date === date);
+    el.innerHTML = renderHistoryDetail(run);
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function renderHistoryDetail(run) {
+  if (!run) return '';
+  const kindLabel = { counter_rule: 'INTERPRET prompt', extract_location: 'EXTRACT catalog', planner_hint: 'PLAN soft rules' };
+  const promotedRows = run.promoted.map(p => `
+    <div style="border-left: 2px solid var(--green); padding: 6px 8px; margin: 4px 0; background: var(--green-soft);">
+      <div><span class="pill pill-green">${escHtml(p.rule_kind || '?')}</span></div>
+      <div style="margin-top: 4px;">${escHtml(p.rule_text || '(rule text no longer on disk)')}</div>
+      <div style="color: var(--muted-2); margin-top: 4px;">landed in ${escHtml(kindLabel[p.rule_kind] || p.rule_kind || 'unknown')}</div>
+    </div>`).join('');
+  const rejectedRows = run.rejected.map(p => `
+    <div style="border-left: 2px solid var(--muted); padding: 6px 8px; margin: 4px 0;">
+      <div><span class="pill pill-neutral">${escHtml(p.rule_kind || '?')}</span></div>
+      <div style="margin-top: 4px;">${escHtml(p.rule_text || '(rule text no longer on disk)')}</div>
+      <div style="color: var(--muted-2); margin-top: 4px;">reason: ${escHtml(p.reason || '(no reason recorded)')}</div>
+    </div>`).join('');
+  if (!promotedRows && !rejectedRows) {
+    return `<div style="color: var(--muted-2);">No promote or reject events on this date.</div>`;
+  }
+  return promotedRows + rejectedRows;
+}
+
 loadStatus();
 loadIntel();
 loadRules();
