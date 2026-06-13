@@ -11,6 +11,7 @@
 | | |
 |---|---|
 | **Pipeline** | `E01 → EXTRACT → PLAN → gates → EXECUTE(MCP) → INTERPRET → CRITIC → findings.json` |
+| **Architectural pattern** | Two of the contest's four supported patterns, layered: **Custom MCP Server (#2)** (typed forensic tools, server-side path allow-listing, capability-token verification, injection scanning) plus **Multi-Agent / Workflow (#3)** (the LangGraph state machine of named stages). The LangGraph topology is the "comparable agentic architecture" the contest rules explicitly permit. |
 | **What's shipped** | L2 end-to-end with 5/5 MCP tools, 11/13 active Critic rules (+ R_13 stub), LangGraph topology, Langfuse tracing, Slice 5 full stack (HTTP MCP transport, capability tokens, dual-channel handler, injection-quarantine wiring), 128-test pytest suite, **canary tripwire on the INTERPRET bundle** |
 | **What's next** | Slice 6 (bounded Reference Dataset + L3 ship + Accuracy Report) · AI-adversary detection demo only if it stays evidence-anchored |
 | **Headline trust claim** | *Replayable auditability for a research workflow, with explicit defender-AI integrity controls.* We defend the **agent's context** from injected evidence and **detect adversarial attempts to manipulate the defender LLM itself**; we do **not** defend the Python runtime from a hijacked agent. |
@@ -92,13 +93,16 @@ flowchart LR
 
 **Four layers. Each catches a different failure class.**
 
-| Adversary | Defense |
-|---|---|
-| Prompt injection embedded in E01 content (filenames, registry values, document bodies) | **Dual-channel handler** — raw bytes go to the ledger, structured fields to the agent, flagged content to quarantine. The hijack payload never reaches the LLM context. |
-| Adversarial attempt to manipulate the defender LLM itself (boundary leak: a structured-field escape persuading the model to treat data as instructions) | **Canary tripwire** — per-run random nonce (`_canary`) embedded in the INTERPRET bundle. If the response echoes the nonce, the instruction/data boundary leaked — the run is halted and a `CANARY_LEAK` audit entry is written. |
-| LLM-internal failure (sycophancy, spec drift, silent tool-failure swallowing, hallucinated relationships) | **13-rule Critic + Hadi3 negative-case validation** |
-| Accidental agent drift (proposes a tool or path outside scope) | **Capability tokens** at the MCP boundary — application-layer routing |
-| Post-hoc tampering with recorded evidence | **SHA-256 linear hash chain** — altering entry N breaks the hash embedded in entry N+1 |
+Every boundary below is tagged **Architectural** (enforced in code or container topology, so it holds even if the LLM is fully compromised) or **Prompt-based** (an instruction the LLM is asked to follow, backstopped by an architectural control). The load-bearing boundaries are architectural by design; the prompt-based layer is an inner convenience, never the last line of defense.
+
+| Adversary | Defense | Enforcement |
+|---|---|---|
+| Prompt injection embedded in E01 content (filenames, registry values, document bodies) | **Dual-channel handler:** raw bytes go to the ledger, structured fields to the agent, flagged content to quarantine. The hijack payload never reaches the LLM context. | **Architectural:** server-side code splits the channels before the LLM is invoked |
+| Adversarial attempt to manipulate the defender LLM itself (boundary leak: a structured-field escape persuading the model to treat data as instructions) | **Canary tripwire:** per-run random nonce (`_canary`) embedded in the INTERPRET bundle. If the response echoes the nonce, the instruction/data boundary leaked, so the run is halted and a `CANARY_LEAK` audit entry is written. | **Architectural:** deterministic post-response check in `_check_canary_leak`, no LLM in the loop |
+| LLM-internal failure (sycophancy, spec drift, silent tool-failure swallowing, hallucinated relationships) | **13-rule Critic + Hadi3 negative-case validation** | **Architectural:** deterministic Python rules; no AI in the critic loop |
+| Accidental agent drift (proposes a tool or path outside scope) | **Capability tokens** at the MCP boundary (application-layer routing) | **Architectural:** HMAC verification server-side; out-of-scope calls rejected before the tool runs |
+| Post-hoc tampering with recorded evidence | **SHA-256 linear hash chain:** altering entry N breaks the hash embedded in entry N+1 | **Architectural:** cryptographic chain, verifiable offline |
+| Analyst-discipline lapses (failing to rule out DFIR tools / vendor products, over-confident classification, mislabeled ATT&CK fields) | **Planner / interpreter prompt discipline:** rule-out instructions, the confidence rubric, and classification guidance in the system prompts | **Prompt-based:** an instruction the LLM may ignore; every finding it produces is re-checked by the architectural Critic above, which rejects any that violate the discipline |
 
 **Explicitly out of scope:** local root compromise · supply-chain attacks on packages / images / model providers · network-layer attackers · courtroom admissibility.
 

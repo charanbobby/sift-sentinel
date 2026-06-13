@@ -18,6 +18,7 @@ For a reviewer with three minutes per accuracy report, here is the whole story.
 - **The defense layer fires regularly.** 11 of the 46 reviewed runs ended in a quarantine state because the prompt-injection scanner suppressed an evidence record before it reached the analysis LLM. That is not noise; it is the trust boundary working.
 - **Continuous accuracy is live.** 6 days of approved scored daily-loop runs in late April and early May (2 days the cron aborted before producing a plan, those days are excluded). One run caught an attacker planting a local LLM inference server on the host, validating the AI-using-attacker detection chain end to end.
 - **Coverage spans both SANS-provided datasets and three publicly-available cases.** SRL-2015 cross-host signature on 4 hosts (the same Run-key svchost masquerade on three of them); SRL-2018 disk + dual-channel + memory-only sweep (14 dual-channel and memory-only runs in addition to the original disk-only baselines); the strongest fileless persistence finding in the corpus on the SRL-2018 base-rd-04 host (a registry-resident PowerShell payload masquerading as a Sophos vendor key); the only ransomware deployment scenario (the OpenUni22 Red Petya case, where the agent surfaced a malicious PsExec scheduled task pushing a binary across six branch-office desktops); and the Hadi3 negative-case validation (the agent correctly emitted zero findings on the published no-persistence Win 8.1 challenge).
+- **Post-submission generalization test.** On 2026-05-17 the organizers sent an additional case (Fred Rocba / SRL 2020, physical break-in + IP theft on a Windows 10 Surface). The unchanged agent returned exactly one finding (`NOT_FOUND` for persistence, medium confidence) and named its own gaps. The result is honest given the question the agent was asked, and the case exceeds the engine's tool-inventory scope on the questions the PPT actually asks (browser history, cloud-sync logs, USB activity, LNK / jumplist / prefetch). Full writeup in Section 3.12; the artifact-class gaps are listed under Section 7 extension points.
 
 What is honestly NOT measured: recall on attacks outside the bounded reference set, ablation deltas (two ablation arms are coded but not yet run), per-day per-pipeline LLM cost on the daily-loop runs (the cost-printing helpers were not threaded through the loop runner), automatic Volatility profile selection (4 server memory images were correctly rejected by the pipeline when the wrong profile was used), and an OS-version-aware planner (the SRL-2015 XP and Server 2008 R2 hosts hit some plan steps that assume modern Windows path layout). All five limitations are documented in Section 6.
 
@@ -343,6 +344,24 @@ Scenario fit is strong (Red Petya operator pushing a file-rename binary across a
 
 **What this measures and what it does not.** The daily-loop track measures whether the sentinel's detectors catch artifacts that mirror techniques attackers used in the last 30 days, given that the team planted those artifacts. It does NOT measure precision against real-world attacker activity (the static-case track is closer to that), and it does not measure recall against unknown attacks (no methodology can, on synthetic data alone). The claim is narrower and more honest: as new techniques surface in the wild, can the sentinel still catch them, or does it need tuning? The miss column is the daily list of what to tune.
 
+### 3.12 `rocba-2020-srl`: post-submission generalization test from the judges
+
+**Plain English.** On 2026-05-17, after the submission was locked, the hackathon organizers sent an additional dataset (`HACKATHON-2026/New/`): a 23.7 GB EnCase image of Fred Rocba's Stark Research Labs Microsoft Surface (Windows 10, fully patched, Eastern Time) plus a 5.7 GB ZIP-of-7z containing a 19 GB raw memory dump. The scenario is a physical break-in at Fred's home on 2020-11-13 EDT while he was on vacation, with an intruder using the laptop's left-logged-in session to access SRL projects. The PPT asks five questions (what projects, what was stolen, where to, how, when). The agent was run unchanged against the case (the hardcoded investigation question is still "what persistence mechanisms did the attacker install"), and returned exactly one finding: `NOT_FOUND` for persistence at medium confidence. The agent's reasoning was correct for the question it was asked (a hands-on-keyboard physical-intruder case does not install persistence; the attacker uses the live session). The finding correctly identifies all enumerated Run-key entries, services, scheduled tasks, and memory regions as legitimate, and it correctly downgrades confidence because several steps returned null or parse-error (per-user NTUSER Run keys, Winlogon values, WDigest, inetpub enumeration, and the Tasks directory listing were not fully evaluated).
+
+| Metric | Value |
+|---|---|
+| Run id | `rocba-2020-srl-005` |
+| Disk size | 87.43 GB raw NTFS (sha256 `3067e64d706741db45bf73482298023ef6414aa3e7a84a79504c3445ae50ced5`) |
+| Memory size | 19.05 GB; Volatility 2 profile `Win10x64_19041` (Win10 v2004); confirmed by `pslist` (2207 lines of valid process output) when the default `imageinfo` KDBG scan exceeded an hour |
+| Plan | 34 steps; auto-approve at `2026-05-17T15:38:44Z`; token allows all six tools |
+| Findings | 1 medium |
+| Citations | All Run-key, IFEO, service, and scheduled-task assertions cite resolvable tool-call ids; the netscan/malfind absence claim cites one Volatility evidence record |
+| Run cost | $0.5246 (extract $0.0045 + plan $0.0784 + interpret $0.4417) |
+
+**What the agent did well.** It refused to invent persistence that was not there. The five enumerated registry, service, and scheduled-task categories are each anchored to real evidence records and named with the legitimate vendor product (SecurityHealth, GrpConv, WinDefend, AdobeARMservice, gupdate, MozillaMaintenance, ClickToRunSvc, Adobe / Google / Office / .NET NGEN scheduled tasks). It self-reported the steps where structured-fields parsing returned null and dropped its confidence to medium accordingly.
+
+**Where the case exceeds the engine's scope.** The PPT's five questions ask about file access, exfiltration destination, exfiltration channel, and activity timeline. None of those are persistence questions, and the engine's tool inventory does not cover the artifact classes that answer them on a hands-on-keyboard case: there is no browser-history parser (Edge, Firefox, Chrome SQLite DBs), no cloud-sync-client database parser (OneDrive, Dropbox, Google Drive, iCloud), no LNK / jumplist / prefetch parser, no MFT / USN journal parser, no event-log (.evtx) parser, no Outlook PST parser, and the RegRipper plugin allowlist does not include `usbstor`, `recentdocs`, `shellbags`, or `userassist`. This is a scope gap, not an accuracy gap. The unchanged agent is honest about the question it answered and the question it did not answer; closing the gap is an extension-points item rather than a defect.
+
 ---
 
 ## 4. Bypass evidence: what the guardrails actually caught in production
@@ -375,7 +394,7 @@ This is the path-and-time-to-live scope guard refusing tool execution at the MCP
 
 ### 4.4 What is honestly NOT proven by this section
 
-Two structural defenses are listed in Section 6 (Known Limitations) and Section 7 (Extension Points) precisely because they cannot be ablated meaningfully on real runs:
+Two structural defenses are listed in Section 6 (Known Limitations) and Section 8 (Extension Points) precisely because they cannot be ablated meaningfully on real runs:
 
 - **The container boundary** is the trust boundary the orchestrator depends on. There is no "without container" comparable run; removing the container would fundamentally restructure the system rather than disable a feature.
 - **The structured `classification` field on findings** could be removed in a future ablation arm to test whether the field is load-bearing for the critic's AI-classified-finding rule. Code is on a dedicated branch; runs not yet executed.
@@ -433,21 +452,36 @@ The absence-claim rule narrowing (entry P3) is the most consequential of these f
 - **No live-system response.** This system reads dead disk and memory images; it does not interact with running hosts. Hot triage on a live machine is a separate problem.
 - **Planner has hardcoded modern-Windows path assumptions.** The planner currently assumes `System32\Tasks` for scheduled-task enumeration and `Users\Administrator` for the administrator profile, which are Windows 7 and later conventions. On the SRL-2015 XP host (uses `WINDOWS\Tasks`) and the SRL-2015 Server 2008 R2 DC (no `Administrator` profile path), some plan steps halt; the pipeline still produces findings because the registry-based persistence surface succeeds earlier in the plan, but a portion of the plan is wasted. Logged as a planner-tuning candidate.
 - **Per-day pipeline LLM cost on the daily-loop runs is not recorded.** The cost-printing helpers wired into the static-case pipeline runs were not threaded through the daily-loop runner. The static-case pipeline cost is captured in real time via OpenRouter's usage object and traced to LangFuse per session. Re-running with cost capture is the largest reporting gap on the daily-loop track.
-- **Spoliation testing.** Evidence integrity is enforced architecturally rather than through prompt discipline: raw bytes are sha256-hashed and never sent to the analysis LLM (only structured fields extracted by the server side are sent), every tool call carries a capability token bound to a path scope, and the integrity ledger chains plan to call to finding by hash. We have not run an explicit red-team test attempting to coerce the agent into modifying the original disk or memory image. Because the agent has no shell primitive and no write-capable MCP tool, an architectural bypass would require an MCP-server vulnerability rather than a prompt jailbreak; we have not pen-tested the MCP server itself. Logged as a future-work item.
+- **Spoliation / evidence-integrity red-teaming.** The architectural controls that prevent modification of the original images are documented in their own section below (Section 7, Evidence integrity). We have not run an explicit red-team test attempting to coerce the agent into modifying the original disk or memory image, nor pen-tested the MCP server or the parser surfaces it shells out to. Logged as a future-work item.
 
 ---
 
-## 7. Extension points
+## 7. Evidence integrity (how the architecture prevents data modification)
+
+Evidence integrity is enforced architecturally, not through prompt discipline. Five independent controls mean that an agent which ignored every instruction in its prompt still could not alter the original disk or memory image:
+
+- **The evidence is mounted read-only.** The compromised images live under `HACKATHON-2026/` and are bind-mounted into the tool server (`sift-mcp`) as `:ro` (`docker/docker-compose.yaml`). Derived artifacts are written to a separate writable mount (`/mnt/derived`) kept physically outside the read-only evidence tree, so the server cannot write back through to raw evidence even by accident.
+- **No write-capable tool and no shell.** The MCP allow-list exposes ten typed, read-only forensic functions (five disk, five memory). There is no `execute_shell` primitive and no tool that writes to the evidence path, so a jailbroken prompt has nothing to call that could modify the image.
+- **Raw bytes are hashed and never reach the LLM.** Every tool result's raw output is sha256-hashed; only server-parsed `structured_fields` reach the analysis LLM (the dual-channel boundary). The model never holds the raw evidence, so it cannot launder a modification through its own output.
+- **Capability tokens bind every call to a path scope.** Each MCP call carries an HMAC-signed token bound to the human-approved plan and the case folder. Calls against paths outside the case scope are rejected server-side before the tool runs. Section 4.2 shows on-disk `capability_denied` / `expired` records from production runs where this fired.
+- **A hash-chained ledger makes any change detectable.** The integrity ledger chains plan to tool call to finding by hash (`integrity_ledger.jsonl`, one per run), so a reviewer can replay exactly what ran and confirm the chain is unbroken.
+
+What happens if the model ignores the restriction: nothing changes, because the restriction is not a sentence in a system prompt that the model could choose to disregard. It is the absence of any write path. An actual bypass would require exploiting a vulnerability in the MCP server or in a Sleuthkit / RegRipper / Volatility parser the server shells out to (a container-boundary escape, Section 6), not a prompt jailbreak. Those parser surfaces are not yet pen-tested; that caveat is logged in Section 6.
+
+---
+
+## 8. Extension points
 
 - **Stronger sandboxing.** Replace the `sift-mcp` Docker container with a seccomp-bpf hardened container, an eBPF-supervised process tree, or a microVM (Firecracker / Kata) to give a real adversarial-bypass story rather than the current "trust the container" posture.
 - **Volatility 3.** Adds Win11 and Server 2022 memory coverage; Vol2 is sufficient for the SRL-2018 envelope and is what we shipped, but a production deployment would need both.
 - **Linux disk profile.** A separate MCP tool family (`debugfs`, `xfs_db`, journald scanners) would extend the disk side to Linux images.
 - **Real adversarial E01 builder.** The current adversarial demo is a canary-trip integration test. A genuine `make_adversarial_e01.py` tool that synthesizes a poisoned image with controlled persistence + counter-forensics would make the adversarial story stronger; explicitly deferred to Slice 6.5.
+- **Broader artifact-class coverage for hands-on-keyboard cases.** The 2026-05-17 Rocba generalization test (Section 3.12) exposed the artifact classes the current tool inventory does not cover: browser history (Edge / Firefox / Chrome SQLite), cloud-sync client databases (OneDrive, Dropbox, Google Drive, iCloud), USB activity (a `usbstor` RegRipper plugin is not in the allowlist), LNK / jumplist / prefetch, MFT / USN journal, event logs (.evtx), and Outlook PST. Each is an additive MCP tool behind the same capability-token + injection-scanner discipline, none rewrite existing tools. Adding them would extend the agent from "persistence and memory triage" to "what was accessed and exfiltrated", which is the question class IP-theft cases like Rocba ask.
 - **Cross-host correlation.** Two distinct campaign signatures recur in the SRL-2018 corpus and have been catalogued across 5 or more hosts each via the per-case review notes under `docs/submission/`: the `Microsoft Advanced API 32` / `Microsoft Advanced API 64` masquerading-service pair (file server, several remote-desktop hosts) and the `tbbd05` named-pipe relay plus `PerfMon` (`perfmonsvc64.exe`) masquerade pair (wkstn-05, daily-loop synthetic baselines). Both campaigns share a single command-and-control endpoint at `172.16.4.10:8080` and a recurring Meterpreter PEB-walk PowerShell shellcode pattern in WMI-spawned processes. The SRL-2015 corpus has its own cross-host signature (the `c:\windows\system32\dllhost\svchost.exe` Run-key value on three of four hosts). All three signatures are detectable today by reading the curated runs list; what is not yet built is automated correlation that flags cross-host artifact recurrence at run time. A cross-case correlator that emits a "this artifact appears on N other hosts" sidecar finding would be a natural next slice.
 
 ---
 
-## 8. References
+## 9. References
 
 - Per-case sampled reviews: [`out/runs/<case>/sampled_review.md`](../../experiments/slice-2-notebook/out/runs/) for the 3 non-GT SRL cases
 - Sampled-review aggregate: [`sampled-review-aggregate.md`](sampled-review-aggregate.md)

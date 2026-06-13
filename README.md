@@ -75,7 +75,7 @@ Per the contest [rules](docs/reference/hackathon/rules.md), all eight components
 | # | Component | Where it lives |
 |---|---|---|
 | 1 | Code repository | This repository (MIT-licensed; see [LICENSE](LICENSE)) |
-| 2 | Demo video (5 min) | https://youtu.be/Wf3YbTd6k9o (5:29; raw file at `out/demo_video/demo_final.mp4` in this repo) |
+| 2 | Demo video (5 min) | https://youtu.be/-wLPFO0ortk (4:48) |
 | 3 | Architecture diagram | [docs/planning/architecture.html](docs/planning/architecture.html) (rendered diagram with boundary annotations); source-of-truth markdown at [docs/planning/architecture.md](docs/planning/architecture.md) |
 | 4 | Written project description | Draft at [docs/submission/devpost-description.md](docs/submission/devpost-description.md), copy-pasted into Devpost at submission time |
 | 5 | Dataset documentation | [docs/reference/hackathon/dataset_manifest.md](docs/reference/hackathon/dataset_manifest.md) |

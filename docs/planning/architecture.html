@@ -2056,6 +2056,10 @@
   <b>Disk-first boundary:</b> the main submission path remains Windows disk analysis. Memory is modeled as an optional second evidence channel when a staged RAM image and pinned Volatility profile exist for the same case. This page still does not claim live endpoint telemetry or network capture.
 </div>
 
+<div class="scope-note">
+  <b>Architectural pattern (contest rules):</b> two of the four supported patterns, layered. <b>Custom MCP Server (#2)</b>: typed forensic tools with server-side path allow-listing, capability-token verification, and injection scanning. <b>Multi-Agent / Workflow (#3)</b>: the LangGraph state machine of named stages (extract, plan, execute, interpret, critic). The LangGraph topology is the "comparable agentic architecture" the rules explicitly permit.
+</div>
+
 <div class="view-grid" aria-label="Architecture views">
   <a class="view-card" href="#sec-pipeline">
     <span class="num">01</span>
@@ -2498,6 +2502,10 @@
 
   <div class="novelty-intro">
     Find Evil triages Windows disk images first, with an optional memory channel when a staged RAM image and pinned Volatility profile exist. Recoverable evidence can include both AI-use artifacts and adversarial text that may try to manipulate the defender AI. The architecture treats AI as a two-sided incident-response problem: attackers may use AI in persistence or at runtime, and defender agents must be protected from attacker-authored evidence.
+  </div>
+
+  <div class="novelty-intro">
+    <b>Architectural vs prompt-based guardrails:</b> the trust controls below are <b>architectural</b>, enforced in server-side code or container topology, so they hold even if the LLM is fully compromised: dual-channel evidence handling and the canary tripwire (Defender AI integrity), the capability-token boundary (Execution boundary), and the deterministic Python rules (Deterministic checks). The softer inner layer is <b>prompt-based</b>: the planner and interpreter system-prompt discipline (rule-out instructions, the confidence rubric, classification guidance), which the model can ignore and which the deterministic checks backstop by rejecting any finding that violates it. The load-bearing boundaries never depend on prompt compliance.
   </div>
 
   <div class="audit">
